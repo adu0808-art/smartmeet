@@ -101,6 +101,43 @@
       overflow: hidden;
     }
     .node.connect-target { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+
+    /* === 연결 앵커 포인트 (T/R/B/L) === */
+    /* 호버 시에만 표시 — 드래그하여 다른 노드의 앵커에 연결 */
+    .node-anchor {
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      background: var(--accent);
+      border: 2px solid #fff;
+      border-radius: 50%;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+      cursor: crosshair;
+      z-index: 4;
+      opacity: 0;
+      transition: opacity 0.12s, transform 0.12s;
+    }
+    .node:hover .node-anchor,
+    .node.has-anchor-active .node-anchor,
+    .node.connect-target .node-anchor { opacity: 1; }
+    .node-anchor:hover { transform: scale(1.4); background: var(--accent-hover); }
+    .node-anchor.is-active { opacity: 1; transform: scale(1.4); background: #ef4444; }
+    .anchor-top    { top: -8px;    left: 50%; transform: translateX(-50%); }
+    .anchor-right  { right: -8px;  top: 50%;  transform: translateY(-50%); }
+    .anchor-bottom { bottom: -8px; left: 50%; transform: translateX(-50%); }
+    .anchor-left   { left: -8px;   top: 50%;  transform: translateY(-50%); }
+    .anchor-top:hover    { transform: translateX(-50%) scale(1.4); }
+    .anchor-right:hover  { transform: translateY(-50%) scale(1.4); }
+    .anchor-bottom:hover { transform: translateX(-50%) scale(1.4); }
+    .anchor-left:hover   { transform: translateY(-50%) scale(1.4); }
+
+    /* 임시 연결선 (드래그 중) */
+    .wire-preview {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 6;
+    }
     .node-title {
       font-weight: 700;
       font-size: 14px;
@@ -223,7 +260,8 @@
           <span>📍 빈 영역 더블클릭: 노드 추가</span>
           <span>🖱 노드 드래그: 위치 이동</span>
           <span>⇧ Shift+클릭: 다중 선택 (한꺼번에 이동)</span>
-          <span>🔗 우상단 버튼: 연결 시작</span>
+          <span>🔵 노드 가장자리 점(앵커) 드래그 → 다른 노드 앵커로 드롭: 연결 위치 직접 지정</span>
+          <span>🔗 우상단 버튼: 자동 연결 (위치 자동)</span>
           <span>↘ 우하단: 크기 조절</span>
           <span>📐 연결선 클릭: 삭제</span>
           <span>⌨ ESC: 선택 해제</span>
@@ -500,12 +538,16 @@
           </div>
           ${isAdmin ? `
             <div class="node-actions">
-              <button class="node-act-btn" title="연결 시작" data-act="connect">🔗</button>
+              <button class="node-act-btn" title="자동 연결 — 클릭 후 다른 노드 클릭" data-act="connect">🔗</button>
               <button class="node-act-btn" title="복사" data-act="copy">📋</button>
               <button class="node-act-btn" title="편집" data-act="edit">✏️</button>
               <button class="node-act-btn danger" title="삭제" data-act="del">🗑</button>
             </div>
             <div class="node-resize-handle" title="크기 조절"></div>
+            <div class="node-anchor anchor-top"    data-side="top"    title="위쪽 연결점 — 드래그하여 다른 노드의 연결점으로 연결"></div>
+            <div class="node-anchor anchor-right"  data-side="right"  title="오른쪽 연결점"></div>
+            <div class="node-anchor anchor-bottom" data-side="bottom" title="아래쪽 연결점"></div>
+            <div class="node-anchor anchor-left"   data-side="left"   title="왼쪽 연결점"></div>
           ` : ''}
         `;
         if (isAdmin) {
@@ -514,10 +556,20 @@
           el.querySelector('[data-act="edit"]').onclick = (e) => { e.stopPropagation(); openNodeModal(null, n); };
           el.querySelector('[data-act="del"]').onclick = (e) => { e.stopPropagation(); deleteNode(n.id); };
           el.querySelector('.node-resize-handle').addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); startResize(e, n, el); });
+
+          // 앵커 포인트 드래그 — 사용자가 연결 위치를 직접 지정
+          el.querySelectorAll('.node-anchor').forEach(anchor => {
+            anchor.addEventListener('mousedown', (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              startAnchorDrag(e, n, anchor.dataset.side);
+            });
+          });
         }
 
         el.addEventListener('click', (e) => {
           if (e.target.closest('[data-act]') || e.target.classList.contains('node-resize-handle')) return;
+          if (e.target.classList.contains('node-anchor')) return;  // 앵커 클릭은 드래그용
           // Shift+클릭: 다중 선택 토글
           if (e.shiftKey && isAdmin) {
             e.stopPropagation();
@@ -526,7 +578,8 @@
           }
           if (connectFrom !== null && isAdmin) {
             if (connectFrom !== n.id) {
-              const exists = edges.some(([a,b]) => a===connectFrom && b===n.id);
+              // 자동 연결 (양쪽 모두 'auto')
+              const exists = edges.some(e => e[0]===connectFrom && e[1]===n.id);
               if (!exists) edges.push([connectFrom, n.id]);
               connectFrom = null;
               paint();
@@ -537,6 +590,7 @@
         el.addEventListener('mousedown', (e) => {
           if (!isAdmin) return;
           if (e.target.closest('[data-act]') || e.target.classList.contains('node-resize-handle')) return;
+          if (e.target.classList.contains('node-anchor')) return;  // 앵커 → 드래그 연결
           if (connectFrom !== null) return;
           if (e.shiftKey) return;  // Shift 는 선택 토글용 → 드래그 시작 방지
           startDrag(e, n, el);
@@ -557,7 +611,48 @@
       return { x: n.x, y: n.y, w, h };
     }
 
-    function elbowPath(a, b) {
+    // 노드 사각형(a)에서 지정된 면(side)의 중앙 좌표를 반환
+    //   side: 'top' | 'right' | 'bottom' | 'left' | 'auto'
+    function anchorPoint(rect, side) {
+      switch (side) {
+        case 'top':    return { x: rect.x + rect.w / 2, y: rect.y };
+        case 'right':  return { x: rect.x + rect.w,     y: rect.y + rect.h / 2 };
+        case 'bottom': return { x: rect.x + rect.w / 2, y: rect.y + rect.h };
+        case 'left':   return { x: rect.x,              y: rect.y + rect.h / 2 };
+        default: return null;  // auto
+      }
+    }
+
+    function elbowPath(a, b, fromSide, toSide) {
+      // 사용자가 명시한 앵커가 있으면 그 점을 시작·끝점으로 사용
+      const ap = anchorPoint(a, fromSide);
+      const bp = anchorPoint(b, toSide);
+
+      // 양쪽 모두 명시된 경우 — 고정된 시작·끝 좌표로 elbow 그리기
+      if (ap && bp) {
+        const sx = ap.x, sy = ap.y, tx = bp.x, ty = bp.y;
+        // 시작 면이 수평(left/right)이면 가로→세로→가로, 수직이면 세로→가로→세로
+        const isHFrom = fromSide === 'left' || fromSide === 'right';
+        const isHTo   = toSide   === 'left' || toSide   === 'right';
+        if (isHFrom && isHTo) {
+          const mx = (sx + tx) / 2;
+          return `M ${sx} ${sy} L ${mx} ${sy} L ${mx} ${ty} L ${tx} ${ty}`;
+        }
+        if (!isHFrom && !isHTo) {
+          const my = (sy + ty) / 2;
+          return `M ${sx} ${sy} L ${sx} ${my} L ${tx} ${my} L ${tx} ${ty}`;
+        }
+        // 한쪽은 수평, 다른쪽은 수직 → L자 두 번 꺾기
+        if (isHFrom) {
+          return `M ${sx} ${sy} L ${tx} ${sy} L ${tx} ${ty}`;
+        } else {
+          return `M ${sx} ${sy} L ${sx} ${ty} L ${tx} ${ty}`;
+        }
+      }
+
+      // 한쪽만 명시 — 명시된 쪽은 고정, 다른 쪽은 자동 (가까운 면 선택)
+      // (간단화 — 자동 모드로 fallback)
+      // 양쪽 모두 자동 (기존 로직)
       const acx = a.x + a.w / 2, acy = a.y + a.h / 2;
       const bcx = b.x + b.w / 2, bcy = b.y + b.h / 2;
       const dx = bcx - acx, dy = bcy - acy;
@@ -576,13 +671,98 @@
       return mid;
     }
 
+    // ===== 앵커 드래그 — 사용자가 연결 위치 직접 지정 =====
+    function startAnchorDrag(e, fromNode, fromSide) {
+      const layer = document.getElementById('zoomLayer');
+      // 시작 좌표 (소스 앵커 위치)
+      const fromEl = document.querySelector(`.node[data-node-id="${fromNode.id}"]`);
+      const fromW = fromEl?.offsetWidth || fromNode.width || 160;
+      const fromH = fromEl?.offsetHeight || fromNode.height || 80;
+      const fromAnchor = anchorPoint({ x: fromNode.x, y: fromNode.y, w: fromW, h: fromH }, fromSide);
+
+      // 임시 SVG 미리보기 라인
+      let preview = layer.querySelector('.wire-preview');
+      if (!preview) {
+        preview = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        preview.classList.add('wire-preview');
+        preview.setAttribute('width', '100%');
+        preview.setAttribute('height', '100%');
+        layer.appendChild(preview);
+      }
+      preview.innerHTML = `
+        <path id="wireDragPath" d="" stroke="#ef4444" stroke-width="2" stroke-dasharray="6 4" fill="none"/>
+        <circle id="wireDragStart" cx="${fromAnchor.x}" cy="${fromAnchor.y}" r="5" fill="#ef4444"/>
+      `;
+      const pathEl = preview.querySelector('#wireDragPath');
+
+      // 시작 앵커 활성 표시
+      fromEl?.querySelector(`.anchor-${fromSide}`)?.classList.add('is-active');
+      fromEl?.classList.add('has-anchor-active');
+
+      // canvas 좌표 변환 (zoom + scroll 보정)
+      const wrap = document.getElementById('canvas');
+      const wrapRect = wrap.getBoundingClientRect();
+      const toCanvasCoord = (clientX, clientY) => ({
+        x: (clientX - wrapRect.left + wrap.scrollLeft) / zoomScale,
+        y: (clientY - wrapRect.top  + wrap.scrollTop)  / zoomScale
+      });
+
+      // 호버 중인 타겟 앵커 추적
+      let hoverTarget = null;  // { nodeId, side, el }
+
+      const move = (ev) => {
+        const cur = toCanvasCoord(ev.clientX, ev.clientY);
+        // 단순 직선 미리보기 (실제 elbow 는 드롭 시 계산)
+        pathEl.setAttribute('d', `M ${fromAnchor.x} ${fromAnchor.y} L ${cur.x} ${cur.y}`);
+
+        // 다른 앵커 위에 있는지 감지
+        const elUnder = document.elementFromPoint(ev.clientX, ev.clientY);
+        // 이전 hover 해제
+        if (hoverTarget) hoverTarget.el.classList.remove('is-active');
+        hoverTarget = null;
+        if (elUnder && elUnder.classList && elUnder.classList.contains('node-anchor')) {
+          const nodeEl = elUnder.closest('.node');
+          if (nodeEl) {
+            const targetId = Number(nodeEl.dataset.nodeId);
+            if (targetId !== fromNode.id) {
+              hoverTarget = { nodeId: targetId, side: elUnder.dataset.side, el: elUnder };
+              elUnder.classList.add('is-active');
+            }
+          }
+        }
+      };
+      const up = () => {
+        // 정리
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+        preview?.remove();
+        document.querySelectorAll('.node-anchor.is-active').forEach(x => x.classList.remove('is-active'));
+        document.querySelectorAll('.node.has-anchor-active').forEach(x => x.classList.remove('has-anchor-active'));
+
+        if (hoverTarget) {
+          // 같은 (a→b, fromSide, toSide) 가 이미 있으면 중복 방지
+          const dup = edges.some(e =>
+            e[0] === fromNode.id && e[1] === hoverTarget.nodeId &&
+            (e[2] || 'auto') === fromSide && (e[3] || 'auto') === hoverTarget.side
+          );
+          if (!dup) {
+            edges.push([fromNode.id, hoverTarget.nodeId, fromSide, hoverTarget.side]);
+          }
+          paint();
+        }
+      };
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+    }
+
     function paintEdges() {
       const svg = document.getElementById('edges');
       svg.innerHTML = '';
-      edges.forEach(([a, b], idx) => {
+      edges.forEach((edge, idx) => {
+        const [a, b, fromSide, toSide] = edge;
         const ra = nodeRect(a), rb = nodeRect(b);
         if (!ra || !rb) return;
-        const d = elbowPath(ra, rb);
+        const d = elbowPath(ra, rb, fromSide, toSide);
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('d', d);
         path.setAttribute('stroke', '#94a3b8');

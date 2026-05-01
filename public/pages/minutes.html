@@ -436,11 +436,39 @@
 
     function escapeXml(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;'); }
 
-    function elbowPathFor(na, nb, minX, minY, padding) {
+    function _anchorPt(rect, side) {
+      switch (side) {
+        case 'top':    return { x: rect.x + rect.w/2, y: rect.y };
+        case 'right':  return { x: rect.x + rect.w,   y: rect.y + rect.h/2 };
+        case 'bottom': return { x: rect.x + rect.w/2, y: rect.y + rect.h };
+        case 'left':   return { x: rect.x,            y: rect.y + rect.h/2 };
+        default: return null;
+      }
+    }
+    function elbowPathFor(na, nb, minX, minY, padding, fromSide, toSide) {
       const aw = na.width || 160, ah = na.height || 80;
       const bw = nb.width || 160, bh = nb.height || 80;
       const ax = na.x - minX + padding, ay = na.y - minY + padding;
       const bx = nb.x - minX + padding, by = nb.y - minY + padding;
+      const a = { x: ax, y: ay, w: aw, h: ah };
+      const b = { x: bx, y: by, w: bw, h: bh };
+      const ap = _anchorPt(a, fromSide);
+      const bp = _anchorPt(b, toSide);
+      if (ap && bp) {
+        const sx = ap.x, sy = ap.y, tx = bp.x, ty = bp.y;
+        const isHFrom = fromSide === 'left' || fromSide === 'right';
+        const isHTo   = toSide   === 'left' || toSide   === 'right';
+        if (isHFrom && isHTo) {
+          const mx = (sx + tx) / 2;
+          return `M ${sx} ${sy} L ${mx} ${sy} L ${mx} ${ty} L ${tx} ${ty}`;
+        }
+        if (!isHFrom && !isHTo) {
+          const my = (sy + ty) / 2;
+          return `M ${sx} ${sy} L ${sx} ${my} L ${tx} ${my} L ${tx} ${ty}`;
+        }
+        if (isHFrom) return `M ${sx} ${sy} L ${tx} ${sy} L ${tx} ${ty}`;
+        return `M ${sx} ${sy} L ${sx} ${ty} L ${tx} ${ty}`;
+      }
       const acx = ax + aw / 2, acy = ay + ah / 2;
       const bcx = bx + bw / 2, bcy = by + bh / 2;
       const dx = bcx - acx, dy = bcy - acy;
@@ -476,12 +504,13 @@
       const svg = document.createElementNS(svgNS, 'svg');
       svg.setAttribute('width', totalW); svg.setAttribute('height', totalH);
       svg.style.cssText = 'position:absolute;inset:0;pointer-events:none;';
-      orgchart.edges.forEach(([a, b]) => {
+      orgchart.edges.forEach(edge => {
+        const [a, b, fromSide, toSide] = edge;
         const na = orgchart.nodes.find(n => n.id === a);
         const nb = orgchart.nodes.find(n => n.id === b);
         if (!na || !nb) return;
         const path = document.createElementNS(svgNS, 'path');
-        path.setAttribute('d', elbowPathFor(na, nb, minX, minY, padding));
+        path.setAttribute('d', elbowPathFor(na, nb, minX, minY, padding, fromSide, toSide));
         path.setAttribute('stroke', '#94a3b8');
         path.setAttribute('stroke-width', '2');
         path.setAttribute('fill', 'none');

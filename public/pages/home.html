@@ -2407,7 +2407,37 @@
       } catch (e) { console.warn('orgchart load failed', e); }
     }
 
-    function elbowPathBetween(a, b) {
+    // 명시된 면(top/right/bottom/left) 의 중앙 좌표를 반환 — 없으면 null (자동 모드)
+    function _anchorPoint(rect, side) {
+      switch (side) {
+        case 'top':    return { x: rect.x + rect.width  / 2, y: rect.y };
+        case 'right':  return { x: rect.x + rect.width,      y: rect.y + rect.height / 2 };
+        case 'bottom': return { x: rect.x + rect.width  / 2, y: rect.y + rect.height };
+        case 'left':   return { x: rect.x,                   y: rect.y + rect.height / 2 };
+        default: return null;
+      }
+    }
+
+    function elbowPathBetween(a, b, fromSide, toSide) {
+      // 양쪽 모두 명시된 경우 — 그 점에서 시작·끝나는 elbow
+      const ap = _anchorPoint(a, fromSide);
+      const bp = _anchorPoint(b, toSide);
+      if (ap && bp) {
+        const sx = ap.x, sy = ap.y, tx = bp.x, ty = bp.y;
+        const isHFrom = fromSide === 'left' || fromSide === 'right';
+        const isHTo   = toSide   === 'left' || toSide   === 'right';
+        if (isHFrom && isHTo) {
+          const mx = (sx + tx) / 2;
+          return `M ${sx} ${sy} L ${mx} ${sy} L ${mx} ${ty} L ${tx} ${ty}`;
+        }
+        if (!isHFrom && !isHTo) {
+          const my = (sy + ty) / 2;
+          return `M ${sx} ${sy} L ${sx} ${my} L ${tx} ${my} L ${tx} ${ty}`;
+        }
+        if (isHFrom) return `M ${sx} ${sy} L ${tx} ${sy} L ${tx} ${ty}`;
+        return `M ${sx} ${sy} L ${sx} ${ty} L ${tx} ${ty}`;
+      }
+      // 자동 모드 (기존)
       const acx = a.x + a.width / 2, acy = a.y + a.height / 2;
       const bcx = b.x + b.width / 2, bcy = b.y + b.height / 2;
       const dx = bcx - acx, dy = bcy - acy;
@@ -2479,10 +2509,11 @@
       const svg = host.querySelector('.orgchart-svg');
       svg.setAttribute('width', canvasW); svg.setAttribute('height', canvasH);
       let svgPaths = '';
-      edges.forEach(([a, b]) => {
+      edges.forEach(edge => {
+        const [a, b, fromSide, toSide] = edge;
         const ma = measured[a]; const mb = measured[b];
         if (!ma || !mb) return;
-        svgPaths += `<path d="${elbowPathBetween(ma, mb)}" stroke="#94a3b8" stroke-width="2" fill="none" stroke-linejoin="round"/>`;
+        svgPaths += `<path d="${elbowPathBetween(ma, mb, fromSide, toSide)}" stroke="#94a3b8" stroke-width="2" fill="none" stroke-linejoin="round"/>`;
       });
       svg.innerHTML = svgPaths;
     }
@@ -3403,7 +3434,33 @@
         <script>
           const data = ${JSON.stringify(data)};
           const escapeHtml = s => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-          function elbowPath(a, b) {
+          function _anchorPoint(rect, side) {
+            switch (side) {
+              case 'top':    return { x: rect.x + rect.width/2,  y: rect.y };
+              case 'right':  return { x: rect.x + rect.width,    y: rect.y + rect.height/2 };
+              case 'bottom': return { x: rect.x + rect.width/2,  y: rect.y + rect.height };
+              case 'left':   return { x: rect.x,                 y: rect.y + rect.height/2 };
+              default: return null;
+            }
+          }
+          function elbowPath(a, b, fromSide, toSide) {
+            const ap = _anchorPoint(a, fromSide);
+            const bp = _anchorPoint(b, toSide);
+            if (ap && bp) {
+              const sx = ap.x, sy = ap.y, tx = bp.x, ty = bp.y;
+              const isHFrom = fromSide === 'left' || fromSide === 'right';
+              const isHTo   = toSide   === 'left' || toSide   === 'right';
+              if (isHFrom && isHTo) {
+                const mx = (sx + tx) / 2;
+                return 'M ' + sx + ' ' + sy + ' L ' + mx + ' ' + sy + ' L ' + mx + ' ' + ty + ' L ' + tx + ' ' + ty;
+              }
+              if (!isHFrom && !isHTo) {
+                const my = (sy + ty) / 2;
+                return 'M ' + sx + ' ' + sy + ' L ' + sx + ' ' + my + ' L ' + tx + ' ' + my + ' L ' + tx + ' ' + ty;
+              }
+              if (isHFrom) return 'M ' + sx + ' ' + sy + ' L ' + tx + ' ' + sy + ' L ' + tx + ' ' + ty;
+              return 'M ' + sx + ' ' + sy + ' L ' + sx + ' ' + ty + ' L ' + tx + ' ' + ty;
+            }
             const acx = a.x + a.width/2, acy = a.y + a.height/2;
             const bcx = b.x + b.width/2, bcy = b.y + b.height/2;
             const dx = bcx - acx, dy = bcy - acy;
@@ -3459,10 +3516,11 @@
             const svg = canvas.querySelector('.ocsvg');
             svg.setAttribute('width', cw); svg.setAttribute('height', ch);
             let svgPaths = '';
-            edges.forEach(([a, b]) => {
+            edges.forEach(function (edge) {
+              const a = edge[0], b = edge[1], fromSide = edge[2], toSide = edge[3];
               const ma = measured[a], mb = measured[b];
               if (!ma || !mb) return;
-              svgPaths += '<path d="' + elbowPath(ma, mb) + '" stroke="#94a3b8" stroke-width="2" fill="none" stroke-linejoin="round"/>';
+              svgPaths += '<path d="' + elbowPath(ma, mb, fromSide, toSide) + '" stroke="#94a3b8" stroke-width="2" fill="none" stroke-linejoin="round"/>';
             });
             svg.innerHTML = svgPaths;
             // A4 usable area 에 맞게 축소
