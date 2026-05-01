@@ -238,9 +238,32 @@
       margin-bottom: 24px;
       border-bottom: 2px solid var(--border);
       padding-bottom: 14px;
+      flex-wrap: wrap;          /* 좁은 화면에서 버튼이 다음 줄로 줄바꿈 */
+      gap: 12px;
     }
-    .section-title { font-size: 30px; font-weight: 800; letter-spacing: -0.5px; }
-    .section-sub { color: var(--text-muted); font-size: 13px; margin-top: 6px; }
+    .section-head > div:first-child {
+      flex: 1 1 auto;
+      min-width: 0;             /* 자식이 부모를 비좁게 만들지 않도록 — 한글 세로 깨짐 방지 핵심 */
+    }
+    .section-head .topbar-actions { flex-wrap: wrap; gap: 6px; }
+    .section-title {
+      font-size: 30px; font-weight: 800; letter-spacing: -0.5px;
+      word-break: keep-all;      /* 한글 단어 단위 줄바꿈 (글자 단위 깨짐 방지) */
+      overflow-wrap: break-word;
+      line-height: 1.2;
+    }
+    .section-sub {
+      color: var(--text-muted); font-size: 13px; margin-top: 6px;
+      word-break: keep-all;      /* 부제목도 동일 처리 */
+      overflow-wrap: break-word;
+    }
+    /* 모바일: section-head 를 위·아래로 분리 → 제목이 가로 전체를 차지 */
+    @media (max-width: 600px) {
+      .section-head { flex-direction: column; align-items: stretch; gap: 14px; }
+      .section-head > div:first-child { width: 100%; }
+      .section-head .topbar-actions { width: 100%; justify-content: flex-start; }
+      .section-title { font-size: 24px; }
+    }
     .section-link {
       color: var(--text-muted);
       cursor: pointer;
