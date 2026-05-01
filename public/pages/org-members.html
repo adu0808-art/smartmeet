@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>구성원·초대 · SmartMeet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main">
+      <div class="topbar">
+        <div class="topbar-title">구성원 · 초대 관리</div>
+        <div class="topbar-actions" id="userArea"></div>
+      </div>
+      <div class="content">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">🔑 구성원 · 초대 관리</h1>
+            <div class="page-sub">기관에 가입한 사용자 권한을 관리하고, 초대 링크를 발급합니다.</div>
+          </div>
+        </div>
+
+        <div class="tabs">
+          <div class="tab active" data-tab="users">👥 가입 구성원</div>
+          <div class="tab" data-tab="invites">🔗 초대 링크</div>
+        </div>
+
+        <!-- USERS -->
+        <div class="tab-panel" data-panel="users">
+          <div class="card">
+            <div class="card-title">가입 구성원</div>
+            <div id="userList"></div>
+          </div>
+        </div>
+
+        <!-- INVITES -->
+        <div class="tab-panel hidden" data-panel="invites">
+          <div class="page-header">
+            <div class="card-title" style="margin:0;">초대 링크</div>
+            <button class="btn btn-primary" id="newInviteBtn">+ 새 초대 링크</button>
+          </div>
+          <div class="card mb-16" style="background:var(--info-soft);color:var(--info);">
+            ℹ️ 발급된 링크를 사용자에게 전달하면 회원가입 시 자동으로 이 기관에 가입됩니다.
+          </div>
+          <div id="inviteList"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/sidebar.js"></script>
+  <script>
+    const orgId = qs('org');
+    let me, organization, role;
+
+    (async function init() {
+      me = await requireAuth();
+      document.getElementById('userArea').innerHTML = renderUserChip(me);
+      const o = await api.get(`/api/organizations/${orgId}`);
+      organization = o.organization; role = o.my_role;
+      if (!(role === 'system_admin' || role === 'admin')) { toast('관리자만 접근할 수 있습니다.', 'error'); setTimeout(() => location.href = `/home?org=${orgId}`, 800); return; }
+      renderOrgSidebar(organization, 'org-members', { role });
+      document.querySelectorAll('[data-tab]').forEach(t => t.onclick = () => switchTab(t.dataset.tab));
+      document.getElementById('newInviteBtn').onclick = openNewInvite;
+      // Initial tab from hash (#invites → invites tab; default users)
+      const initialTab = (location.hash || '').slice(1);
+      if (initialTab === 'invites') switchTab('invites');
+      loadUsers();
+      loadInvites();
+    })();
+
+    function switchTab(t) {
+      document.querySelectorAll('[data-tab]').forEach(x => x.classList.toggle('active', x.dataset.tab === t));
+      document.querySelectorAll('[data-panel]').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== t));
+    }
+
+    async function loadUsers() {
+      const { users } = await api.get(`/api/organizations/${orgId}/users`);
+      document.getElementById('userList').innerHTML = `
+        <table class="table">
+          <thead><tr><th>이름</th><th>이메일</th><th>권한</th><th style="width:300px;text-align:right;">작업</th></tr></thead>
+          <tbody>
+            ${users.map(u => `
+              <tr data-uid="${u.id}" data-uname="${(u.name||'').replace(/"/g,'&quot;')}">
+                <td><b>${u.name}</b> ${u.is_owner ? '<span class="tag tag-status-progress" style="margin-left:6px;">소유자</span>' : ''}</td>
+                <td>${u.email}</td>
+                <td>
+                  <select class="select" style="width:140px;" data-roleof="${u.id}" ${u.is_owner ? 'disabled' : ''}>
+                    <option value="admin" ${u.member_role === 'admin' ? 'selected' : ''}>관리자</option>
+                    <option value="member" ${u.member_role !== 'admin' ? 'selected' : ''}>일반 사용자</option>
+                  </select>
+                </td>
+                <td style="text-align:right;">
+                  <button class="btn btn-sm" data-save="${u.id}">저장</button>
+                  <button class="btn btn-sm" data-pwreset="${u.id}" title="비밀번호 초기화">🔑 비밀번호</button>
+                  ${!u.is_owner ? `<button class="btn btn-sm btn-danger" data-remove="${u.id}">제거</button>` : ''}
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+      document.querySelectorAll('[data-save]').forEach(b => b.onclick = () => saveRole(b.dataset.save));
+      document.querySelectorAll('[data-remove]').forEach(b => b.onclick = () => removeUser(b.dataset.remove));
+      document.querySelectorAll('[data-pwreset]').forEach(b => b.onclick = () => openPasswordReset(b.dataset.pwreset));
+    }
+
+    function openPasswordReset(uid) {
+      const row = document.querySelector(`tr[data-uid="${uid}"]`);
+      const uname = row ? row.dataset.uname : '';
+      modal({
+        title: '비밀번호 초기화',
+        body: `
+          <div class="text-sm text-muted mb-12">
+            <b>${uname}</b> 회원의 비밀번호를 초기화합니다.<br>
+            새 비밀번호를 회원에게 안전하게 전달해주세요.
+          </div>
+          <div class="field">
+            <label class="label">새 비밀번호 *</label>
+            <input class="input" id="pw_new" type="text" placeholder="6자 이상" autocomplete="off">
+          </div>
+          <div class="text-sm text-muted">
+            💡 임의 문자열 생성:
+            <a href="javascript:void(0)" onclick="document.getElementById('pw_new').value=Math.random().toString(36).slice(-10);">자동 생성</a>
+          </div>`,
+        confirmText: '초기화',
+        onConfirm: async () => {
+          const password = document.getElementById('pw_new').value.trim();
+          if (!password || password.length < 6) {
+            toast('비밀번호는 6자 이상 입력하세요.', 'error');
+            return false;
+          }
+          try {
+            await api.post(`/api/organizations/${orgId}/users/${uid}/reset-password`, { password });
+            toast('비밀번호가 초기화되었습니다. 회원에게 새 비밀번호를 전달하세요.', 'success');
+          } catch (e) { toast(e.message, 'error'); return false; }
+        }
+      });
+    }
+
+    async function saveRole(uid) {
+      const role = document.querySelector(`[data-roleof="${uid}"]`).value;
+      try { await api.put(`/api/organizations/${orgId}/users/${uid}`, { member_role: role }); toast('변경되었습니다.', 'success'); }
+      catch (e) { toast(e.message, 'error'); }
+    }
+    function removeUser(uid) {
+      confirmDialog('이 구성원을 기관에서 제거하시겠습니까?', async () => {
+        try { await api.del(`/api/organizations/${orgId}/users/${uid}`); toast('제거되었습니다.', 'success'); loadUsers(); }
+        catch (e) { toast(e.message, 'error'); return false; }
+      });
+    }
+
+    async function loadInvites() {
+      const { invitations } = await api.get(`/api/invitations?organization_id=${orgId}`);
+      const root = document.getElementById('inviteList');
+      if (!invitations.length) { root.innerHTML = `<div class="empty"><div class="empty-title">발급된 초대 링크가 없습니다</div><div class="empty-sub">‘+ 새 초대 링크’로 발급하세요.</div></div>`; return; }
+      const base = location.origin;
+      root.innerHTML = invitations.map(i => {
+        const url = `${base}/register?invite=${i.token}`;
+        const used = `${i.used_count}/${i.max_uses === 0 ? '∞' : i.max_uses}`;
+        return `
+          <div class="card mb-12">
+            <div class="flex items-center justify-between mb-12" style="flex-wrap:wrap;gap:8px;">
+              <div class="flex gap-12 items-center" style="flex-wrap:wrap;">
+                <span class="tag ${i.default_role === 'admin' ? 'tag-status-progress' : 'tag-status-prep'}">${i.default_role === 'admin' ? '🔑 관리자' : '👤 일반 사용자'}</span>
+                <span class="text-sm">사용 ${used}</span>
+                <span class="text-sm text-muted">만료: ${i.expires_at ? fmtDateOnly(i.expires_at) : '없음'}</span>
+                <span class="text-sm text-muted">발급: ${i.creator_name || '-'}</span>
+              </div>
+              <button class="btn btn-sm btn-danger" onclick="delInvite(${i.id})">🗑 삭제</button>
+            </div>
+            <label class="label">가입 URL</label>
+            <div class="flex gap-8 items-center" style="flex-wrap:nowrap;">
+              <input class="input" readonly value="${url}" onclick="this.select()" style="font-family:Menlo,Consolas,monospace;font-size:12px;flex:1;min-width:0;">
+              <button class="btn btn-primary" onclick="copyText('${url}', '가입 URL이 복사되었습니다.')" style="white-space:nowrap;">📋 주소 복사</button>
+              <a class="btn" href="${url}" target="_blank" style="white-space:nowrap;">🔗 미리보기</a>
+            </div>
+            <div class="text-sm text-muted mt-8">토큰: <code>${i.token}</code> · <a href="javascript:void(0)" onclick="copyText('${i.token}', '토큰이 복사되었습니다.')">토큰만 복사</a></div>
+          </div>`;
+      }).join('');
+    }
+
+    function openNewInvite() {
+      modal({
+        title: '새 초대 링크 발급',
+        body: `
+          <div class="field"><label class="label">기본 권한</label>
+            <select class="select" id="iv_role">
+              <option value="member">일반 사용자</option>
+              <option value="admin">관리자</option>
+            </select>
+          </div>
+          <div class="flex gap-12">
+            <div class="field flex-1"><label class="label">사용 한도 (0=무제한)</label><input class="input" id="iv_max" type="number" value="0" min="0"></div>
+            <div class="field flex-1"><label class="label">만료일 (선택)</label><input class="input" id="iv_exp" type="date"></div>
+          </div>
+        `,
+        confirmText: '발급',
+        onConfirm: async () => {
+          try {
+            await api.post('/api/invitations', {
+              organization_id: Number(orgId),
+              default_role: document.getElementById('iv_role').value,
+              max_uses: Number(document.getElementById('iv_max').value) || 0,
+              expires_at: document.getElementById('iv_exp').value || null
+            });
+            toast('초대 링크가 발급되었습니다.', 'success');
+            loadInvites();
+          } catch (e) { toast(e.message, 'error'); return false; }
+        }
+      });
+    }
+
+    function delInvite(id) {
+      confirmDialog('이 초대 링크를 삭제하시겠습니까?', async () => {
+        try { await api.del(`/api/invitations/${id}`); toast('삭제되었습니다.', 'success'); loadInvites(); }
+        catch (e) { toast(e.message, 'error'); return false; }
+      });
+    }
+  </script>
+</body>
+</html>

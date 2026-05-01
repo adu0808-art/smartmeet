@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartMeet · 이사회·총회 자료 관리 시스템</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    body { background: #fafbfc; }
+    .nav-bar {
+      position: sticky; top: 0; z-index: 50;
+      backdrop-filter: blur(10px);
+      background: rgba(255,255,255,0.85);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 36px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .nav-brand { display: flex; align-items: center; gap: 10px; }
+    .nav-mark {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: linear-gradient(135deg, #2d3748, #4a5568);
+      color: white; display: grid; place-items: center;
+      font-weight: 800; font-size: 12px;
+    }
+    .nav-name { font-weight: 800; font-size: 16px; letter-spacing: -0.3px; }
+    .nav-sub { font-size: 11px; color: var(--text-muted); }
+    .nav-actions { display: flex; gap: 8px; align-items: center; }
+
+    .hero {
+      max-width: 1100px; margin: 0 auto; padding: 80px 36px 40px;
+      text-align: center;
+      position: relative;
+    }
+    .hero-eyebrow {
+      display: inline-block;
+      padding: 6px 14px;
+      background: var(--accent-soft);
+      color: var(--accent-hover);
+      border-radius: 999px;
+      font-size: 12px; font-weight: 700;
+      margin-bottom: 18px;
+    }
+    .hero h1 {
+      font-size: 52px;
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -1px;
+      margin: 0 0 18px;
+      background: linear-gradient(135deg, #1a202c 0%, #4a5568 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .hero p.lead {
+      font-size: 17px; color: var(--text-muted);
+      max-width: 56ch; margin: 0 auto 30px;
+      line-height: 1.7;
+    }
+    .hero-cta { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    .hero-cta .btn-lg { padding: 14px 26px; font-size: 15px; }
+
+    .hero-decor {
+      max-width: 1000px; margin: 50px auto 0;
+      padding: 0 36px;
+    }
+    .mockup {
+      background: linear-gradient(135deg, #2d3748, #1a202c);
+      border-radius: 18px;
+      padding: 8px;
+      box-shadow: 0 30px 80px -10px rgba(15, 23, 42, 0.35), 0 12px 24px -4px rgba(15, 23, 42, 0.18);
+      position: relative;
+      overflow: hidden;
+    }
+    .mockup-screen {
+      background: var(--surface);
+      border-radius: 14px;
+      padding: 0;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      min-height: 360px;
+    }
+    .mockup-side {
+      background: var(--surface-2);
+      padding: 14px 12px;
+      border-right: 1px solid var(--border);
+      font-size: 11px;
+    }
+    .mockup-side .row { padding: 7px 8px; border-radius: 6px; margin-bottom: 2px; color: var(--text-muted); }
+    .mockup-side .row.active { background: var(--accent); color: white; font-weight: 700; }
+    .mockup-main { padding: 22px; }
+    .mockup-card {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      font-size: 12px;
+      margin-bottom: 10px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .mockup-tag { padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; }
+
+    section.features {
+      max-width: 1100px; margin: 80px auto 0; padding: 0 36px;
+    }
+    .feat-head { text-align: center; margin-bottom: 50px; }
+    .feat-head h2 { font-size: 32px; margin: 0 0 10px; font-weight: 800; }
+    .feat-head p { color: var(--text-muted); margin: 0; font-size: 15px; }
+    .feat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+    }
+    .feat-card {
+      padding: 24px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      transition: all 0.2s;
+    }
+    .feat-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); border-color: var(--border-strong); }
+    .feat-icon {
+      width: 44px; height: 44px;
+      border-radius: 10px;
+      display: grid; place-items: center;
+      background: var(--accent-soft);
+      font-size: 22px;
+      margin-bottom: 14px;
+    }
+    .feat-card h3 { font-size: 16px; font-weight: 700; margin: 0 0 6px; }
+    .feat-card p { font-size: 13px; color: var(--text-muted); line-height: 1.6; margin: 0; }
+
+    section.flow {
+      max-width: 1100px; margin: 80px auto 0; padding: 0 36px;
+    }
+    .flow-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      counter-reset: step;
+    }
+    .flow-step {
+      padding: 24px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      counter-increment: step;
+      position: relative;
+    }
+    .flow-step::before {
+      content: "0" counter(step);
+      display: block;
+      font-weight: 800;
+      font-size: 12px;
+      color: var(--accent);
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+    }
+    .flow-step h4 { margin: 0 0 6px; font-size: 15px; font-weight: 700; }
+    .flow-step p { margin: 0; font-size: 13px; color: var(--text-muted); line-height: 1.6; }
+
+    .cta-section {
+      max-width: 1000px; margin: 90px auto 60px; padding: 0 36px;
+    }
+    .cta-box {
+      background: linear-gradient(135deg, #1a202c, #2d3748);
+      border-radius: 24px;
+      padding: 50px 36px;
+      text-align: center;
+      color: white;
+      position: relative; overflow: hidden;
+    }
+    .cta-box::after {
+      content: ''; position: absolute; right: -100px; top: -100px;
+      width: 400px; height: 400px;
+      background: radial-gradient(circle, rgba(245,158,11,0.4), transparent 60%);
+      border-radius: 50%;
+    }
+    .cta-box h2 { font-size: 28px; font-weight: 800; margin: 0 0 12px; }
+    .cta-box p { font-size: 15px; opacity: 0.85; margin: 0 0 24px; }
+
+    footer.foot {
+      max-width: 1100px; margin: 0 auto; padding: 30px 36px 40px;
+      text-align: center; color: var(--text-muted); font-size: 12px;
+      border-top: 1px solid var(--border);
+    }
+
+    @media (max-width: 760px) {
+      .hero { padding: 60px 20px 30px; }
+      .hero h1 { font-size: 36px; }
+      .mockup-screen { grid-template-columns: 1fr; }
+      .mockup-side { display: none; }
+      .nav-bar { padding: 12px 18px; }
+      section.features, section.flow, .cta-section, .hero-decor, footer.foot { padding-left: 18px; padding-right: 18px; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="nav-bar">
+    <div class="nav-brand">
+      <div class="nav-mark">SM</div>
+      <div>
+        <div class="nav-name">SmartMeet</div>
+        <div class="nav-sub">이사회·총회 자료 관리 시스템</div>
+      </div>
+    </div>
+    <div class="nav-actions" id="navActions">
+      <a class="btn" href="/login">로그인</a>
+      <a class="btn btn-primary" href="/register">회원가입</a>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <span class="hero-eyebrow">FOR ORGANIZATIONS</span>
+    <h1>이사회·총회 자료를<br>한 곳에서 스마트하게.</h1>
+    <p class="lead">의안 작성, 위임장 수집, 정족수 계산, 프레젠테이션, 회의록 출력까지 — SmartMeet으로 회의 운영을 디지털로 전환하세요.</p>
+    <div class="hero-cta" id="heroCta">
+      <a class="btn btn-primary btn-lg" href="/login">시작하기 →</a>
+      <a class="btn btn-lg" href="#features">기능 둘러보기</a>
+    </div>
+  </header>
+
+  <div class="hero-decor">
+    <div class="mockup">
+      <div class="mockup-screen">
+        <div class="mockup-side">
+          <div style="font-weight:800;padding:6px 8px;font-size:13px;">한국산업기술경영학회</div>
+          <div style="height:8px;"></div>
+          <div class="row active">🏠 기관 홈</div>
+          <div class="row">📣 공지사항</div>
+          <div class="row">💬 게시판</div>
+          <div class="row">📋 회의 리스트</div>
+          <div class="row">🗓️ 주요 일정</div>
+          <div class="row">👥 임원 명단</div>
+          <div class="row">📜 정관</div>
+          <div class="row">🏛️ 조직도</div>
+        </div>
+        <div class="mockup-main">
+          <div style="font-size:18px;font-weight:800;margin-bottom:14px;">📣 최근 공지사항</div>
+          <div class="mockup-card">
+            <div>
+              <div style="font-weight:700;">📌 2026년 정기 총회 안내</div>
+              <div style="color:var(--text-muted);font-size:11px;margin-top:2px;">시스템 관리자 · 2026-04-29</div>
+            </div>
+            <span class="mockup-tag" style="background:var(--accent-soft);color:var(--accent-hover);">상단고정</span>
+          </div>
+          <div class="mockup-card">
+            <div>
+              <div style="font-weight:700;">2026년 사업계획 보고</div>
+              <div style="color:var(--text-muted);font-size:11px;margin-top:2px;">관리자 · 2026-04-25</div>
+            </div>
+            <span class="mockup-tag" style="background:var(--info-soft);color:var(--info);">공지</span>
+          </div>
+          <div class="mockup-card">
+            <div>
+              <div style="font-weight:700;">신년인사 · 임원 위촉</div>
+              <div style="color:var(--text-muted);font-size:11px;margin-top:2px;">관리자 · 2026-01-12</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <section class="features" id="features">
+    <div class="feat-head">
+      <h2>회의 운영의 모든 단계를 커버합니다</h2>
+      <p>준비부터 진행, 기록까지 — 흩어져있던 작업을 하나로.</p>
+    </div>
+    <div class="feat-grid">
+      <div class="feat-card"><div class="feat-icon">📋</div><h3>의안 관리</h3><p>리치 텍스트 에디터로 의안 본문·표·이미지 작성. 드래그앤드롭으로 순서 정렬.</p></div>
+      <div class="feat-card"><div class="feat-icon">✍️</div><h3>전자 위임장</h3><p>링크/QR 발급, 모바일 3단계 제출(의안 확인→본인 인증→전자서명).</p></div>
+      <div class="feat-card"><div class="feat-icon">✅</div><h3>실시간 정족수</h3><p>출석·위임 자동 합산, 정족수 충족 여부 즉시 시각화.</p></div>
+      <div class="feat-card"><div class="feat-icon">📺</div><h3>프레젠테이션</h3><p>표지·목차·의안 자동 슬라이드, 키보드 조작과 현장 의결 팝업.</p></div>
+      <div class="feat-card"><div class="feat-icon">🖨</div><h3>회의록 출력</h3><p>출력 항목 선택 후 Word(.doc) 다운로드. 한 번에 인쇄까지.</p></div>
+      <div class="feat-card"><div class="feat-icon">🔑</div><h3>역할 기반 권한</h3><p>시스템·기관 관리자·일반 회원 3단계 권한과 기관별 초대 링크.</p></div>
+    </div>
+  </section>
+
+  <section class="flow">
+    <div class="feat-head">
+      <h2>이렇게 운영합니다</h2>
+      <p>3단계로 회의 한 사이클이 끝납니다.</p>
+    </div>
+    <div class="flow-grid">
+      <div class="flow-step"><h4>등록</h4><p>기관 등록 → 회의 생성 → 의원 명단 등록</p></div>
+      <div class="flow-step"><h4>준비</h4><p>의안 작성 → 위임장 링크 발송 → 출석·정족수 점검</p></div>
+      <div class="flow-step"><h4>진행 / 기록</h4><p>프레젠테이션 + 현장 의결 → 회의록 자동 구성 → Word 출력</p></div>
+    </div>
+  </section>
+
+  <section class="cta-section">
+    <div class="cta-box">
+      <h2>지금 바로 시작하세요</h2>
+      <p id="ctaSub">계정을 만들고 첫 기관을 등록해보세요.</p>
+      <div class="hero-cta" id="ctaButtons">
+        <a class="btn btn-accent btn-lg" href="/register">계정 만들기</a>
+        <a class="btn btn-lg" href="/login" style="background:rgba(255,255,255,0.1);color:white;border-color:rgba(255,255,255,0.2);">로그인</a>
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot">
+    © SmartMeet · Built for boards, councils, and academic societies
+  </footer>
+
+  <script src="/js/common.js"></script>
+  <script>
+    (async function init() {
+      const u = await getMe();
+      if (!u) return;
+      // Logged-in: personalize header CTA
+      const navAct = document.getElementById('navActions');
+      navAct.innerHTML = `
+        ${renderUserChip(u)}
+        <button class="btn" onclick="logout()">로그아웃</button>
+        <button class="btn btn-primary" id="enterBtn">내 작업 공간으로 →</button>
+      `;
+      const heroCta = document.getElementById('heroCta');
+      heroCta.innerHTML = `
+        <button class="btn btn-primary btn-lg" id="enterBtn2">${u.name}님 작업 공간으로 →</button>
+        <a class="btn btn-lg" href="#features">기능 둘러보기</a>
+      `;
+      document.getElementById('ctaSub').textContent = `${u.name}님, 다시 오셨네요.`;
+      document.getElementById('ctaButtons').innerHTML = `
+        <button class="btn btn-accent btn-lg" id="enterBtn3">내 작업 공간으로 →</button>
+      `;
+      ['enterBtn','enterBtn2','enterBtn3'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.onclick = () => smartRedirect(u);
+      });
+    })();
+  </script>
+</body>
+</html>

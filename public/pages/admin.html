@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>관리자 · SmartMeet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark" style="background:linear-gradient(135deg, #f59e0b, #d97706);">⚙</div>
+        <div>
+          <div class="brand-name">관리자 콘솔</div>
+          <div class="brand-sub">SmartMeet</div>
+        </div>
+      </div>
+      <a href="/dashboard" class="nav-item" style="font-size:12px;color:var(--text-muted);">← 일반 모드</a>
+      <div class="nav-section-title">시스템</div>
+      <a class="nav-item active" data-page="overview" onclick="switchPage('overview')"><span class="icon">📊</span> 개요</a>
+      <a class="nav-item" data-page="users" onclick="switchPage('users')"><span class="icon">👤</span> 사용자 관리</a>
+      <a class="nav-item" data-page="organizations" onclick="switchPage('organizations')"><span class="icon">🏛️</span> 기관 관리</a>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div class="topbar-title" id="topTitle">시스템 개요</div>
+        <div class="topbar-actions" id="userArea"></div>
+      </div>
+      <div class="content">
+        <!-- Overview -->
+        <div id="page-overview" class="admin-page">
+          <h1 class="page-title mb-16">시스템 개요</h1>
+          <div class="grid-cards" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr));margin-bottom:24px;">
+            <div class="card"><div class="text-sm text-muted mb-8">전체 사용자</div><div style="font-size:28px;font-weight:800;" id="s-users">-</div></div>
+            <div class="card"><div class="text-sm text-muted mb-8">등록 기관</div><div style="font-size:28px;font-weight:800;" id="s-orgs">-</div></div>
+            <div class="card"><div class="text-sm text-muted mb-8">전체 회의</div><div style="font-size:28px;font-weight:800;" id="s-meetings">-</div></div>
+            <div class="card"><div class="text-sm text-muted mb-8">전체 의원</div><div style="font-size:28px;font-weight:800;" id="s-members">-</div></div>
+            <div class="card"><div class="text-sm text-muted mb-8">위임장 발급</div><div style="font-size:28px;font-weight:800;" id="s-proxies">-</div></div>
+            <div class="card"><div class="text-sm text-muted mb-8">위임장 제출</div><div style="font-size:28px;font-weight:800;color:var(--success);" id="s-submitted">-</div></div>
+          </div>
+          <div class="card">
+            <div class="card-title">관리자 안내</div>
+            <ul class="text-sm" style="line-height:1.9;color:var(--text-muted);padding-left:18px;">
+              <li>사용자 관리에서 권한 변경 및 비밀번호 재설정이 가능합니다.</li>
+              <li>기관 관리에서 등록된 모든 기관을 확인하고 진입할 수 있습니다.</li>
+              <li>DB는 <code>/DB/smartmeet.db</code>에 저장됩니다.</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Users -->
+        <div id="page-users" class="admin-page hidden">
+          <div class="page-header">
+            <h1 class="page-title">사용자 관리</h1>
+            <span class="text-sm text-muted" id="userCount"></span>
+          </div>
+          <div id="usersList"></div>
+        </div>
+
+        <!-- Organizations -->
+        <div id="page-organizations" class="admin-page hidden">
+          <div class="page-header">
+            <h1 class="page-title">기관 관리</h1>
+            <span class="text-sm text-muted" id="orgCount"></span>
+          </div>
+          <div id="orgsList"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script>
+    let me;
+    (async function init() {
+      me = await requireAuth();
+      if (me.role !== 'admin') { location.href = '/dashboard'; return; }
+      document.getElementById('userArea').innerHTML = renderUserChip(me);
+      switchPage('overview');
+    })();
+
+    function switchPage(p) {
+      document.querySelectorAll('.admin-page').forEach(el => el.classList.add('hidden'));
+      document.getElementById('page-' + p).classList.remove('hidden');
+      document.querySelectorAll('.sidebar .nav-item[data-page]').forEach(n => n.classList.toggle('active', n.dataset.page === p));
+      document.getElementById('topTitle').textContent = { overview:'시스템 개요', users:'사용자 관리', organizations:'기관 관리' }[p];
+      if (p === 'overview') loadStats();
+      else if (p === 'users') loadUsers();
+      else if (p === 'organizations') loadOrgs();
+    }
+
+    async function loadStats() {
+      const s = await api.get('/api/admin/stats');
+      document.getElementById('s-users').textContent = s.userCount;
+      document.getElementById('s-orgs').textContent = s.orgCount;
+      document.getElementById('s-meetings').textContent = s.meetingCount;
+      document.getElementById('s-members').textContent = s.memberCount;
+      document.getElementById('s-proxies').textContent = s.proxyCount;
+      document.getElementById('s-submitted').textContent = s.submittedProxyCount;
+    }
+
+    async function loadUsers() {
+      const { users } = await api.get('/api/admin/users');
+      document.getElementById('userCount').textContent = `(총 ${users.length}명)`;
+      const renderOrgs = (orgs) => {
+        if (!orgs || !orgs.length) return '<span class="text-sm text-muted">소속 없음</span>';
+        return orgs.map(o => {
+          const role = o.is_owner ? '🏛 소유자'
+                     : (o.member_role === 'admin' ? '🔑 관리자' : '👤 회원');
+          return `<div class="text-sm" style="display:flex;align-items:center;gap:6px;margin:2px 0;">
+            <span class="fw-700">${o.org_name}</span>
+            <span class="text-muted" style="font-size:11px;">${role}</span>
+          </div>`;
+        }).join('');
+      };
+      document.getElementById('usersList').innerHTML = `
+        <table class="table">
+          <thead><tr><th>이름</th><th>이메일</th><th>시스템 권한</th><th>소속 기관</th><th>가입일</th><th style="text-align:right;">작업</th></tr></thead>
+          <tbody>
+            ${users.map(u => `
+              <tr>
+                <td><b>${u.name}</b></td>
+                <td>${u.email}</td>
+                <td>${u.role === 'admin' ? '<span class="tag tag-status-progress">시스템 관리자</span>' : '<span class="tag tag-status-prep">일반 사용자</span>'}</td>
+                <td>${renderOrgs(u.organizations)}</td>
+                <td class="text-sm text-muted">${fmtDateOnly(u.created_at)}</td>
+                <td style="text-align:right;">
+                  <button class="btn btn-sm" data-edit="${u.id}">수정</button>
+                  ${u.id === me.id ? '' : `<button class="btn btn-sm btn-danger" onclick="delUser(${u.id})">🗑</button>`}
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+      // Bind edit buttons safely
+      document.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => {
+        const u = users.find(x => x.id === Number(b.dataset.edit));
+        if (u) editUser(u);
+      });
+    }
+
+    function editUser(u) {
+      modal({
+        title: '사용자 수정',
+        body: `
+          <div class="field"><label class="label">이름</label><input class="input" id="u_name" value="${u.name}"></div>
+          <div class="field"><label class="label">권한</label>
+            <select class="select" id="u_role">
+              <option value="user" ${u.role==='user'?'selected':''}>일반 사용자</option>
+              <option value="admin" ${u.role==='admin'?'selected':''}>관리자</option>
+            </select>
+          </div>
+          <div class="field"><label class="label">새 비밀번호 (변경 시에만 입력)</label><input class="input" id="u_pw" type="password" placeholder="6자 이상"></div>
+        `,
+        confirmText: '저장',
+        onConfirm: async () => {
+          const payload = { name: document.getElementById('u_name').value.trim(), role: document.getElementById('u_role').value };
+          const pw = document.getElementById('u_pw').value;
+          if (pw) payload.password = pw;
+          try { await api.put(`/api/admin/users/${u.id}`, payload); toast('저장되었습니다.', 'success'); loadUsers(); }
+          catch (e) { toast(e.message, 'error'); return false; }
+        }
+      });
+    }
+
+    function delUser(id) {
+      confirmDialog('이 사용자를 삭제하시겠습니까? 이 사용자가 소유한 기관은 그대로 유지됩니다.', async () => {
+        try { await api.del(`/api/admin/users/${id}`); toast('삭제되었습니다.', 'success'); loadUsers(); }
+        catch (e) { toast(e.message, 'error'); return false; }
+      });
+    }
+
+    async function loadOrgs() {
+      const { organizations } = await api.get('/api/admin/organizations');
+      document.getElementById('orgCount').textContent = `(총 ${organizations.length}개)`;
+      document.getElementById('orgsList').innerHTML = `
+        <table class="table">
+          <thead><tr><th>기관명</th><th>소유자</th><th>회의</th><th>의원</th><th>등록일</th><th style="text-align:right;">작업</th></tr></thead>
+          <tbody>
+            ${organizations.map(o => `
+              <tr>
+                <td><b>${o.name}</b></td>
+                <td>${o.owner_name || '-'}<div class="text-sm text-muted">${o.owner_email||''}</div></td>
+                <td>${o.meeting_count}건</td>
+                <td>${o.member_count}명</td>
+                <td class="text-sm text-muted">${fmtDateOnly(o.created_at)}</td>
+                <td style="text-align:right;">
+                  <a class="btn btn-sm" href="/organization?id=${o.id}">진입</a>
+                  <button class="btn btn-sm btn-danger" onclick="delOrg(${o.id})">🗑</button>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+    }
+    function delOrg(id) {
+      confirmDialog('기관과 모든 데이터를 삭제하시겠습니까? 되돌릴 수 없습니다.', async () => {
+        try { await api.del(`/api/organizations/${id}`); toast('삭제되었습니다.', 'success'); loadOrgs(); }
+        catch (e) { toast(e.message, 'error'); return false; }
+      });
+    }
+  </script>
+</body>
+</html>

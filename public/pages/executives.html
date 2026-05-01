@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>임원 명단 · SmartMeet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main">
+      <div class="topbar">
+        <div class="topbar-title">임원 명단</div>
+        <div class="topbar-actions" id="userArea"></div>
+      </div>
+      <div class="content">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">역대 임원 명단</h1>
+            <div class="page-sub">기수별 임원 관리, 엑셀 일괄 등록·내보내기를 지원합니다.</div>
+          </div>
+          <div class="topbar-actions">
+            <select class="select" id="genSelect" style="width:200px;"></select>
+            <button class="btn" id="renameGenBtn" title="기수 이름 변경">✏️</button>
+            <button class="btn btn-danger" id="delGenBtn" title="기수 전체 삭제">🗑</button>
+            <button class="btn" id="addGenBtn">+ 기수</button>
+            <button class="btn btn-primary" id="addExecBtn">+ 임원</button>
+          </div>
+        </div>
+
+        <div class="flex justify-between items-center mb-12" style="flex-wrap:wrap;gap:12px;">
+          <div class="searchbar" style="flex:1;min-width:280px;max-width:400px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2"/></svg>
+            <input id="searchInput" placeholder="이름·직책·전공·직장 검색" />
+          </div>
+          <div class="flex gap-8" style="flex-wrap:wrap;">
+            <button class="btn" id="importBtn">📥 엑셀 일괄등록</button>
+            <button class="btn" id="exportAllBtn">📤 전체 내려받기</button>
+            <button class="btn" id="exportSelBtn" disabled>📤 선택 내려받기 (0)</button>
+            <button class="btn btn-danger" id="bulkDelBtn" disabled>🗑 선택 삭제 (0)</button>
+          </div>
+        </div>
+
+        <div id="execList"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/sidebar.js"></script>
+  <script>
+    const orgId = qs('org');
+    let organization;
+    let allMembers = [];
+    let generations = [];
+    let currentGen = '';
+    let selected = new Set();
+    let searchQ = '';
+
+    (async function init() {
+      const me = await requireAuth();
+      document.getElementById('userArea').innerHTML = renderUserChip(me);
+      const o = await api.get(`/api/organizations/${orgId}`);
+      organization = o.organization;
+      renderOrgSidebar(organization, 'executives');
+
+      bind();
+      load();
+    })();
+
+    function bind() {
+      document.getElementById('addGenBtn').onclick = openGenModal;
+      document.getElementById('renameGenBtn').onclick = renameGen;
+      document.getElementById('delGenBtn').onclick = deleteGen;
+      document.getElementById('addExecBtn').onclick = () => openForm();
+      document.getElementById('genSelect').onchange = (e) => { currentGen = e.target.value; selected.clear(); renderList(); };
+      document.getElementById('searchInput').oninput = (e) => { searchQ = e.target.value.trim(); renderList(); };
+      document.getElementById('importBtn').onclick = importExcel;
+      document.getElementById('exportAllBtn').onclick = () => exportRows(getFiltered());
+      document.getElementById('exportSelBtn').onclick = () => exportRows(getFiltered().filter(m => selected.has(m.id)));
+      document.getElementById('bulkDelBtn').onclick = bulkDelete;
+    }
+
+    async function load() {
+      const all = await api.get(`/api/members?organization_id=${orgId}`);
+      allMembers = all.members.filter(m => m.generation && m.generation.trim() !== '');
+      generations = [...new Set(allMembers.map(m => m.generation))].sort().reverse();
+      const sel = document.getElementById('genSelect');
+      if (!generations.length) {
+        sel.innerHTML = '<option value="">기수 없음</option>';
+        currentGen = '';
+      } else {
+        sel.innerHTML = generations.map(g => `<option value="${g}" ${g===currentGen?'selected':''}>${g}</option>`).join('');
+        if (!generations.includes(currentGen)) currentGen = generations[0];
+        sel.value = currentGen;
+      }
+      renderList();
+    }
+
+    function getFiltered() {
+      let list = allMembers.filter(m => m.generation === currentGen);
+      if (searchQ) {
+        const q = searchQ.toLowerCase();
+        list = list.filter(m =>
+          (m.name || '').toLowerCase().includes(q) ||
+          (m.position || '').toLowerCase().includes(q) ||
+          (m.major || '').toLowerCase().includes(q) ||
+          (m.workplace || '').toLowerCase().includes(q)
+        );
+      }
+      return list;
+    }
+
+    function renderList() {
+      const root = document.getElementById('execList');
+      const list = getFiltered();
+      updateBulkButtons();
+
+      if (!list.length) {
+        root.innerHTML = `<div class="empty">
+          <div class="empty-title">${currentGen ? '등록된 임원이 없습니다' : '기수를 먼저 추가하세요'}</div>
+          <div class="empty-sub">${currentGen ? '‘+ 임원’ 또는 ‘엑셀 일괄등록’으로 등록할 수 있습니다.' : '우측 상단 ‘+ 기수’ 버튼을 사용하세요.'}</div>
+        </div>`;
+        return;
+      }
+
+      const allChecked = list.length > 0 && list.every(m => selected.has(m.id));
+      root.innerHTML = `
+        <table class="table">
+          <thead><tr>
+            <th style="width:40px;"><input type="checkbox" class="check" id="checkAll" ${allChecked?'checked':''}></th>
+            <th>직책</th><th>성명</th><th>전화</th><th>이메일</th><th>전공</th><th>직장</th>
+            <th style="width:120px;text-align:right;">작업</th>
+          </tr></thead>
+          <tbody>
+            ${list.map(m => `
+              <tr>
+                <td><input type="checkbox" class="check row-check" data-id="${m.id}" ${selected.has(m.id)?'checked':''}></td>
+                <td>${m.position || ''}</td>
+                <td><b>${m.name}</b></td>
+                <td>${m.phone || ''}</td>
+                <td>${m.email || ''}</td>
+                <td>${m.major || ''}</td>
+                <td>${m.workplace || ''}</td>
+                <td style="text-align:right;">
+                  <button class="btn btn-sm" data-edit="${m.id}">수정</button>
+                  <button class="btn btn-sm btn-danger" data-del="${m.id}">🗑</button>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+
+      document.getElementById('checkAll').onchange = (e) => {
+        if (e.target.checked) list.forEach(m => selected.add(m.id));
+        else list.forEach(m => selected.delete(m.id));
+        renderList();
+      };
+      root.querySelectorAll('.row-check').forEach(cb => {
+        cb.onchange = () => {
+          const id = Number(cb.dataset.id);
+          if (cb.checked) selected.add(id); else selected.delete(id);
+          updateBulkButtons();
+          document.getElementById('checkAll').checked = list.length > 0 && list.every(m => selected.has(m.id));
+        };
+      });
+      root.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => {
+        const m = allMembers.find(x => x.id === Number(b.dataset.edit));
+        openForm(m);
+      });
+      root.querySelectorAll('[data-del]').forEach(b => b.onclick = () => del(Number(b.dataset.del)));
+    }
+
+    function updateBulkButtons() {
+      const n = selected.size;
+      const exp = document.getElementById('exportSelBtn');
+      const del = document.getElementById('bulkDelBtn');
+      exp.disabled = n === 0;
+      del.disabled = n === 0;
+      exp.textContent = `📤 선택 내려받기 (${n})`;
+      del.textContent = `🗑 선택 삭제 (${n})`;
+    }
+
+    // ===== 기수 관리 =====
+    function openGenModal() {
+      modal({
+        title: '기수 추가',
+        body: `
+          <div class="field">
+            <label class="label">기수명 *</label>
+            <input class="input" id="gen_name" placeholder="예: 제27대 이사회">
+          </div>
+        `,
+        confirmText: '추가',
+        onConfirm: () => {
+          const v = document.getElementById('gen_name').value.trim();
+          if (!v) { toast('기수명을 입력하세요.', 'error'); return false; }
+          if (generations.includes(v)) { toast('이미 존재하는 기수입니다.', 'error'); return false; }
+          generations.unshift(v);
+          currentGen = v;
+          const sel = document.getElementById('genSelect');
+          sel.innerHTML = generations.map(g => `<option value="${g}" ${g===currentGen?'selected':''}>${g}</option>`).join('');
+          renderList();
+          toast(`${v} 기수가 추가되었습니다. 임원을 등록해보세요.`, 'success');
+        }
+      });
+    }
+
+    function renameGen() {
+      if (!currentGen) { toast('변경할 기수가 없습니다.', 'error'); return; }
+      modal({
+        title: '기수 이름 변경',
+        body: `<div class="field"><label class="label">기수명</label><input class="input" id="rg_name" value="${currentGen}"></div>`,
+        confirmText: '변경',
+        onConfirm: async () => {
+          const v = document.getElementById('rg_name').value.trim();
+          if (!v) { toast('기수명을 입력하세요.', 'error'); return false; }
+          if (v === currentGen) return;
+          const targets = allMembers.filter(m => m.generation === currentGen);
+          try {
+            for (const m of targets) await api.put(`/api/members/${m.id}`, { ...m, generation: v });
+            currentGen = v;
+            toast('변경되었습니다.', 'success');
+            load();
+          } catch (e) { toast(e.message, 'error'); return false; }
+        }
+      });
+    }
+
+    function deleteGen() {
+      if (!currentGen) { toast('삭제할 기수가 없습니다.', 'error'); return; }
+      const targets = allMembers.filter(m => m.generation === currentGen);
+      confirmDialog(`<b>${currentGen}</b> 기수와 등록된 임원 <b>${targets.length}명</b>을 모두 삭제하시겠습니까?`, async () => {
+        try {
+          await api.post('/api/members/bulk-delete', { ids: targets.map(m => m.id) });
+          currentGen = '';
+          selected.clear();
+          load();
+          toast('삭제되었습니다.', 'success');
+        } catch (e) { toast(e.message, 'error'); return false; }
+      });
+    }
+
+    // ===== 임원 폼 =====
+    function openForm(m) {
+      m = m || {};
+      modal({
+        title: m.id ? '임원 수정' : '임원 추가',
+        body: `
+          <div class="field"><label class="label">기수 *</label><input class="input" id="ex_gen" value="${m.generation || currentGen}"></div>
+          <div class="flex gap-12">
+            <div class="field flex-1"><label class="label">직책</label><input class="input" id="ex_pos" value="${m.position||''}"></div>
+            <div class="field flex-1"><label class="label">성명 *</label><input class="input" id="ex_name" value="${m.name||''}"></div>
+          </div>
+          <div class="flex gap-12">
+            <div class="field flex-1"><label class="label">전화</label><input class="input" id="ex_phone" value="${m.phone||''}"></div>
+            <div class="field flex-1"><label class="label">이메일</label><input class="input" id="ex_email" value="${m.email||''}"></div>
+          </div>
+          <div class="flex gap-12">
+            <div class="field flex-1"><label class="label">전공</label><input class="input" id="ex_major" value="${m.major||''}"></div>
+            <div class="field flex-1"><label class="label">직장</label><input class="input" id="ex_work" value="${m.workplace||''}"></div>
+          </div>
+        `,
+        confirmText: '저장',
+        onConfirm: async () => {
+          const payload = {
+            organization_id: Number(orgId),
+            generation: document.getElementById('ex_gen').value.trim(),
+            position: document.getElementById('ex_pos').value.trim(),
+            name: document.getElementById('ex_name').value.trim(),
+            phone: document.getElementById('ex_phone').value.trim(),
+            email: document.getElementById('ex_email').value.trim(),
+            major: document.getElementById('ex_major').value.trim(),
+            workplace: document.getElementById('ex_work').value.trim(),
+          };
+          if (!payload.generation) { toast('기수를 입력하세요.', 'error'); return false; }
+          if (!payload.name) { toast('성명을 입력하세요.', 'error'); return false; }
+          try {
+            if (m.id) await api.put(`/api/members/${m.id}`, payload);
+            else await api.post('/api/members', payload);
+            toast('저장되었습니다.', 'success');
+            load();
+          } catch (e) { toast(e.message, 'error'); return false; }
+        }
+      });
+    }
+
+    function del(id) {
+      confirmDialog('이 임원을 삭제하시겠습니까?', async () => {
+        try { await api.del(`/api/members/${id}`); selected.delete(id); toast('삭제되었습니다.', 'success'); load(); }
+        catch (e) { toast(e.message, 'error'); return false; }
+      });
+    }
+
+    function bulkDelete() {
+      const ids = [...selected];
+      if (!ids.length) return;
+      confirmDialog(`선택한 ${ids.length}명의 임원을 삭제하시겠습니까?`, async () => {
+        try { await api.post('/api/members/bulk-delete', { ids }); selected.clear(); toast('삭제되었습니다.', 'success'); load(); }
+        catch (e) { toast(e.message, 'error'); return false; }
+      });
+    }
+
+    // ===== 엑셀 가져오기/내보내기 =====
+    function exportRows(rows) {
+      if (!rows || !rows.length) { toast('내보낼 데이터가 없습니다.', 'error'); return; }
+      const data = rows.map(m => ({
+        기수: m.generation || '',
+        직책: m.position || '',
+        성명: m.name || '',
+        전화: m.phone || '',
+        이메일: m.email || '',
+        전공: m.major || '',
+        직장: m.workplace || '',
+      }));
+      const ws = XLSX.utils.json_to_sheet(data);
+      ws['!cols'] = [{wch:14},{wch:12},{wch:12},{wch:16},{wch:24},{wch:12},{wch:18}];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '임원명단');
+      const fname = `${organization.name}_임원명단_${currentGen || '전체'}.xlsx`;
+      XLSX.writeFile(wb, fname);
+      toast(`${rows.length}건을 내보냈습니다.`, 'success');
+    }
+
+    function importExcel() {
+      modal({
+        title: '엑셀 일괄 등록',
+        size: 'lg',
+        body: `
+          <div class="text-sm text-muted mb-12">
+            엑셀(.xlsx) 또는 CSV 파일을 선택하세요. 다음 컬럼을 인식합니다:<br>
+            <b>기수, 직책, 성명, 전화, 이메일, 전공, 직장</b><br>
+            <span class="text-soft">- 첫 행은 헤더로 인식합니다.</span><br>
+            <span class="text-soft">- ‘기수’가 비어있으면 현재 선택된 기수(<b>${currentGen || '없음'}</b>)로 등록됩니다.</span>
+          </div>
+          <div class="field">
+            <input type="file" id="import_file" accept=".xlsx,.xls,.csv" class="input" />
+          </div>
+          <div id="import_preview"></div>
+        `,
+        confirmText: '등록',
+        onConfirm: async () => {
+          const file = document.getElementById('import_file').files[0];
+          if (!file) { toast('파일을 선택하세요.', 'error'); return false; }
+          const buf = await file.arrayBuffer();
+          const wb = XLSX.read(buf, { type: 'array' });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+          if (!json.length) { toast('데이터가 없습니다.', 'error'); return false; }
+
+          const items = json.map(r => ({
+            generation: String(r['기수'] || r['generation'] || currentGen || '').trim(),
+            position: String(r['직책'] || r['position'] || '').trim(),
+            name: String(r['성명'] || r['이름'] || r['name'] || '').trim(),
+            phone: String(r['전화'] || r['전화번호'] || r['phone'] || '').trim(),
+            email: String(r['이메일'] || r['email'] || '').trim(),
+            major: String(r['전공'] || r['major'] || '').trim(),
+            workplace: String(r['직장'] || r['workplace'] || '').trim(),
+          })).filter(it => it.name && it.generation);
+
+          if (!items.length) { toast('등록할 행이 없습니다. 컬럼명을 확인하세요.', 'error'); return false; }
+
+          try {
+            await api.post('/api/members/bulk', { organization_id: Number(orgId), items });
+            toast(`${items.length}명이 등록되었습니다.`, 'success');
+            load();
+          } catch (e) { toast(e.message, 'error'); return false; }
+        }
+      });
+
+      // Live preview
+      setTimeout(() => {
+        const fi = document.getElementById('import_file');
+        if (fi) fi.onchange = async (e) => {
+          const f = e.target.files[0]; if (!f) return;
+          try {
+            const buf = await f.arrayBuffer();
+            const wb = XLSX.read(buf, { type: 'array' });
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+            const cols = json.length ? Object.keys(json[0]) : [];
+            document.getElementById('import_preview').innerHTML = `
+              <div class="text-sm text-muted mt-12 mb-8">감지된 컬럼: ${cols.join(', ') || '(없음)'} · 행: ${json.length}건</div>
+              <div style="max-height:200px;overflow:auto;border:1px solid var(--border);border-radius:8px;">
+                <table class="table" style="border:none;">
+                  <thead><tr>${cols.slice(0,7).map(c => `<th>${c}</th>`).join('')}</tr></thead>
+                  <tbody>${json.slice(0,5).map(r => `<tr>${cols.slice(0,7).map(c => `<td>${r[c] ?? ''}</td>`).join('')}</tr>`).join('')}</tbody>
+                </table>
+              </div>
+            `;
+          } catch (ex) { document.getElementById('import_preview').innerHTML = `<div class="text-sm" style="color:var(--danger);">파일 파싱 실패: ${ex.message}</div>`; }
+        };
+      }, 50);
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>위임장 제출 · SmartMeet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    /* 위임장 의안 상세 카드 */
+    .proxy-agenda-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .proxy-agenda-head {
+      display: flex; align-items: center; gap: 8px;
+      flex-wrap: wrap;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 10px;
+    }
+    .proxy-agenda-no {
+      font-size: 11px;
+      font-weight: 700;
+      color: white;
+      background: var(--accent);
+      padding: 3px 8px;
+      border-radius: 999px;
+    }
+    .proxy-agenda-type {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .proxy-agenda-type.budget { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+    .proxy-agenda-type.election { background: #ddd6fe; color: #5b21b6; border-color: #c4b5fd; }
+    .proxy-agenda-title {
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.4;
+      margin-top: 4px;
+      width: 100%;
+    }
+    .proxy-agenda-presenter {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+    .proxy-agenda-summary {
+      font-size: 13px;
+      color: var(--text-muted);
+      background: var(--surface-2);
+      padding: 8px 10px;
+      border-radius: 6px;
+      border-left: 3px solid var(--accent);
+      line-height: 1.6;
+      margin-bottom: 10px;
+    }
+    .proxy-agenda-content {
+      font-size: 13px;
+      line-height: 1.7;
+    }
+    .proxy-agenda-content p { margin: 0 0 6px; }
+    .proxy-agenda-content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 8px 0;
+      font-size: 12px;
+    }
+    .proxy-agenda-content th, .proxy-agenda-content td {
+      border: 1px solid var(--border);
+      padding: 4px 6px;
+      text-align: left;
+    }
+    .proxy-agenda-content th { background: var(--surface-2); font-weight: 700; }
+    .proxy-agenda-content img { max-width: 100%; height: auto; }
+    /* 예산표 */
+    .proxy-budget-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      font-size: 12px;
+    }
+    .proxy-budget-table th, .proxy-budget-table td {
+      border: 1px solid var(--border);
+      padding: 5px 8px;
+      text-align: right;
+    }
+    .proxy-budget-table th:first-child, .proxy-budget-table td:first-child,
+    .proxy-budget-table th:nth-child(2), .proxy-budget-table td:nth-child(2),
+    .proxy-budget-table th:nth-child(4), .proxy-budget-table td:nth-child(4),
+    .proxy-budget-table th:nth-child(5), .proxy-budget-table td:nth-child(5) { text-align: left; }
+    .proxy-budget-table thead th { background: var(--surface-2); }
+    .proxy-budget-income { background: #ecfdf5 !important; color: #065f46 !important; text-align: center !important; font-weight: 700; }
+    .proxy-budget-expense { background: #fef2f2 !important; color: #991b1b !important; text-align: center !important; font-weight: 700; }
+    .proxy-budget-total { background: var(--surface-2); font-weight: 700; }
+  </style>
+</head>
+<body class="proxy-mobile">
+  <div class="proxy-card" id="root">
+    <div style="text-align:center;padding:40px 0;color:var(--text-muted);">불러오는 중...</div>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script>
+    const token = qs('token');
+    let proxy, meeting, organization, agendas, member;
+    let step = 1;
+    let signatureData = '';
+
+    (async function init() {
+      if (!token) return showError('잘못된 접근입니다.');
+      try {
+        const data = await fetch(`/api/proxies/by-token/${token}`).then(r => r.json());
+        if (data.error) return showError(data.error);
+        proxy = data.proxy; meeting = data.meeting; organization = data.organization; agendas = data.agendas; member = data.member;
+        if (proxy.status === 'submitted') return showSubmitted();
+        renderStep();
+      } catch (e) { showError('네트워크 오류가 발생했습니다.'); }
+    })();
+
+    function showError(msg) {
+      document.getElementById('root').innerHTML = `
+        <div style="text-align:center;padding:40px 0;">
+          <div style="font-size:48px;">⚠️</div>
+          <div style="font-weight:700;font-size:16px;margin:12px 0 4px;">오류</div>
+          <div style="color:var(--text-muted);">${msg}</div>
+        </div>`;
+    }
+
+    function showSubmitted() {
+      document.getElementById('root').innerHTML = `
+        <div style="text-align:center;padding:40px 0;">
+          <div style="font-size:48px;">✅</div>
+          <div style="font-weight:700;font-size:16px;margin:12px 0 4px;">이미 제출된 위임장입니다.</div>
+          <div style="color:var(--text-muted);">제출일시: ${fmtDate(proxy.submitted_at)}</div>
+        </div>`;
+    }
+
+    function stepBar() {
+      const make = (n, label) => {
+        let cls = 'proxy-step';
+        if (step > n) cls += ' done';
+        else if (step === n) cls += ' active';
+        return `<div class="${cls}">${step > n ? '✓' : n}</div><div class="text-sm" style="margin-right:8px;">${label}</div>`;
+      };
+      return `<div class="proxy-step-bar" style="flex-wrap:wrap;justify-content:center;gap:6px;font-size:12px;">
+        ${make(1, '본인 확인')}<span style="color:var(--text-soft);">→</span>
+        ${make(2, '의안 확인')}<span style="color:var(--text-soft);">→</span>
+        ${make(3, '서명')}
+      </div>`;
+    }
+
+    function header() {
+      return `
+        <div style="text-align:center;margin-bottom:18px;">
+          <div style="font-size:11px;color:var(--text-muted);">${organization?.name || ''}</div>
+          <div style="font-weight:800;font-size:18px;margin-top:4px;">${meeting?.title || ''}</div>
+          <div style="color:var(--text-muted);font-size:12px;margin-top:4px;">${fmtDate(meeting?.meeting_date)}</div>
+          <div style="color:var(--text-muted);font-size:12px;">${meeting?.location || ''}</div>
+        </div>
+        ${stepBar()}
+      `;
+    }
+
+    function renderStep() {
+      const r = document.getElementById('root');
+      if (step === 1) {
+        // 본인 확인 — 회의 의원 명단의 이름·전화번호와 일치해야만 진행 가능
+        r.innerHTML = `
+          ${header()}
+          <div class="card-title">본인 확인</div>
+          ${member ? `<div class="text-sm text-muted mb-12">대상자: <b>${escapeHtml(member.name)}</b> ${member.position ? `(${escapeHtml(member.position)})` : ''}</div>` : '<div class="text-sm text-muted mb-12">아래 정보를 입력해주세요. 회의 의원 명단과 일치해야 진행할 수 있습니다.</div>'}
+          <div class="field"><label class="label">성명 *</label><input class="input" id="p_name" value="${escapeHtml(nameVal || (member && member.name) || '')}" placeholder="홍길동"></div>
+          <div class="field"><label class="label">전화번호 *</label><input class="input" id="p_phone" value="${escapeHtml(phoneVal || (member && member.phone) || '')}" placeholder="010-1234-5678"></div>
+          <div class="text-sm text-muted mt-8" style="background:var(--surface-2);padding:10px 12px;border-radius:6px;border-left:3px solid var(--accent);">
+            ⚠️ 회의 의원으로 등록된 <b>이름과 전화번호</b> 가 정확히 일치해야 합니다.
+          </div>
+          <button class="btn btn-primary btn-block btn-lg mt-12" onclick="goAgenda()">확인 후 다음</button>
+        `;
+      } else if (step === 2) {
+        // 의안 확인 — 의안 상세 내용 + 예산표 노출
+        r.innerHTML = `
+          ${header()}
+          <div class="text-sm text-muted mb-12" style="text-align:center;">총 <b>${agendas.length}건</b>의 의안을 확인해주세요.</div>
+          <div class="proxy-agenda-list">
+            ${agendas.length ? agendas.map((a, idx) => renderAgendaDetail(a, idx + 1)).join('') : '<div class="empty-sub" style="text-align:center;padding:24px;">등록된 의안이 없습니다.</div>'}
+          </div>
+          <div class="text-sm text-muted mt-16" style="text-align:center;background:var(--surface-2);padding:12px;border-radius:8px;border:1px solid var(--border);">
+            ⚠️ 위 의안 내용을 모두 확인하셨다면 다음 단계에서 서명해주세요.
+          </div>
+          <div class="flex gap-8 mt-16">
+            <button class="btn flex-1" onclick="step=1;renderStep()">이전</button>
+            <button class="btn btn-primary flex-1" onclick="step=3;renderStep()">의안 확인 후 서명</button>
+          </div>
+        `;
+      } else {
+        r.innerHTML = `
+          ${header()}
+          <div class="card-title">전자 서명</div>
+          <div class="text-sm text-muted mb-12">아래 영역에 서명해주세요.</div>
+          <canvas id="sigPad"></canvas>
+          <div class="flex gap-8 mt-8">
+            <button class="btn btn-sm" onclick="clearSig()">지우기</button>
+          </div>
+          <div class="flex gap-8 mt-16">
+            <button class="btn flex-1" onclick="step=2;renderStep()">이전</button>
+            <button class="btn btn-accent flex-1" onclick="submitProxy()">위임장 제출</button>
+          </div>
+        `;
+        setupSigPad();
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // 위임장 의안확인용 — 의안 한 건의 상세 카드 (제목/요약/본문/예산표)
+    function renderAgendaDetail(a, idx) {
+      const typeLabel = (agendaTypeLabel && agendaTypeLabel[a.agenda_type]) || '일반';
+      const typeCls = a.agenda_type === 'budget' ? 'budget' : a.agenda_type === 'election' ? 'election' : '';
+      let html = `
+        <div class="proxy-agenda-card">
+          <div class="proxy-agenda-head">
+            <span class="proxy-agenda-no">제 ${a.agenda_no}호</span>
+            <span class="proxy-agenda-type ${typeCls}">${typeLabel}</span>
+            <div class="proxy-agenda-title">${escapeHtml(a.title || '')}</div>
+          </div>`;
+      if (a.presenter) {
+        html += `<div class="proxy-agenda-presenter">📌 보고자: ${escapeHtml(a.presenter)}</div>`;
+      }
+      if (a.summary) {
+        html += `<div class="proxy-agenda-summary">${escapeHtml(a.summary)}</div>`;
+      }
+      if (a.content) {
+        // content 는 이미 HTML (Quill output) — 신뢰: 관리자가 작성한 컨텐츠
+        html += `<div class="proxy-agenda-content html-render">${a.content}</div>`;
+      }
+      // 예산 의안의 경우: 수입·지출 표
+      if (a.agenda_type === 'budget' && a.budget_data) {
+        try {
+          const b = JSON.parse(a.budget_data);
+          if ((b.income && b.income.length) || (b.expense && b.expense.length)) {
+            const incTotal = (b.income || []).reduce((s, x) => s + (Number(x.amount) || 0), 0);
+            const expTotal = (b.expense || []).reduce((s, x) => s + (Number(x.amount) || 0), 0);
+            const maxRows = Math.max((b.income || []).length, (b.expense || []).length);
+            let rows = '';
+            for (let i = 0; i < maxRows; i++) {
+              const inc = (b.income || [])[i] || {};
+              const exp = (b.expense || [])[i] || {};
+              rows += `<tr>
+                <td>${escapeHtml(inc.item || '')}</td>
+                <td>${escapeHtml(inc.detail || '')}</td>
+                <td>${(Number(inc.amount) || 0).toLocaleString()}</td>
+                <td>${escapeHtml(exp.item || '')}</td>
+                <td>${escapeHtml(exp.detail || '')}</td>
+                <td>${(Number(exp.amount) || 0).toLocaleString()}</td>
+              </tr>`;
+            }
+            html += `
+              <table class="proxy-budget-table">
+                <thead>
+                  <tr>
+                    <th colspan="3" class="proxy-budget-income">수 입</th>
+                    <th colspan="3" class="proxy-budget-expense">지 출</th>
+                  </tr>
+                  <tr>
+                    <th>관</th><th>내역</th><th>금액</th>
+                    <th>관</th><th>내역</th><th>금액</th>
+                  </tr>
+                </thead>
+                <tbody>${rows}
+                  <tr class="proxy-budget-total">
+                    <td colspan="2">수입 합계</td><td style="color:#065f46;">${incTotal.toLocaleString()}원</td>
+                    <td colspan="2">지출 합계</td><td style="color:#991b1b;">${expTotal.toLocaleString()}원</td>
+                  </tr>
+                </tbody>
+              </table>`;
+          }
+        } catch {}
+      }
+      html += `</div>`;
+      return html;
+    }
+
+    let nameVal = '', phoneVal = '';
+    let verifying = false;
+    async function goAgenda() {
+      if (verifying) return;
+      nameVal = document.getElementById('p_name').value.trim();
+      phoneVal = document.getElementById('p_phone').value.trim();
+      if (!nameVal || !phoneVal) { toast('성명과 전화번호를 입력하세요.', 'error'); return; }
+      // 서버에 본인 확인 요청 — 회의 의원 명단에 등록된 정보와 매칭되어야 다음 단계 진행
+      const btn = document.querySelector('.btn-primary.btn-block.btn-lg');
+      if (btn) { btn.disabled = true; btn.textContent = '확인 중...'; }
+      verifying = true;
+      try {
+        const r = await fetch(`/api/proxies/verify/${token}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: nameVal, phone: phoneVal })
+        });
+        const data = await r.json();
+        if (!r.ok) {
+          toast(data.error || '본인 확인에 실패했습니다.', 'error');
+          if (btn) { btn.disabled = false; btn.textContent = '확인 후 다음'; }
+          verifying = false;
+          return;
+        }
+        // 검증 성공 — 의안 확인 단계로
+        step = 2;
+        renderStep();
+      } catch (e) {
+        toast('네트워크 오류가 발생했습니다.', 'error');
+        if (btn) { btn.disabled = false; btn.textContent = '확인 후 다음'; }
+      } finally {
+        verifying = false;
+      }
+    }
+
+    let sigCtx, sigDrawing = false;
+    function setupSigPad() {
+      const c = document.getElementById('sigPad');
+      const rect = c.getBoundingClientRect();
+      c.width = rect.width;
+      c.height = 200;
+      sigCtx = c.getContext('2d');
+      sigCtx.lineWidth = 2.5;
+      sigCtx.lineCap = 'round';
+      sigCtx.strokeStyle = '#1a1d22';
+      const start = (e) => { sigDrawing = true; const p = pos(e); sigCtx.beginPath(); sigCtx.moveTo(p.x, p.y); };
+      const move = (e) => { if (!sigDrawing) return; e.preventDefault(); const p = pos(e); sigCtx.lineTo(p.x, p.y); sigCtx.stroke(); };
+      const end = () => { sigDrawing = false; signatureData = c.toDataURL('image/png'); };
+      function pos(e) {
+        const r = c.getBoundingClientRect();
+        const t = e.touches?.[0] || e;
+        return { x: t.clientX - r.left, y: t.clientY - r.top };
+      }
+      c.addEventListener('mousedown', start); c.addEventListener('mousemove', move); c.addEventListener('mouseup', end);
+      c.addEventListener('touchstart', start); c.addEventListener('touchmove', move); c.addEventListener('touchend', end);
+    }
+    function clearSig() {
+      const c = document.getElementById('sigPad');
+      sigCtx.clearRect(0, 0, c.width, c.height);
+      signatureData = '';
+    }
+
+    async function submitProxy() {
+      if (!signatureData) { toast('서명을 입력해주세요.', 'error'); return; }
+      try {
+        const r = await fetch(`/api/proxies/submit/${token}`, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ submitter_name: nameVal, submitter_phone: phoneVal, signature_data: signatureData })
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error);
+        document.getElementById('root').innerHTML = `
+          <div style="text-align:center;padding:50px 0;">
+            <div style="font-size:64px;">✅</div>
+            <div style="font-weight:800;font-size:20px;margin:14px 0 4px;">위임장이 제출되었습니다</div>
+            <div style="color:var(--text-muted);">참여해주셔서 감사합니다.</div>
+          </div>`;
+      } catch (e) { toast(e.message, 'error'); }
+    }
+  </script>
+</body>
+</html>

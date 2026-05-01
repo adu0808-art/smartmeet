@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>회의록 출력 · SmartMeet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <style>
+    /* 회의록 페이지에서는 좌측 사이드바를 숨겨 인쇄 미리보기 영역을 넓게 사용 */
+    .app { grid-template-columns: 1fr !important; }
+    body > .app > .sidebar { display: none !important; }
+
+    /* A4 page: 210mm × 297mm with 20mm/25mm margins */
+    .minutes-preview {
+      background: var(--bg);
+      padding: 0;
+      min-height: 800px;
+      box-shadow: none;
+      border-radius: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+    .minutes-section {
+      width: 210mm;
+      min-height: 297mm;
+      padding: 20mm 25mm;
+      box-sizing: border-box;
+      background-color: #ffffff;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      box-shadow: 0 2px 12px rgba(15, 23, 42, 0.08);
+      border-radius: 4px;
+      page-break-after: always;
+      break-after: page;
+      color: #1a202c;
+      font-family: 'Pretendard', '맑은 고딕', 'Malgun Gothic', sans-serif;
+      font-size: 11pt;
+      line-height: 1.7;
+      position: relative;
+    }
+    /* Long content sections — JS will split these into multiple A4 cards if they overflow */
+    .minutes-section.flow { min-height: 297mm; }
+    .minutes-section.continued { /* split-pages get this marker class */ }
+    .minutes-section.continued .body-continued {
+      color: var(--text-soft);
+      font-size: 10pt;
+      margin-bottom: 12pt;
+      font-style: italic;
+    }
+    .minutes-section:last-child {
+      page-break-after: auto;
+      break-after: auto;
+    }
+    .minutes-section h1 { font-size: 22pt; text-align: center; margin: 0 0 12pt; font-weight: 800; }
+    .minutes-section h2 {
+      font-size: 16pt;
+      margin: 0 0 10pt;
+      padding-bottom: 6pt;
+      border-bottom: 2px solid #1a202c;
+      font-weight: 700;
+      page-break-after: avoid;
+    }
+    .minutes-section h3 { font-size: 13pt; margin: 16pt 0 6pt; font-weight: 700; page-break-after: avoid; }
+    .minutes-section .meta { text-align: center; color: #555; margin-bottom: 24pt; }
+    .minutes-section .body { line-height: 1.8; }
+    .minutes-section table { width: 100%; border-collapse: collapse; margin: 8pt 0; page-break-inside: avoid; }
+    .minutes-section th, .minutes-section td { border: 1px solid #999; padding: 6pt 9pt; text-align: left; vertical-align: top; }
+    .minutes-section th { background: #f0f0f0; }
+    .minutes-section img { max-width: 100%; height: auto; }
+    .minutes-section.cover {
+      display: grid;
+      grid-template-rows: 1fr 1fr 1fr;
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    .cover-cell { display: flex; flex-direction: column; gap: 12pt; }
+    /* Vertical alignment within cell based on row */
+    .cover-cell[data-pos$="-top"], .cover-cell[data-row="top"] { justify-content: flex-start; }
+    .cover-cell[data-row="middle"] { justify-content: center; }
+    .cover-cell[data-row="bottom"] { justify-content: flex-end; }
+    /* Horizontal alignment */
+    .cover-cell[data-col="left"] { align-items: flex-start; text-align: left; }
+    .cover-cell[data-col="center"] { align-items: center; text-align: center; }
+    .cover-cell[data-col="right"] { align-items: flex-end; text-align: right; }
+    /* Items */
+    .cover-logo {
+      display: block;
+      background-color: #ffffff;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .cover-logo.size-small { max-width: 80mm; max-height: 30mm; }
+    .cover-logo.size-medium { max-width: 120mm; max-height: 60mm; }
+    .cover-logo.size-large { max-width: 160mm; max-height: 100mm; }
+    .cover-title.size-small { font-size: 22pt; font-weight: 800; margin: 0; }
+    .cover-title.size-medium { font-size: 30pt; font-weight: 800; margin: 0; }
+    .cover-title.size-large { font-size: 38pt; font-weight: 800; margin: 0; }
+    .cover-orgname.size-small { font-size: 12pt; font-weight: 600; }
+    .cover-orgname.size-medium { font-size: 16pt; font-weight: 700; }
+    .cover-orgname.size-large { font-size: 22pt; font-weight: 800; }
+    .cover-date.size-small, .cover-location.size-small { font-size: 11pt; color: #555; }
+    .cover-date.size-medium, .cover-location.size-medium { font-size: 14pt; color: #333; }
+    .cover-date.size-large, .cover-location.size-large { font-size: 18pt; color: #1a202c; font-weight: 600; }
+
+    /* Cover preview thumbnail (in settings modal) */
+    .cover-preview-frame {
+      width: 180px;
+      height: 254px;
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      position: relative;
+      box-shadow: var(--shadow-sm);
+    }
+    .cover-preview-content {
+      width: 210mm;
+      height: 297mm;
+      padding: 20mm 25mm;
+      box-sizing: border-box;
+      background-color: #ffffff;
+      transform: scale(0.227);
+      transform-origin: top left;
+      display: grid;
+      grid-template-rows: 1fr 1fr 1fr;
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    .cover-item-row {
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 6px;
+    }
+    .cover-item-row.disabled { opacity: 0.5; }
+    .cover-item-row .row-head { display: flex; align-items: center; gap: 6px; }
+    .cover-item-row .row-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+    .cover-item-row label { font-size: 13px; }
+    .cover-item-row .label { font-size: 11px; margin-bottom: 2px; color: var(--text-soft); }
+    .cover-item-row .select { padding: 4px 6px; font-size: 12px; height: auto; }
+
+    /* Sticky options panel */
+    .opt-panel-wrap {
+      position: sticky;
+      top: 14px;
+      align-self: flex-start;
+      max-height: calc(100vh - 30px);
+      overflow-y: auto;
+    }
+    .opt-list { display: flex; flex-direction: column; gap: 3px; }
+    .opt-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      transition: all 0.12s;
+      font-size: 12px;
+    }
+    .opt-item:hover { border-color: var(--border-strong); background: var(--surface-2); }
+    .opt-item.dragging { opacity: 0.4; }
+    .opt-handle { cursor: grab; color: var(--text-soft); font-size: 12px; user-select: none; }
+    .opt-item input[type="checkbox"] { cursor: pointer; }
+    .opt-item label { font-size: 12px; cursor: pointer; flex: 1; line-height: 1.3; }
+    .opt-settings-btn {
+      width: 22px; height: 22px;
+      border-radius: 5px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      cursor: pointer;
+      display: grid; place-items: center;
+      font-size: 11px;
+      padding: 0;
+      flex-shrink: 0;
+    }
+    .opt-settings-btn:hover { background: var(--accent-soft); border-color: var(--accent); }
+
+    /* Stronger drag indicator for opt-list */
+    .opt-item.drag-over-top { border-top: 4px solid var(--accent) !important; }
+    .opt-item.drag-over-bottom { border-bottom: 4px solid var(--accent) !important; }
+
+    @page {
+      size: A4;
+      margin: 0;
+    }
+    @media print {
+      html, body { background: white !important; margin: 0 !important; padding: 0 !important; }
+      .sidebar, .topbar, .opt-panel-wrap, .page-header, .topbar-actions { display: none !important; }
+      .with-rightpanel, .content { display: block !important; padding: 0 !important; margin: 0 !important; }
+      .minutes-preview { padding: 0; gap: 0; min-height: 0; }
+      .minutes-section {
+        width: 210mm;
+        min-height: 297mm;
+        margin: 0;
+        padding: 20mm 25mm;
+        box-shadow: none;
+        border-radius: 0;
+        page-break-after: always;
+        background-image: none !important;
+      }
+      .minutes-section:last-child { page-break-after: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main">
+      <div class="topbar">
+        <div class="topbar-title">회의록 출력</div>
+        <div class="topbar-actions" id="userArea"></div>
+      </div>
+      <div class="content">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">회의록 미리보기 및 출력</h1>
+            <div class="page-sub">출력 항목을 드래그로 순서 변경 · 셋팅을 저장해 다음에 다시 사용할 수 있습니다.</div>
+          </div>
+          <div class="topbar-actions">
+            <button class="btn btn-primary" onclick="openPreview()">🖨 인쇄</button>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:280px 1fr;gap:20px;">
+          <aside class="opt-panel-wrap">
+            <div class="card">
+              <div class="card-title" style="margin-bottom:8px;">출력 항목</div>
+              <div class="text-sm text-muted mb-12">⋮⋮ 드래그로 순서 변경</div>
+              <div class="opt-list" id="optList"></div>
+              <div class="flex gap-8 mt-12">
+                <button class="btn btn-sm flex-1" onclick="resetSettings()">↺ 기본값</button>
+                <button class="btn btn-sm btn-primary flex-1" onclick="saveSettings()">💾 저장</button>
+              </div>
+              <div class="text-sm text-muted mt-8" style="text-align:center;" id="savedHint"></div>
+            </div>
+          </aside>
+          <div class="minutes-preview" id="preview"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/sidebar.js"></script>
+  <script>
+    const meetingId = qs('id');
+    let meeting, organization, agendas = [], members = [], charter = null;
+    let tocItems = [], orgchart = { nodes: [], edges: [] };
+    let orgChartImageDataUrl = null;
+    let optItems = [];
+
+    // Cover settings — per-item position & size
+    const POSITIONS = [
+      { value: 'top-left',      label: '상단·좌측' },
+      { value: 'top-center',    label: '상단·중앙' },
+      { value: 'top-right',     label: '상단·우측' },
+      { value: 'middle-left',   label: '가운데·좌측' },
+      { value: 'middle-center', label: '가운데·중앙' },
+      { value: 'middle-right',  label: '가운데·우측' },
+      { value: 'bottom-left',   label: '하단·좌측' },
+      { value: 'bottom-center', label: '하단·중앙' },
+      { value: 'bottom-right',  label: '하단·우측' }
+    ];
+    const SIZES = [
+      { value: 'small',  label: '작게' },
+      { value: 'medium', label: '중간' },
+      { value: 'large',  label: '크게' }
+    ];
+    const COVER_ITEMS = [
+      { key: 'logo',     label: '🖼 로고' },
+      { key: 'orgName',  label: '🏛 기관명' },
+      { key: 'title',    label: '📋 회의명' },
+      { key: 'date',     label: '🗓 일시' },
+      { key: 'location', label: '📍 장소' }
+    ];
+    const DEFAULT_COVER = {
+      logo:     { show: true, position: 'top-center',    size: 'medium', variant: 'combo' },
+      orgName:  { show: true, position: 'middle-center', size: 'medium' },
+      title:    { show: true, position: 'middle-center', size: 'large'  },
+      date:     { show: true, position: 'middle-center', size: 'medium' },
+      location: { show: true, position: 'middle-center', size: 'small'  }
+    };
+    const LOGO_VARIANTS = [
+      { value: 'combo', label: '🔤 Logo & Text' },
+      { value: 'logo',  label: '🖼 Logo' },
+      { value: 'text',  label: '📝 Text' }
+    ];
+    let coverSettings = JSON.parse(JSON.stringify(DEFAULT_COVER));
+
+    // Migrate old format (showLogo/logoSize) to new per-item format
+    function migrateCoverSettings(saved) {
+      if (!saved) return JSON.parse(JSON.stringify(DEFAULT_COVER));
+      // If new format detected
+      if (saved.logo && typeof saved.logo === 'object') {
+        const merged = JSON.parse(JSON.stringify(DEFAULT_COVER));
+        Object.keys(merged).forEach(k => { if (saved[k]) Object.assign(merged[k], saved[k]); });
+        return merged;
+      }
+      // Old format
+      const m = JSON.parse(JSON.stringify(DEFAULT_COVER));
+      if ('showLogo' in saved) m.logo.show = !!saved.showLogo;
+      if (saved.logoSize) m.logo.size = saved.logoSize;
+      if ('showOrgName' in saved) m.orgName.show = !!saved.showOrgName;
+      if ('showMeetingTitle' in saved) m.title.show = !!saved.showMeetingTitle;
+      if ('showDate' in saved) m.date.show = !!saved.showDate;
+      if ('showLocation' in saved) m.location.show = !!saved.showLocation;
+      return m;
+    }
+
+    function buildDefaultItems() {
+      const items = [
+        { key: 'cover',      label: '표지',      checked: true },
+        { key: 'summary',    label: '회의 개요', checked: true },
+        { key: 'attendance', label: '출석현황',  checked: true }
+      ];
+      tocItems.forEach((it, i) => {
+        items.push({ key: `toc-${it.id}`, label: `${i + 1}. ${it.title}`, checked: true });
+      });
+      items.push({ key: 'charter',  label: '정관',   checked: false });
+      items.push({ key: 'orgchart', label: '조직도', checked: false });
+      return items;
+    }
+
+    function settingsKey() { return `minutes-settings-${meetingId}`; }
+    function coverKey() { return `minutes-cover-${meetingId}`; }
+
+    function loadSettings() {
+      const defaults = buildDefaultItems();
+      const defaultMap = new Map(defaults.map(d => [d.key, d]));
+      try {
+        const raw = localStorage.getItem(settingsKey());
+        if (raw) {
+          const saved = JSON.parse(raw);
+          if (Array.isArray(saved.items) && saved.items.length) {
+            const usedKeys = new Set();
+            const merged = [];
+            saved.items.forEach(s => {
+              const cur = defaultMap.get(s.key);
+              if (cur) { merged.push({ ...cur, checked: !!s.checked }); usedKeys.add(s.key); }
+            });
+            defaults.forEach(d => { if (!usedKeys.has(d.key)) merged.push(d); });
+            optItems = merged;
+          } else { optItems = defaults; }
+        } else { optItems = defaults; }
+      } catch (e) { optItems = defaults; }
+
+      try {
+        const rawCover = localStorage.getItem(coverKey());
+        coverSettings = migrateCoverSettings(rawCover ? JSON.parse(rawCover) : null);
+      } catch { coverSettings = JSON.parse(JSON.stringify(DEFAULT_COVER)); }
+    }
+
+    function saveSettings() {
+      localStorage.setItem(settingsKey(), JSON.stringify({ items: optItems }));
+      localStorage.setItem(coverKey(), JSON.stringify(coverSettings));
+      const hint = document.getElementById('savedHint');
+      hint.textContent = '✓ 저장되었습니다.';
+      hint.style.color = 'var(--success)';
+      setTimeout(() => { hint.textContent = ''; }, 2500);
+    }
+
+    function resetSettings() {
+      optItems = buildDefaultItems();
+      coverSettings = { ...DEFAULT_COVER };
+      localStorage.removeItem(settingsKey());
+      localStorage.removeItem(coverKey());
+      paintOptList();
+      render();
+    }
+
+    function paintOptList() {
+      const root = document.getElementById('optList');
+      root.innerHTML = optItems.map((it) => {
+        // Show gear button for keys that have settings (currently only 'cover')
+        const hasSettings = it.key === 'cover';
+        return `
+        <div class="opt-item" draggable="true" data-key="${it.key}">
+          <span class="opt-handle">⋮⋮</span>
+          <input type="checkbox" id="opt-${it.key}" ${it.checked ? 'checked' : ''}>
+          <label for="opt-${it.key}">${it.label}</label>
+          ${hasSettings ? `<button class="opt-settings-btn" data-settings="${it.key}" title="${it.label} 설정">⚙️</button>` : ''}
+        </div>`;
+      }).join('');
+
+      optItems.forEach(it => {
+        const cb = document.getElementById('opt-' + it.key);
+        if (cb) cb.onchange = () => { it.checked = cb.checked; render(); };
+      });
+
+      // Bind settings buttons
+      root.querySelectorAll('[data-settings]').forEach(btn => {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          const key = btn.dataset.settings;
+          if (key === 'cover') openCoverSettings();
+        };
+        // Prevent drag start when clicking the gear button
+        btn.addEventListener('mousedown', (e) => e.stopPropagation());
+      });
+
+      bindDndReorder(root, 'data-key', (orderedKeys) => {
+        const map = new Map(optItems.map(x => [x.key, x]));
+        optItems = orderedKeys.map(k => map.get(k)).filter(Boolean);
+        paintOptList();
+        render();
+      });
+    }
+
+    (async function init() {
+      const me = await requireAuth();
+      document.getElementById('userArea').innerHTML = renderUserChip(me);
+      const m = await api.get(`/api/meetings/${meetingId}`);
+      meeting = m.meeting; organization = m.organization;
+      // 회의록 페이지는 사이드바를 숨김 (인쇄 미리보기 영역을 넓게 사용)
+      const a = await api.get(`/api/agendas?meeting_id=${meetingId}`);
+      agendas = a.agendas;
+      const mem = await api.get(`/api/members?organization_id=${meeting.organization_id}&meeting_id=${meetingId}`);
+      members = mem.members;
+      try { const c = await api.get(`/api/charter/${meeting.organization_id}`); charter = c.charter; } catch {}
+      try { const t = await api.get(`/api/toc-items?meeting_id=${meetingId}`); tocItems = t.items; } catch {}
+      try {
+        const og = await api.get(`/api/orgchart/${meeting.organization_id}`);
+        const parsed = JSON.parse(og.orgchart.data || '{}');
+        orgchart = { nodes: parsed.nodes || [], edges: parsed.edges || [] };
+      } catch {}
+
+      try { orgChartImageDataUrl = await buildOrgChartImage(); } catch (e) { console.warn('orgchart image failed', e); }
+
+      loadSettings();
+      paintOptList();
+      render();
+    })();
+
+    function escapeXml(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;'); }
+
+    function elbowPathFor(na, nb, minX, minY, padding) {
+      const aw = na.width || 160, ah = na.height || 80;
+      const bw = nb.width || 160, bh = nb.height || 80;
+      const ax = na.x - minX + padding, ay = na.y - minY + padding;
+      const bx = nb.x - minX + padding, by = nb.y - minY + padding;
+      const acx = ax + aw / 2, acy = ay + ah / 2;
+      const bcx = bx + bw / 2, bcy = by + bh / 2;
+      const dx = bcx - acx, dy = bcy - acy;
+      let sx, sy, tx, ty, d;
+      if (Math.abs(dy) >= Math.abs(dx)) {
+        if (dy >= 0) { sx = ax + aw/2; sy = ay + ah; tx = bx + bw/2; ty = by; }
+        else { sx = ax + aw/2; sy = ay; tx = bx + bw/2; ty = by + bh; }
+        const my = (sy + ty) / 2;
+        d = `M ${sx} ${sy} L ${sx} ${my} L ${tx} ${my} L ${tx} ${ty}`;
+      } else {
+        if (dx >= 0) { sx = ax + aw; sy = ay + ah/2; tx = bx; ty = by + bh/2; }
+        else { sx = ax; sy = ay + ah/2; tx = bx + bw; ty = by + bh/2; }
+        const mx = (sx + tx) / 2;
+        d = `M ${sx} ${sy} L ${mx} ${sy} L ${mx} ${ty} L ${tx} ${ty}`;
+      }
+      return d;
+    }
+
+    async function buildOrgChartImage() {
+      if (!orgchart.nodes.length) return null;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      orgchart.nodes.forEach(n => {
+        const w = n.width || 160, h = n.height || 80;
+        minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
+        maxX = Math.max(maxX, n.x + w); maxY = Math.max(maxY, n.y + h);
+      });
+      const padding = 30;
+      const totalW = (maxX - minX) + padding * 2;
+      const totalH = (maxY - minY) + padding * 2;
+      const wrap = document.createElement('div');
+      wrap.style.cssText = `position:fixed;left:-99999px;top:0;width:${totalW}px;height:${totalH}px;background:#fafbfc;font-family:Pretendard,-apple-system,'Malgun Gothic',sans-serif;`;
+      const svgNS = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(svgNS, 'svg');
+      svg.setAttribute('width', totalW); svg.setAttribute('height', totalH);
+      svg.style.cssText = 'position:absolute;inset:0;pointer-events:none;';
+      orgchart.edges.forEach(([a, b]) => {
+        const na = orgchart.nodes.find(n => n.id === a);
+        const nb = orgchart.nodes.find(n => n.id === b);
+        if (!na || !nb) return;
+        const path = document.createElementNS(svgNS, 'path');
+        path.setAttribute('d', elbowPathFor(na, nb, minX, minY, padding));
+        path.setAttribute('stroke', '#94a3b8');
+        path.setAttribute('stroke-width', '2');
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke-linejoin', 'round');
+        svg.appendChild(path);
+      });
+      wrap.appendChild(svg);
+      orgchart.nodes.forEach(n => {
+        const w = n.width || 160, h = n.height || 80;
+        const el = document.createElement('div');
+        el.style.cssText = `position:absolute;left:${n.x - minX + padding}px;top:${n.y - minY + padding}px;width:${w}px;min-width:160px;min-height:${h}px;background:${n.color || '#ffffff'};border:2px solid #d8dce1;border-radius:12px;overflow:hidden;`;
+        const contents = (n.contents || []);
+        const contentHtml = contents.length
+          ? contents.map((c, i) => `<div style="padding:6px 14px;font-size:12px;color:#1a1d22;text-align:center;${i < contents.length - 1 ? 'border-bottom:1px dashed #e8eaed;' : ''}">${escapeXml(c)}</div>`).join('')
+          : `<div style="padding:10px 16px;font-size:11px;color:#9ca3af;font-style:italic;text-align:center;">내용 없음</div>`;
+        el.innerHTML = `<div style="font-weight:700;font-size:14px;padding:12px 14px 10px;text-align:center;border-bottom:1px solid rgba(0,0,0,0.06);background:rgba(0,0,0,0.03);color:#1a202c;">${escapeXml(n.title || '')}</div><div style="padding:4px 0;">${contentHtml}</div>`;
+        wrap.appendChild(el);
+      });
+      document.body.appendChild(wrap);
+      try { if (document.fonts && document.fonts.ready) await document.fonts.ready; } catch {}
+      await new Promise(res => setTimeout(res, 50));
+      try {
+        const canvas = await html2canvas(wrap, { scale: 2, backgroundColor: '#fafbfc', logging: false, useCORS: true });
+        document.body.removeChild(wrap);
+        return canvas.toDataURL('image/png');
+      } catch (e) {
+        document.body.removeChild(wrap);
+        return null;
+      }
+    }
+
+    function resolveAgenda(it) {
+      if (it.agenda_id) {
+        const a = agendas.find(x => x.id === it.agenda_id);
+        if (a) return a;
+      }
+      const m = it.title && it.title.match(/^\[제\s*(\d+)호\]/);
+      if (m) return agendas.find(a => a.agenda_no === Number(m[1]));
+      return null;
+    }
+
+    function renderAgendaInline(a) {
+      let html = '';
+      if (a.presenter) html += `<div class="text-muted" style="margin-bottom:6px;">보고자: ${a.presenter}</div>`;
+      if (a.content) html += `<div class="body html-render">${a.content}</div>`;
+      if (a.agenda_type === 'budget' && a.budget_data) {
+        try {
+          const b = JSON.parse(a.budget_data);
+          if (b.income?.length || b.expense?.length) {
+            const incTotal = (b.income || []).reduce((s, x) => s + (Number(x.amount)||0), 0);
+            const expTotal = (b.expense || []).reduce((s, x) => s + (Number(x.amount)||0), 0);
+            html += `<table><thead><tr><th colspan="3" style="background:#10b981;color:white;text-align:center;">수 입</th><th colspan="3" style="background:#ef4444;color:white;text-align:center;">지 출</th></tr><tr><th>관</th><th>내역</th><th>금액</th><th>관</th><th>내역</th><th>금액</th></tr></thead><tbody>`;
+            const maxRows = Math.max(b.income?.length || 0, b.expense?.length || 0);
+            for (let i = 0; i < maxRows; i++) {
+              const inc = b.income?.[i] || {}; const exp = b.expense?.[i] || {};
+              html += `<tr><td>${inc.item||''}</td><td>${inc.detail||''}</td><td style="text-align:right;">${(Number(inc.amount)||0).toLocaleString()}</td><td>${exp.item||''}</td><td>${exp.detail||''}</td><td style="text-align:right;">${(Number(exp.amount)||0).toLocaleString()}</td></tr>`;
+            }
+            html += `<tr style="font-weight:700;background:#f0f0f0;"><td colspan="2">수입 합계</td><td style="text-align:right;color:#10b981;">${incTotal.toLocaleString()}원</td><td colspan="2">지출 합계</td><td style="text-align:right;color:#ef4444;">${expTotal.toLocaleString()}원</td></tr></tbody></table>`;
+          }
+        } catch {}
+      }
+      if (a.vote_result) {
+        html += `<div style="margin-top:8px;padding:10px;background:#f0fdf4;border:1px solid #86efac;border-radius:6px;">
+          <b>의결 결과:</b> ${a.vote_result} (찬 ${a.approve_count}, 반 ${a.oppose_count}, 기 ${a.abstain_count})
+          ${a.vote_summary ? `<div style="color:#555;margin-top:4px;font-size:13px;">${a.vote_summary}</div>` : ''}
+        </div>`;
+      }
+      return html;
+    }
+
+    function renderSection(key) {
+      const present = members.filter(m => m.attendance_status === 'present');
+      const proxyM = members.filter(m => m.attendance_status === 'proxy');
+      if (key.startsWith('toc-')) {
+        const id = Number(key.slice(4));
+        const it = tocItems.find(x => x.id === id);
+        if (!it) return '';
+        const linked = resolveAgenda(it);
+        const cls = 'minutes-section flow';
+        if (linked) {
+          return `<section class="${cls}">
+            <h2>${it.title}</h2>
+            ${renderAgendaInline(linked)}
+          </section>`;
+        }
+        return `<section class="${cls}">
+          <h2>${it.title}</h2>
+          ${it.description ? `<div class="body html-render">${it.description}</div>` : '<div class="text-muted">내용이 없습니다.</div>'}
+        </section>`;
+      }
+      switch (key) {
+        case 'cover': {
+          return renderCoverSection(coverSettings, false);
+        }
+        case 'summary':
+          return `
+            <section class="minutes-section">
+              <h2>회의 개요</h2>
+              <table>
+                <tr><th style="width:30%">회의명</th><td>${meeting.title}</td></tr>
+                <tr><th>회의 종류</th><td>${meetingTypeLabel[meeting.meeting_type] || ''}</td></tr>
+                <tr><th>일시</th><td>${fmtDate(meeting.meeting_date)}</td></tr>
+                <tr><th>장소</th><td>${meeting.location || ''}</td></tr>
+                <tr><th>총인원 (의원관리)</th><td>${meeting.total_members}명</td></tr>
+                <tr><th>참석</th><td>${present.length}명 (위임 ${proxyM.length}명 포함 ${present.length + proxyM.length}명)</td></tr>
+              </table>
+            </section>`;
+        case 'attendance':
+          return `
+            <section class="minutes-section flow">
+              <h2>출석현황</h2>
+              <table><thead><tr><th>순번</th><th>직책</th><th>성명</th><th>상태</th></tr></thead><tbody>
+                ${members.map(m => `<tr><td>${m.seq||''}</td><td>${m.position||''}</td><td>${m.name}</td><td>${m.attendance_status==='present'?'참석':m.attendance_status==='proxy'?'위임':'불참'}</td></tr>`).join('')}
+              </tbody></table>
+            </section>`;
+        case 'charter':
+          if (!charter?.content) return '';
+          return `
+            <section class="minutes-section flow">
+              <h2>정관</h2>
+              <div class="body html-render">${charter.content}</div>
+            </section>`;
+        case 'orgchart':
+          if (!orgchart.nodes.length) return '';
+          return `
+            <section class="minutes-section">
+              <h2>조직도</h2>
+              ${orgChartImageDataUrl
+                ? `<img src="${orgChartImageDataUrl}" style="display:block;max-width:100%;height:auto;margin:0 auto;border:1px solid #ddd;border-radius:8px;">`
+                : '<div style="color:#888;">조직도 이미지를 생성할 수 없습니다.</div>'}
+            </section>`;
+        default: return '';
+      }
+    }
+
+    function render() {
+      const p = document.getElementById('preview');
+      let html = '';
+      optItems.forEach(it => {
+        if (it.checked) html += renderSection(it.key);
+      });
+      p.innerHTML = html || '<div class="empty">출력 항목을 선택하세요.</div>';
+      // Wait for images to load, then split long sections into separate A4 pages
+      const imgs = p.querySelectorAll('img');
+      if (imgs.length) {
+        Promise.all([...imgs].map(img => img.complete ? Promise.resolve() : new Promise(r => { img.onload = img.onerror = r; })))
+          .then(() => requestAnimationFrame(paginateLongSections));
+      } else {
+        requestAnimationFrame(paginateLongSections);
+      }
+    }
+
+    // Split long .minutes-section.flow elements into multiple A4 pages.
+    //   Strategy:
+    //   1. Unwrap .body/.html-render so we can paginate at child-block level
+    //   2. PRE-SPLIT every multi-sentence text paragraph into sentence-level
+    //      <p>s with margin:0 — so a long block becomes many small blocks
+    //      that the packer can stuff into page bottoms instead of orphan-ing
+    //      a heading and leaving empty space.
+    //   3. Pack measured blocks into pages: keep filling current page until
+    //      the next block doesn't fit, then start a new page.
+    function paginateLongSections() {
+      // Step 1: unwrap inline body/html-render wrappers
+      document.querySelectorAll('.minutes-section.flow .body, .minutes-section.flow .html-render').forEach(wrap => {
+        const parent = wrap.parentNode;
+        while (wrap.firstChild) parent.insertBefore(wrap.firstChild, wrap);
+        wrap.remove();
+      });
+
+      // Step 2a: pre-split text paragraphs by sentences so the packer can
+      //   fill page bottoms tightly.
+      document.querySelectorAll('.minutes-section.flow').forEach(section => {
+        Array.from(section.children).forEach(child => {
+          if (!/^(P|DIV)$/.test(child.tagName)) return;
+          if (child.children.length > 0) return; // keep rich-formatted blocks intact
+          const text = child.textContent.trim();
+          if (text.length < 100) return;
+          const sentences = text.split(/(?<=[.!?。])\s+/).filter(s => s.trim());
+          if (sentences.length < 2) return;
+          const tag = child.tagName.toLowerCase();
+          const cls = child.className;
+          const baseStyle = (child.getAttribute('style') || '').replace(/margin[^;]*;?/gi, '');
+          sentences.forEach(s => {
+            const e = document.createElement(tag);
+            if (cls) e.className = cls;
+            e.setAttribute('style', baseStyle + ';margin:0;');
+            e.textContent = s;
+            child.parentNode.insertBefore(e, child);
+          });
+          child.remove();
+        });
+      });
+
+      // Step 2b: pre-split <ol>/<ul> at <li> boundaries — each <li> becomes
+      //   its own list (with proper `start` attribute on <ol> to preserve
+      //   numbering). This lets the packer place items on different pages.
+      document.querySelectorAll('.minutes-section.flow').forEach(section => {
+        Array.from(section.children).forEach(child => {
+          if (!/^(OL|UL)$/.test(child.tagName)) return;
+          const items = Array.from(child.children).filter(c => c.tagName === 'LI');
+          if (items.length < 2) return;
+          const tag = child.tagName.toLowerCase();
+          const cls = child.className;
+          const typeAttr = child.getAttribute('type');
+          const startAttr = child.getAttribute('start');
+          const startNum = startAttr ? parseInt(startAttr, 10) : 1;
+          const baseStyle = (child.getAttribute('style') || '').replace(/margin[^;]*;?/gi, '');
+          items.forEach((li, idx) => {
+            const newList = document.createElement(tag);
+            if (cls) newList.className = cls;
+            if (typeAttr) newList.setAttribute('type', typeAttr);
+            if (tag === 'ol') newList.setAttribute('start', String(startNum + idx));
+            newList.setAttribute('style', baseStyle + ';margin:0;padding-top:0;padding-bottom:0;');
+            newList.appendChild(li);
+            child.parentNode.insertBefore(newList, child);
+          });
+          child.remove();
+        });
+      });
+
+      const PAGE_H = 297 * 96 / 25.4;     // A4 page height in px (~1123)
+      const PAD_V = 20 * 96 / 25.4 * 2;   // top + bottom padding (~150px)
+      const USABLE = PAGE_H - PAD_V - 20; // 20px slack
+
+      // Step 3: pack into pages
+      Array.from(document.querySelectorAll('.minutes-section.flow')).forEach(section => {
+        if (section.offsetHeight <= PAGE_H + 8) {
+          section.classList.remove('flow');
+          return;
+        }
+        const children = Array.from(section.children);
+        if (!children.length) return;
+        const measured = children.map(c => {
+          const cs = getComputedStyle(c);
+          return {
+            el: c,
+            h: c.offsetHeight + parseFloat(cs.marginTop || 0) + parseFloat(cs.marginBottom || 0)
+          };
+        });
+        const pages = [[]];
+        let curH = 0;
+        for (const m of measured) {
+          if (m.h > USABLE) {
+            if (pages[pages.length - 1].length > 0) pages.push([]);
+            pages[pages.length - 1].push(m.el);
+            curH = m.h;
+            continue;
+          }
+          if (curH + m.h > USABLE && pages[pages.length - 1].length > 0) {
+            pages.push([]);
+            curH = 0;
+          }
+          pages[pages.length - 1].push(m.el);
+          curH += m.h;
+        }
+        while (pages.length && pages[pages.length - 1].length === 0) pages.pop();
+        if (pages.length <= 1) {
+          section.classList.remove('flow');
+          return;
+        }
+        const parent = section.parentNode;
+        pages.forEach(pageEls => {
+          const ns = document.createElement('section');
+          ns.className = 'minutes-section';
+          pageEls.forEach(el => ns.appendChild(el));
+          parent.insertBefore(ns, section);
+        });
+        section.remove();
+      });
+    }
+
+    function buildPrintHtml() {
+      return document.getElementById('preview').innerHTML;
+    }
+
+    function renderCoverItemHtml(key, conf) {
+      const sz = conf.size || 'medium';
+      if (key === 'logo') {
+        const variant = conf.variant || 'combo';
+        const logoSrc = pickLogo(organization, variant);
+        if (!logoSrc) return '';
+        return `<img src="${logoSrc}" class="cover-logo size-${sz}" alt="logo">`;
+      }
+      if (key === 'orgName') return `<div class="cover-orgname size-${sz}">${escapeXml(organization.name)}</div>`;
+      if (key === 'title') return `<h1 class="cover-title size-${sz}">${escapeXml(meeting.title)}</h1>`;
+      if (key === 'date') return `<div class="cover-date size-${sz}">${fmtDate(meeting.meeting_date)}</div>`;
+      if (key === 'location') return `<div class="cover-location size-${sz}">${escapeXml(meeting.location || '')}</div>`;
+      return '';
+    }
+
+    function renderCoverSection(settings, asPreview) {
+      // Group enabled items by their position cell
+      const groups = {};
+      COVER_ITEMS.forEach(item => {
+        const conf = settings[item.key];
+        if (!conf || !conf.show) return;
+        if (item.key === 'logo' && !pickLogo(organization, conf.variant || 'combo')) return;
+        if (item.key === 'location' && !meeting.location) return;
+        const pos = conf.position || 'middle-center';
+        if (!groups[pos]) groups[pos] = [];
+        groups[pos].push({ key: item.key, conf });
+      });
+      const cellHtml = (pos) => {
+        const items = groups[pos] || [];
+        if (!items.length) return `<div class="cover-cell" data-row="${pos.split('-')[0]}" data-col="${pos.split('-')[1]}"></div>`;
+        const row = pos.split('-')[0], col = pos.split('-')[1];
+        return `<div class="cover-cell" data-row="${row}" data-col="${col}">
+          ${items.map(it => renderCoverItemHtml(it.key, it.conf)).join('')}
+        </div>`;
+      };
+      const positions = ['top-left','top-center','top-right','middle-left','middle-center','middle-right','bottom-left','bottom-center','bottom-right'];
+      const inner = positions.map(cellHtml).join('');
+      if (asPreview) {
+        return `<div class="cover-preview-content">${inner}</div>`;
+      }
+      return `<section class="minutes-section cover">${inner}</section>`;
+    }
+
+    // 표지 설정 모달
+    function openCoverSettings() {
+      const temp = JSON.parse(JSON.stringify(coverSettings));
+      modal({
+        title: '🎨 표지 설정',
+        body: `
+          <div class="text-sm text-muted mb-12">로고는 위치/크기를, 나머지 항목은 표시 여부만 설정합니다.</div>
+          <div style="display:grid;grid-template-columns:1fr 200px;gap:16px;">
+            <div id="csControls"></div>
+            <div>
+              <div class="label" style="font-size:12px;">미리보기</div>
+              <div class="cover-preview-frame" id="csPreview"></div>
+              <div class="text-sm text-muted mt-8" style="text-align:center;font-size:11px;">A4 비율</div>
+            </div>
+          </div>
+        `,
+        confirmText: '적용',
+        onConfirm: () => {
+          coverSettings = temp;
+          render();
+        }
+      });
+      paintCoverPreview(temp);
+      paintCoverControls(temp);
+    }
+
+    function paintCoverPreview(settings) {
+      const frame = document.getElementById('csPreview');
+      if (!frame) return;
+      frame.innerHTML = renderCoverSection(settings, true);
+    }
+
+    function paintCoverControls(temp) {
+      const root = document.getElementById('csControls');
+      const hasAnyLogo = !!(organization.logo_url || organization.logo_text_url || organization.logo_combo_url);
+      root.innerHTML = COVER_ITEMS.map(item => {
+        const c = temp[item.key];
+        const isLogo = item.key === 'logo';
+        const disabled = isLogo && !hasAnyLogo;
+        const note = (isLogo && !hasAnyLogo) ? ' <span class="text-sm text-muted">(로고 미등록)</span>' : '';
+        const controlsHtml = isLogo ? `
+            <div class="row-controls" style="grid-template-columns:1fr;gap:6px;">
+              <div>
+                <label class="label">로고 종류</label>
+                <select class="select" id="ci_${item.key}_variant" ${disabled?'disabled':''}>
+                  ${LOGO_VARIANTS.map(v => `<option value="${v.value}" ${(c.variant||'combo')===v.value?'selected':''}>${v.label}</option>`).join('')}
+                </select>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+                <div>
+                  <label class="label">위치</label>
+                  <select class="select" id="ci_${item.key}_pos" ${disabled?'disabled':''}>
+                    ${POSITIONS.map(p => `<option value="${p.value}" ${c.position===p.value?'selected':''}>${p.label}</option>`).join('')}
+                  </select>
+                </div>
+                <div>
+                  <label class="label">크기</label>
+                  <select class="select" id="ci_${item.key}_size" ${disabled?'disabled':''}>
+                    ${SIZES.map(s => `<option value="${s.value}" ${c.size===s.value?'selected':''}>${s.label}</option>`).join('')}
+                  </select>
+                </div>
+              </div>
+            </div>
+        ` : '';
+        return `
+          <div class="cover-item-row ${!c.show?'disabled':''}" data-key="${item.key}">
+            <div class="row-head">
+              <input type="checkbox" id="ci_${item.key}_show" ${c.show?'checked':''} ${disabled?'disabled':''}>
+              <label for="ci_${item.key}_show" class="fw-700">${item.label}${note}</label>
+            </div>
+            ${controlsHtml}
+          </div>
+        `;
+      }).join('');
+      // Bind change events
+      COVER_ITEMS.forEach(item => {
+        const showEl = document.getElementById(`ci_${item.key}_show`);
+        const posEl = document.getElementById(`ci_${item.key}_pos`);
+        const sizeEl = document.getElementById(`ci_${item.key}_size`);
+        const varEl = document.getElementById(`ci_${item.key}_variant`);
+        if (showEl) showEl.onchange = () => { temp[item.key].show = showEl.checked; paintCoverPreview(temp); paintCoverControls(temp); };
+        if (posEl) posEl.onchange = () => { temp[item.key].position = posEl.value; paintCoverPreview(temp); };
+        if (sizeEl) sizeEl.onchange = () => { temp[item.key].size = sizeEl.value; paintCoverPreview(temp); };
+        if (varEl) varEl.onchange = () => { temp[item.key].variant = varEl.value; paintCoverPreview(temp); };
+      });
+    }
+
+    // 미리보기 — 새 창에 인쇄 스타일로 띄우고 인쇄 버튼 제공
+    function openPreview() {
+      const w = window.open('', '_blank', 'width=900,height=1100');
+      if (!w) { toast('팝업이 차단되었습니다. 팝업을 허용하세요.', 'error'); return; }
+      const printHtml = buildPrintHtml();
+      const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${meeting.title} 회의록 미리보기</title>
+        <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" rel="stylesheet">
+        <style>
+          @page { size: A4; margin: 0; }
+          body { margin: 0; padding: 14px; background: #ececec; font-family: 'Pretendard','맑은 고딕','Malgun Gothic',sans-serif; }
+          .toolbar { position: sticky; top: 0; z-index: 50; background: #2d3748; color: white; padding: 10px 16px; display: flex; gap: 8px; align-items: center; border-radius: 8px; margin-bottom: 14px; }
+          .toolbar h1 { font-size: 14px; margin: 0; flex: 1; }
+          .toolbar button { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-weight: 600; }
+          .btn-print { background: #f59e0b; color: white; }
+          .btn-close { background: #4a5568; color: white; }
+          .preview-wrap { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+          .minutes-section {
+            width: 210mm; min-height: 297mm; padding: 20mm 25mm; box-sizing: border-box;
+            background-color: #ffffff;
+            -webkit-print-color-adjust: exact; print-color-adjust: exact;
+            box-shadow: 0 2px 12px rgba(15, 23, 42, 0.15); border-radius: 4px;
+            color: #1a202c; font-size: 11pt; line-height: 1.7; page-break-after: always;
+          }
+          .minutes-section.flow { min-height: 297mm; }
+          .minutes-section:last-child { page-break-after: auto; }
+          .minutes-section h1 { font-size: 22pt; text-align: center; margin: 0 0 12pt; font-weight: 800; }
+          .minutes-section h2 { font-size: 16pt; margin: 0 0 10pt; padding-bottom: 6pt; border-bottom: 2px solid #1a202c; font-weight: 700; page-break-after: avoid; }
+          .minutes-section h3 { font-size: 13pt; margin: 16pt 0 6pt; font-weight: 700; page-break-after: avoid; }
+          .minutes-section .meta { text-align: center; color: #555; margin-bottom: 24pt; }
+          .minutes-section table { width: 100%; border-collapse: collapse; margin: 8pt 0; page-break-inside: avoid; }
+          .minutes-section th, .minutes-section td { border: 1px solid #999; padding: 6pt 9pt; text-align: left; vertical-align: top; }
+          .minutes-section th { background: #f0f0f0; }
+          .minutes-section img { max-width: 100%; height: auto; }
+          .minutes-section.cover { display:grid; grid-template-rows: 1fr 1fr 1fr; grid-template-columns: 1fr 1fr 1fr; background-color: #ffffff; }
+          .cover-cell { display: flex; flex-direction: column; gap: 12pt; }
+          .cover-cell[data-row="top"] { justify-content: flex-start; }
+          .cover-cell[data-row="middle"] { justify-content: center; }
+          .cover-cell[data-row="bottom"] { justify-content: flex-end; }
+          .cover-cell[data-col="left"] { align-items: flex-start; text-align: left; }
+          .cover-cell[data-col="center"] { align-items: center; text-align: center; }
+          .cover-cell[data-col="right"] { align-items: flex-end; text-align: right; }
+          .cover-logo { display: block; background-color: #ffffff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .cover-logo.size-small { max-width: 80mm; max-height: 30mm; }
+          .cover-logo.size-medium { max-width: 120mm; max-height: 60mm; }
+          .cover-logo.size-large { max-width: 160mm; max-height: 100mm; }
+          .cover-title.size-small { font-size: 22pt; font-weight: 800; margin: 0; }
+          .cover-title.size-medium { font-size: 30pt; font-weight: 800; margin: 0; }
+          .cover-title.size-large { font-size: 38pt; font-weight: 800; margin: 0; }
+          .cover-orgname.size-small { font-size: 12pt; font-weight: 600; }
+          .cover-orgname.size-medium { font-size: 16pt; font-weight: 700; }
+          .cover-orgname.size-large { font-size: 22pt; font-weight: 800; }
+          .cover-date.size-small, .cover-location.size-small { font-size: 11pt; color: #555; }
+          .cover-date.size-medium, .cover-location.size-medium { font-size: 14pt; color: #333; }
+          .cover-date.size-large, .cover-location.size-large { font-size: 18pt; color: #1a202c; font-weight: 600; }
+          @media print {
+            body { background: white; padding: 0; }
+            .toolbar { display: none; }
+            .preview-wrap { gap: 0; }
+            .minutes-section { box-shadow: none; border-radius: 0; margin: 0; }
+          }
+        </style></head><body>
+        <div class="toolbar">
+          <h1>${meeting.title} — 회의록 미리보기</h1>
+          <button class="btn-print" onclick="window.print()">🖨 인쇄</button>
+          <button class="btn-close" onclick="window.close()">닫기</button>
+        </div>
+        <div class="preview-wrap">${printHtml}</div>
+      </body></html>`;
+      w.document.open();
+      w.document.write(fullHtml);
+      w.document.close();
+    }
+
+  </script>
+</body>
+</html>

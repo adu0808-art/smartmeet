@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>정관 · SmartMeet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main">
+      <div class="topbar">
+        <div class="topbar-title">정관</div>
+        <div class="topbar-actions" id="userArea"></div>
+      </div>
+      <div class="content">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">정관 관리</h1>
+            <div class="page-sub">정관 내용을 작성하고 버전별로 보관할 수 있습니다.</div>
+          </div>
+          <div class="topbar-actions">
+            <button class="btn" id="versionBtn">📚 버전 저장</button>
+            <button class="btn btn-primary" id="saveBtn">💾 저장</button>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 280px;gap:20px;">
+          <div id="editor-host"></div>
+          <div class="card">
+            <div class="card-title">버전 이력</div>
+            <div id="versionList"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/sidebar.js"></script>
+  <script src="/js/editor.js"></script>
+  <script>
+    const orgId = qs('org');
+    let charter, versions, organization, editor;
+
+    (async function init() {
+      const me = await requireAuth();
+      document.getElementById('userArea').innerHTML = renderUserChip(me);
+      const o = await api.get(`/api/organizations/${orgId}`);
+      organization = o.organization;
+      renderOrgSidebar(organization, 'charter');
+
+      const data = await api.get(`/api/charter/${orgId}`);
+      charter = data.charter; versions = data.versions;
+
+      editor = await RichEditor.mount(document.getElementById('editor-host'), {
+        large: true,
+        placeholder: '정관 내용을 입력하세요. 제목, 표, 이미지, 목록 등 자유롭게 편집할 수 있습니다.',
+        value: charter.content || ''
+      });
+
+      renderVersions();
+      document.getElementById('saveBtn').onclick = save;
+      document.getElementById('versionBtn').onclick = saveVersion;
+    })();
+
+    function renderVersions() {
+      document.getElementById('versionList').innerHTML = versions.length
+        ? versions.map(v => `
+          <div class="flex items-center justify-between" style="padding:8px 0;border-bottom:1px solid var(--border);">
+            <div>
+              <div class="fw-700 text-sm">${v.version_name}</div>
+              <div class="text-sm text-muted">${fmtDate(v.created_at)}</div>
+            </div>
+            <div>
+              <button class="btn btn-sm" onclick="restore(${v.id})">복원</button>
+              <button class="btn btn-sm btn-danger" onclick="delVer(${v.id})">🗑</button>
+            </div>
+          </div>`).join('')
+        : '<div class="text-sm text-muted">버전 이력이 없습니다.</div>';
+    }
+
+    async function save() {
+      try {
+        await api.post(`/api/charter/${orgId}`, { content: editor.getHtml() });
+        toast('저장되었습니다.', 'success');
+      } catch (e) { toast(e.message, 'error'); }
+    }
+
+    function saveVersion() {
+      modal({
+        title: '버전 저장',
+        body: `<div class="field"><label class="label">버전명 *</label><input class="input" id="vname" placeholder="예: 2025년 개정"></div>`,
+        confirmText: '저장',
+        onConfirm: async () => {
+          const name = document.getElementById('vname').value.trim();
+          if (!name) { toast('버전명을 입력하세요.', 'error'); return false; }
+          try {
+            await api.post(`/api/charter/${orgId}/version`, { version_name: name, content: editor.getHtml() });
+            toast('버전이 저장되었습니다.', 'success');
+            const data = await api.get(`/api/charter/${orgId}`);
+            versions = data.versions; renderVersions();
+          } catch (e) { toast(e.message, 'error'); return false; }
+        }
+      });
+    }
+
+    function restore(id) {
+      confirmDialog('이 버전으로 복원하시겠습니까? 현재 작성중인 내용은 사라질 수 있습니다.', async () => {
+        try {
+          await api.post(`/api/charter/${orgId}/restore/${id}`);
+          const data = await api.get(`/api/charter/${orgId}`);
+          editor.setHtml(data.charter.content || '');
+          toast('복원되었습니다.', 'success');
+        } catch (e) { toast(e.message, 'error'); return false; }
+      });
+    }
+
+    function delVer(id) {
+      confirmDialog('해당 버전을 삭제하시겠습니까?', async () => {
+        try {
+          await api.del(`/api/charter/version/${id}`);
+          const data = await api.get(`/api/charter/${orgId}`);
+          versions = data.versions; renderVersions();
+          toast('삭제되었습니다.', 'success');
+        } catch (e) { toast(e.message, 'error'); return false; }
+      });
+    }
+  </script>
+</body>
+</html>

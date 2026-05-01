@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>주요 일정 · SmartMeet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main">
+      <div class="topbar">
+        <div class="topbar-title">주요 일정</div>
+        <div class="topbar-actions" id="userArea"></div>
+      </div>
+      <div class="content">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">기관 주요 일정</h1>
+            <div class="page-sub">목록 또는 달력으로 일정을 확인할 수 있습니다.</div>
+          </div>
+          <div class="topbar-actions">
+            <div class="tabs" style="margin:0;padding:4px;">
+              <div class="tab active" data-view="list">📋 목록</div>
+              <div class="tab" data-view="calendar">🗓 달력</div>
+            </div>
+            <button class="btn btn-primary" id="addBtn">+ 일정 추가</button>
+          </div>
+        </div>
+
+        <div id="listView"></div>
+
+        <div id="calendarView" class="hidden">
+          <div class="calendar">
+            <div class="calendar-head">
+              <button class="btn" id="prevMonth">◀ 이전</button>
+              <div class="calendar-title" id="calTitle">-</div>
+              <button class="btn" id="nextMonth">다음 ▶</button>
+            </div>
+            <div class="calendar-grid" id="calGrid"></div>
+            <div class="text-sm text-muted mt-12 text-right">
+              날짜 셀을 클릭하면 해당 날짜로 일정을 추가할 수 있습니다.
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/sidebar.js"></script>
+  <script>
+    const orgId = qs('org');
+    let schedules = [], organization;
+    let view = 'list';
+    const today = new Date();
+    let calYear = today.getFullYear(), calMonth = today.getMonth();
+
+    (async function init() {
+      const me = await requireAuth();
+      document.getElementById('userArea').innerHTML = renderUserChip(me);
+      const o = await api.get(`/api/organizations/${orgId}`);
+      organization = o.organization;
+      renderOrgSidebar(organization, 'schedule');
+      document.getElementById('addBtn').onclick = () => openForm();
+      document.querySelectorAll('[data-view]').forEach(t => t.onclick = () => switchView(t.dataset.view));
+      document.getElementById('prevMonth').onclick = () => { calMonth--; if (calMonth<0){calMonth=11;calYear--;} renderCalendar(); };
+      document.getElementById('nextMonth').onclick = () => { calMonth++; if (calMonth>11){calMonth=0;calYear++;} renderCalendar(); };
+      load();
+    })();
+
+    function switchView(v) {
+      view = v;
+      document.querySelectorAll('[data-view]').forEach(t => t.classList.toggle('active', t.dataset.view === v));
+      document.getElementById('listView').classList.toggle('hidden', v !== 'list');
+      document.getElementById('calendarView').classList.toggle('hidden', v !== 'calendar');
+      if (v === 'calendar') renderCalendar();
+    }
+
+    async function load() {
+      const data = await api.get(`/api/schedules/${orgId}`);
+      schedules = data.schedules;
+      renderList();
+      if (view === 'calendar') renderCalendar();
+    }
+
+    function renderList() {
+      const list = document.getElementById('listView');
+      if (!schedules.length) {
+        list.innerHTML = `<div class="empty"><div class="empty-title">등록된 일정이 없습니다</div><div class="empty-sub">‘+ 일정 추가’ 버튼으로 일정을 등록하세요.</div></div>`;
+        return;
+      }
+      const todayStr = new Date().toISOString().slice(0, 10);
+      list.innerHTML = schedules.map(s => {
+        const stat = s.schedule_date < todayStr ? 'past' : s.schedule_date === todayStr ? 'today' : 'future';
+        const tag = stat === 'past' ? '<span class="tag tag-status-done">지난 일정</span>'
+                  : stat === 'today' ? '<span class="tag tag-status-progress">오늘</span>'
+                  : '<span class="tag tag-status-prep">예정</span>';
+        return `
+          <div class="agenda-item">
+            <div class="agenda-no">
+              <div class="small">DATE</div>
+              <div class="num" style="font-size:13px;">${s.schedule_date.slice(5).replace('-','/')}</div>
+            </div>
+            <div class="agenda-body">
+              <div class="agenda-title">${tag} ${s.title}</div>
+              <div class="agenda-summary">${s.description || ''}</div>
+            </div>
+            <div class="agenda-actions">
+              <button class="btn btn-sm" onclick='openForm(${JSON.stringify(s)})'>수정</button>
+              <button class="btn btn-sm btn-danger" onclick="del(${s.id})">🗑</button>
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    function renderCalendar() {
+      document.getElementById('calTitle').textContent = `${calYear}년 ${calMonth + 1}월`;
+      const first = new Date(calYear, calMonth, 1);
+      const startDow = first.getDay();
+      const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+      const prevMonthDays = new Date(calYear, calMonth, 0).getDate();
+      const todayStr = new Date().toISOString().slice(0, 10);
+
+      const dows = ['일','월','화','수','목','금','토'];
+      const grid = document.getElementById('calGrid');
+      let html = dows.map((d, i) => `<div class="cal-dow ${i===0?'sun':''}${i===6?'sat':''}">${d}</div>`).join('');
+
+      const totalCells = Math.ceil((startDow + daysInMonth) / 7) * 7;
+      for (let i = 0; i < totalCells; i++) {
+        let day, year, month, muted = false;
+        if (i < startDow) {
+          muted = true;
+          day = prevMonthDays - startDow + 1 + i;
+          month = calMonth - 1; year = calYear;
+          if (month < 0) { month = 11; year--; }
+        } else if (i >= startDow + daysInMonth) {
+          muted = true;
+          day = i - startDow - daysInMonth + 1;
+          month = calMonth + 1; year = calYear;
+          if (month > 11) { month = 0; year++; }
+        } else {
+          day = i - startDow + 1;
+          month = calMonth; year = calYear;
+        }
+        const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+        const dow = i % 7;
+        const isToday = dateStr === todayStr;
+        const events = schedules.filter(s => s.schedule_date === dateStr);
+        html += `
+          <div class="cal-cell ${muted?'muted':''} ${isToday?'today':''}" onclick="onCellClick('${dateStr}')">
+            <div class="cal-day ${dow===0?'sun':''}${dow===6?'sat':''}">${day}</div>
+            ${events.map(e => {
+              const cls = e.schedule_date < todayStr ? 'past' : e.schedule_date === todayStr ? 'today' : '';
+              return `<div class="cal-event ${cls}" title="${e.title}" onclick="event.stopPropagation();openForm(${JSON.stringify(e).replace(/"/g,'&quot;')})">${e.title}</div>`;
+            }).join('')}
+          </div>`;
+      }
+      grid.innerHTML = html;
+    }
+
+    function onCellClick(date) { openForm({ schedule_date: date }); }
+
+    function openForm(s) {
+      s = s || {};
+      modal({
+        title: s.id ? '일정 수정' : '일정 추가',
+        body: `
+          <div class="field"><label class="label">일정명 *</label><input class="input" id="sd_t" value="${s.title||''}"></div>
+          <div class="field"><label class="label">날짜 *</label><input class="input" id="sd_d" type="date" value="${s.schedule_date||''}"></div>
+          <div class="field"><label class="label">설명</label><textarea class="textarea" id="sd_desc">${s.description||''}</textarea></div>
+        `,
+        confirmText: '저장',
+        onConfirm: async () => {
+          const payload = { title: document.getElementById('sd_t').value.trim(), schedule_date: document.getElementById('sd_d').value, description: document.getElementById('sd_desc').value };
+          if (!payload.title || !payload.schedule_date) { toast('필수값을 입력하세요.', 'error'); return false; }
+          try { if (s.id) await api.put(`/api/schedules/${s.id}`, payload); else await api.post(`/api/schedules/${orgId}`, payload); toast('저장되었습니다.', 'success'); load(); }
+          catch (e) { toast(e.message, 'error'); return false; }
+        }
+      });
+    }
+
+    function del(id) {
+      confirmDialog('삭제하시겠습니까?', async () => {
+        try { await api.del(`/api/schedules/${id}`); toast('삭제되었습니다.', 'success'); load(); }
+        catch (e) { toast(e.message, 'error'); return false; }
+      });
+    }
+  </script>
+</body>
+</html>

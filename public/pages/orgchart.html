@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>조직도 · SmartMeet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    .canvas-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      height: 640px;
+      position: relative;
+      overflow: auto;
+      box-shadow: var(--shadow-sm);
+      user-select: none;
+    }
+    .zoom-layer {
+      position: relative;
+      transform-origin: 0 0;
+      width: 2400px;
+      height: 1600px;
+    }
+    .canvas-bg {
+      position: absolute; inset: 0;
+      background-image:
+        radial-gradient(circle, var(--border-strong) 1.4px, transparent 1.4px),
+        radial-gradient(circle, var(--border) 1px, transparent 1px);
+      background-size: 96px 96px, 12px 12px;
+      background-position: 0 0, 0 0;
+    }
+    /* Alignment guide lines (shown during drag) */
+    .align-guide {
+      position: absolute;
+      pointer-events: none;
+      z-index: 5;
+      background: #ef4444;
+    }
+    .align-guide.vertical {
+      width: 1px;
+      height: 100%;
+      top: 0;
+      box-shadow: 0 0 0 0.5px rgba(239,68,68,0.3);
+    }
+    .align-guide.horizontal {
+      height: 1px;
+      width: 100%;
+      left: 0;
+      box-shadow: 0 0 0 0.5px rgba(239,68,68,0.3);
+    }
+    /* Straight-line connection indicator */
+    .node.aligned-with-target {
+      box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.35), var(--shadow);
+    }
+    .zoom-controls {
+      position: sticky;
+      top: 12px;
+      left: calc(100% - 200px);
+      width: 188px;
+      margin-bottom: -50px;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 4px;
+      box-shadow: var(--shadow);
+    }
+    .zoom-controls button {
+      width: 30px; height: 30px;
+      border-radius: 6px;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      font-size: 14px;
+      color: var(--text);
+    }
+    .zoom-controls button:hover { background: var(--surface-2); }
+    #zoomLevel {
+      flex: 1;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-muted);
+    }
+    /* 편집 모드(.node)와 보기 모드(.orgchart-node) 가 동일하게 보이도록 정렬 — 패딩·색상·테두리·라운드 일치 */
+    .node {
+      position: absolute;
+      min-width: 160px;
+      min-height: 60px;
+      max-width: 360px;
+      background: var(--surface);
+      border: 2px solid var(--border-strong);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      cursor: move;
+      overflow: hidden;
+    }
+    .node.connect-target { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+    .node-title {
+      font-weight: 700;
+      font-size: 14px;
+      padding: 12px 14px 10px;            /* 보기 모드와 동일한 대칭 패딩 */
+      text-align: center;
+      border-bottom: 1px solid rgba(0,0,0,0.06);
+      background: rgba(0,0,0,0.03);
+      color: var(--text);
+    }
+    .node-content {
+      padding: 4px 0;
+    }
+    .node-line {
+      padding: 6px 14px;
+      font-size: 12px;
+      color: var(--text);
+      border-bottom: 1px dashed var(--border);
+      text-align: center;
+    }
+    .node-line:last-child { border-bottom: none; }
+    .node-empty {
+      padding: 10px 16px;
+      font-size: 11px;
+      color: var(--text-soft);
+      text-align: center;
+      font-style: italic;
+    }
+    /* 액션 버튼·리사이즈 핸들의 호버/비호버 표시는 styles.css 에서 일괄 관리 */
+    /* === Embed mode (iframe inside home page): hide chrome — but keep action buttons visible === */
+    body.embed .sidebar,
+    body.embed .topbar { display: none !important; }
+    body.embed .app { grid-template-columns: 1fr; }
+    body.embed .content { padding: 14px; }
+    /* page-header: 제목·서브 텍스트만 숨기고 버튼은 그대로 */
+    body.embed .page-header > div:first-child { display: none !important; }
+    body.embed .page-header {
+      margin-bottom: 10px;
+      justify-content: flex-end;
+    }
+    body.embed .canvas-wrap { height: calc(100vh - 110px); }
+
+    /* === 다중 선택 (Shift+클릭) === */
+    .node.node-selected {
+      border-color: var(--accent) !important;
+      box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow-md) !important;
+    }
+    .selection-info {
+      position: sticky;
+      top: 12px;
+      left: 12px;
+      width: fit-content;
+      margin-bottom: -34px;
+      z-index: 10;
+      display: none;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 14px;
+      background: var(--accent);
+      color: white;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      box-shadow: var(--shadow);
+    }
+    .selection-info.active { display: inline-flex; }
+    .selection-info button {
+      background: rgba(255, 255, 255, 0.2);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 3px 10px;
+      font-size: 11px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+    .selection-info button:hover { background: rgba(255, 255, 255, 0.3); }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main">
+      <div class="topbar">
+        <div class="topbar-title">조직도</div>
+        <div class="topbar-actions" id="userArea"></div>
+      </div>
+      <div class="content">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">조직도 설계</h1>
+            <div class="page-sub">제목과 여러 줄의 내용을 가진 노드로 조직 구조를 그리세요. 노드 우하단을 드래그해 크기를 조절할 수 있습니다.</div>
+          </div>
+          <div class="topbar-actions">
+            <button class="btn" id="addNodeBtn" data-admin-only>+ 노드 추가</button>
+            <button class="btn" id="versionBtn" data-admin-only>📚 버전</button>
+            <button class="btn" id="exportBtn">📥 내보내기</button>
+            <button class="btn" id="importBtn" data-admin-only>📤 가져오기</button>
+            <button class="btn btn-primary" id="saveBtn" data-admin-only>💾 저장</button>
+          </div>
+        </div>
+        <div class="canvas-wrap" id="canvas">
+          <div class="selection-info" id="selectionInfo">
+            <span id="selectionCount">0개 선택됨</span>
+            <button onclick="clearSelection()" title="선택 해제 (ESC)">✕ 해제</button>
+            <button onclick="deleteSelectedNodes()" title="선택 일괄 삭제">🗑 일괄 삭제</button>
+          </div>
+          <div class="zoom-controls">
+            <button title="축소" onclick="setZoom(zoomScale - 0.1)">−</button>
+            <button title="확대" onclick="setZoom(zoomScale + 0.1)">+</button>
+            <span id="zoomLevel">100%</span>
+            <button title="100%" onclick="setZoom(1)">⟲</button>
+            <button title="화면맞춤" onclick="fitZoom()">⛶</button>
+          </div>
+          <div class="zoom-layer" id="zoomLayer">
+            <div class="canvas-bg"></div>
+            <svg id="edges" style="position:absolute;inset:0;pointer-events:none;width:100%;height:100%;"></svg>
+          </div>
+        </div>
+        <div class="text-sm text-muted mt-12 flex gap-16" style="flex-wrap:wrap;">
+          <span>📍 빈 영역 더블클릭: 노드 추가</span>
+          <span>🖱 노드 드래그: 위치 이동</span>
+          <span>⇧ Shift+클릭: 다중 선택 (한꺼번에 이동)</span>
+          <span>🔗 우상단 버튼: 연결 시작</span>
+          <span>↘ 우하단: 크기 조절</span>
+          <span>📐 연결선 클릭: 삭제</span>
+          <span>⌨ ESC: 선택 해제</span>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/sidebar.js"></script>
+  <script>
+    const orgId = qs('org');
+    let organization, role, isAdmin = false;
+    let nodes = [], edges = [], versions = [];
+    let nextId = 1;
+    let connectFrom = null;
+    let zoomScale = 1;
+    let selectedIds = new Set();   // Shift+클릭으로 다중 선택된 노드 ID 모음
+
+    // ===== 다중 선택 관리 =====
+    function toggleSelection(id) {
+      if (selectedIds.has(id)) selectedIds.delete(id);
+      else selectedIds.add(id);
+      paintSelection();
+    }
+    function clearSelection() {
+      if (!selectedIds.size) return;
+      selectedIds.clear();
+      paintSelection();
+    }
+    function paintSelection() {
+      document.querySelectorAll('.node').forEach(el => {
+        el.classList.toggle('node-selected', selectedIds.has(Number(el.dataset.nodeId)));
+      });
+      const info = document.getElementById('selectionInfo');
+      const count = document.getElementById('selectionCount');
+      if (info && count) {
+        info.classList.toggle('active', selectedIds.size > 0);
+        count.textContent = `${selectedIds.size}개 선택됨`;
+      }
+    }
+    function deleteSelectedNodes() {
+      if (!selectedIds.size || !isAdmin) return;
+      confirmDialog(`선택한 ${selectedIds.size}개 노드를 삭제하시겠습니까? 연결된 라인도 함께 삭제됩니다.`, () => {
+        const ids = new Set(selectedIds);
+        nodes = nodes.filter(n => !ids.has(n.id));
+        edges = edges.filter(e => !ids.has(e[0]) && !ids.has(e[1]));
+        selectedIds.clear();
+        paint();
+      });
+    }
+
+    function setZoom(s) {
+      zoomScale = Math.max(0.3, Math.min(2.0, s));
+      const layer = document.getElementById('zoomLayer');
+      if (layer) layer.style.transform = `scale(${zoomScale})`;
+      const lbl = document.getElementById('zoomLevel');
+      if (lbl) lbl.textContent = Math.round(zoomScale * 100) + '%';
+    }
+    function fitZoom() {
+      const wrap = document.getElementById('canvas');
+      const layer = document.getElementById('zoomLayer');
+      if (!nodes.length) { setZoom(1); return; }
+      // Compute bounding box
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      nodes.forEach(n => {
+        const w = n.width || 160, h = n.height || 80;
+        minX = Math.min(minX, n.x);
+        minY = Math.min(minY, n.y);
+        maxX = Math.max(maxX, n.x + w);
+        maxY = Math.max(maxY, n.y + h);
+      });
+      const padding = 60;
+      const contentW = (maxX - minX) + padding * 2;
+      const contentH = (maxY - minY) + padding * 2;
+      const ratioW = wrap.clientWidth / contentW;
+      const ratioH = wrap.clientHeight / contentH;
+      setZoom(Math.min(ratioW, ratioH, 1.5));
+      wrap.scrollLeft = Math.max(0, (minX - padding) * zoomScale);
+      wrap.scrollTop = Math.max(0, (minY - padding) * zoomScale);
+    }
+
+    function escapeHtml(s) { return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+    (async function init() {
+      // Embed mode: hide sidebar/topbar/page-header (when iframe-loaded inside home)
+      if (qs('embed') === '1') document.body.classList.add('embed');
+
+      const me = await requireAuth();
+      document.getElementById('userArea').innerHTML = renderUserChip(me);
+      const o = await api.get(`/api/organizations/${orgId}`);
+      organization = o.organization; role = o.my_role;
+      isAdmin = role === 'system_admin' || role === 'admin';
+      renderOrgSidebar(organization, 'orgchart', { role });
+      showOnlyForAdmin(role);
+
+      await loadAll();
+
+      if (isAdmin) {
+        document.getElementById('addNodeBtn').onclick = () => openNodeModal({});
+        document.getElementById('saveBtn').onclick = save;
+        document.getElementById('importBtn').onclick = importJson;
+        document.getElementById('versionBtn').onclick = openVersionsModal;
+      }
+      document.getElementById('exportBtn').onclick = exportJson;
+
+      const c = document.getElementById('canvas');
+      c.addEventListener('dblclick', (e) => {
+        if (!isAdmin) return;
+        if (e.target.id !== 'canvas' && !e.target.classList.contains('canvas-bg') && e.target.id !== 'zoomLayer') return;
+        const r = c.getBoundingClientRect();
+        const sl = c.scrollLeft, st = c.scrollTop;
+        // Account for zoom
+        const x = (e.clientX - r.left + sl) / zoomScale - 80;
+        const y = (e.clientY - r.top + st) / zoomScale - 24;
+        openNodeModal({ x, y });
+      });
+
+      // Ctrl+wheel to zoom
+      c.addEventListener('wheel', (e) => {
+        if (!e.ctrlKey) return;
+        e.preventDefault();
+        setZoom(zoomScale + (e.deltaY > 0 ? -0.1 : 0.1));
+      }, { passive: false });
+
+      // 빈 영역 클릭 시 선택 해제 (Shift 누르고 있으면 유지)
+      c.addEventListener('click', (e) => {
+        if (e.shiftKey) return;
+        if (e.target.id === 'canvas' || e.target.classList.contains('canvas-bg') || e.target.id === 'zoomLayer') {
+          clearSelection();
+        }
+      });
+
+      // ESC: 선택 해제 / 연결 모드 취소 / Delete: 선택된 노드 일괄 삭제
+      document.addEventListener('keydown', (e) => {
+        // 입력 요소에 포커스되어 있으면 무시
+        const tag = (e.target.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
+        if (e.key === 'Escape') {
+          if (connectFrom !== null) cancelConnect();
+          else if (selectedIds.size) clearSelection();
+        }
+        if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.size && isAdmin) {
+          e.preventDefault();
+          deleteSelectedNodes();
+        }
+      });
+
+      paint();
+    })();
+
+    async function loadAll() {
+      const data = await api.get(`/api/orgchart/${orgId}`);
+      versions = data.versions || [];
+      try {
+        const parsed = JSON.parse(data.orgchart.data || '{}');
+        nodes = (parsed.nodes || []).map(n => {
+          if (!Array.isArray(n.contents)) {
+            n.contents = n.sub ? [n.sub] : [];
+          }
+          delete n.sub;
+          return n;
+        });
+        edges = parsed.edges || [];
+        nextId = (Math.max(0, ...nodes.map(n => n.id || 0))) + 1;
+      } catch { nodes = []; edges = []; }
+    }
+
+    function openNodeModal(preset, existing) {
+      const n = existing || {};
+      const initialContents = Array.isArray(n.contents) ? [...n.contents] : [];
+      let working = [...initialContents];
+
+      const editorBody = document.createElement('div');
+      editorBody.innerHTML = `
+        <div class="field"><label class="label">제목 (직책명) *</label><input class="input" id="nm_t" value="${escapeHtml(n.title || '')}" placeholder="예: 회장, 사무국장"></div>
+        <div class="field">
+          <label class="label">내용</label>
+          <div id="contentRows"></div>
+          <button type="button" class="btn btn-sm" id="addContentRowBtn">+ 내용 추가</button>
+        </div>
+        <div class="field"><label class="label">배경색</label>
+          <div class="flex gap-8 items-center">
+            <input type="color" id="nm_c" value="${n.color || '#ffffff'}" style="width:60px;height:38px;border:1px solid var(--border);border-radius:6px;">
+            <div class="flex gap-8" style="flex-wrap:wrap;">
+              ${['#ffffff','#fef3c7','#dbeafe','#dcfce7','#fce7f3','#ede9fe','#fee2e2'].map(c => `
+                <button type="button" class="btn-icon" style="width:28px;height:28px;border-radius:50%;background:${c};border:2px solid var(--border);" data-color="${c}"></button>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      `;
+
+      modal({
+        title: existing ? '노드 편집' : '노드 추가',
+        body: editorBody,
+        size: 'lg',
+        confirmText: '저장',
+        onConfirm: () => {
+          const title = document.getElementById('nm_t').value.trim();
+          if (!title) { toast('제목을 입력하세요.', 'error'); return false; }
+          const color = document.getElementById('nm_c').value;
+          const cleanContents = working.map(c => (c || '').trim()).filter(c => c.length > 0);
+          if (existing) {
+            existing.title = title;
+            existing.contents = cleanContents;
+            existing.color = color;
+            delete existing.sub;
+          } else {
+            // Snap initial position to grid
+            const sx = Math.round((preset.x ?? 60) / GRID_SIZE) * GRID_SIZE;
+            const sy = Math.round((preset.y ?? 60) / GRID_SIZE) * GRID_SIZE;
+            nodes.push({
+              id: nextId++,
+              x: sx,
+              y: sy,
+              title,
+              contents: cleanContents,
+              color
+            });
+          }
+          paint();
+        }
+      });
+
+      function paintRows() {
+        const c = document.getElementById('contentRows');
+        c.innerHTML = working.length === 0 ? '<div class="text-sm text-muted mb-8">‘+ 내용 추가’를 눌러 내용을 추가하세요.</div>' : working.map((v, i) => `
+          <div class="flex gap-8 mb-8 items-center">
+            <input class="input" data-idx="${i}" value="${escapeHtml(v)}" placeholder="내용 ${i+1}" style="flex:1;">
+            <button type="button" class="btn btn-sm btn-danger" data-rm="${i}">×</button>
+          </div>
+        `).join('');
+        c.querySelectorAll('input[data-idx]').forEach(el => {
+          el.oninput = () => { working[Number(el.dataset.idx)] = el.value; };
+        });
+        c.querySelectorAll('[data-rm]').forEach(el => {
+          el.onclick = () => { working.splice(Number(el.dataset.rm), 1); paintRows(); };
+        });
+      }
+      paintRows();
+      document.getElementById('addContentRowBtn').onclick = () => { working.push(''); paintRows(); };
+      document.querySelectorAll('[data-color]').forEach(b => b.onclick = () => { document.getElementById('nm_c').value = b.dataset.color; });
+    }
+
+    function paint() {
+      const wrap = document.getElementById('canvas');
+      const layer = document.getElementById('zoomLayer');
+      [...layer.querySelectorAll('.node')].forEach(n => n.remove());
+      [...wrap.querySelectorAll('.connect-mode-indicator')].forEach(n => n.remove());
+
+      if (connectFrom !== null) {
+        const ind = document.createElement('div');
+        ind.className = 'connect-mode-indicator';
+        ind.innerHTML = '🔗 연결할 노드를 클릭하세요 <span style="opacity:0.7;cursor:pointer;margin-left:8px;" onclick="cancelConnect()">취소</span>';
+        wrap.appendChild(ind);
+      }
+
+      nodes.forEach(n => {
+        const el = document.createElement('div');
+        el.className = 'node' + (connectFrom !== null && connectFrom !== n.id ? ' connect-target' : '');
+        el.style.left = n.x + 'px';
+        el.style.top = n.y + 'px';
+        el.style.background = n.color || '#fff';
+        if (n.width) el.style.width = n.width + 'px';
+        if (n.height) el.style.height = n.height + 'px';
+        el.dataset.nodeId = n.id;
+        el.innerHTML = `
+          <div class="node-title">${escapeHtml(n.title)}</div>
+          <div class="node-content">
+            ${(n.contents || []).length
+              ? n.contents.map(c => `<div class="node-line">${escapeHtml(c)}</div>`).join('')
+              : '<div class="node-empty">내용 없음</div>'}
+          </div>
+          ${isAdmin ? `
+            <div class="node-actions">
+              <button class="node-act-btn" title="연결 시작" data-act="connect">🔗</button>
+              <button class="node-act-btn" title="복사" data-act="copy">📋</button>
+              <button class="node-act-btn" title="편집" data-act="edit">✏️</button>
+              <button class="node-act-btn danger" title="삭제" data-act="del">🗑</button>
+            </div>
+            <div class="node-resize-handle" title="크기 조절"></div>
+          ` : ''}
+        `;
+        if (isAdmin) {
+          el.querySelector('[data-act="connect"]').onclick = (e) => { e.stopPropagation(); startConnect(n.id); };
+          el.querySelector('[data-act="copy"]').onclick = (e) => { e.stopPropagation(); copyNode(n.id); };
+          el.querySelector('[data-act="edit"]').onclick = (e) => { e.stopPropagation(); openNodeModal(null, n); };
+          el.querySelector('[data-act="del"]').onclick = (e) => { e.stopPropagation(); deleteNode(n.id); };
+          el.querySelector('.node-resize-handle').addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); startResize(e, n, el); });
+        }
+
+        el.addEventListener('click', (e) => {
+          if (e.target.closest('[data-act]') || e.target.classList.contains('node-resize-handle')) return;
+          // Shift+클릭: 다중 선택 토글
+          if (e.shiftKey && isAdmin) {
+            e.stopPropagation();
+            toggleSelection(n.id);
+            return;
+          }
+          if (connectFrom !== null && isAdmin) {
+            if (connectFrom !== n.id) {
+              const exists = edges.some(([a,b]) => a===connectFrom && b===n.id);
+              if (!exists) edges.push([connectFrom, n.id]);
+              connectFrom = null;
+              paint();
+            }
+          }
+        });
+
+        el.addEventListener('mousedown', (e) => {
+          if (!isAdmin) return;
+          if (e.target.closest('[data-act]') || e.target.classList.contains('node-resize-handle')) return;
+          if (connectFrom !== null) return;
+          if (e.shiftKey) return;  // Shift 는 선택 토글용 → 드래그 시작 방지
+          startDrag(e, n, el);
+        });
+
+        layer.appendChild(el);
+      });
+      // 새 paint 호출 시 선택 상태 시각 표시 갱신
+      paintSelection();
+      requestAnimationFrame(() => paintEdges());
+    }
+
+    function nodeRect(id) {
+      const n = nodes.find(x => x.id === id); if (!n) return null;
+      const el = document.querySelector(`.node[data-node-id="${id}"]`);
+      const w = el?.offsetWidth || n.width || 160;
+      const h = el?.offsetHeight || n.height || 80;
+      return { x: n.x, y: n.y, w, h };
+    }
+
+    function elbowPath(a, b) {
+      const acx = a.x + a.w / 2, acy = a.y + a.h / 2;
+      const bcx = b.x + b.w / 2, bcy = b.y + b.h / 2;
+      const dx = bcx - acx, dy = bcy - acy;
+      let sx, sy, tx, ty, mid;
+      if (Math.abs(dy) >= Math.abs(dx)) {
+        if (dy >= 0) { sx = a.x + a.w/2; sy = a.y + a.h; tx = b.x + b.w/2; ty = b.y; }
+        else         { sx = a.x + a.w/2; sy = a.y;       tx = b.x + b.w/2; ty = b.y + b.h; }
+        const my = (sy + ty) / 2;
+        mid = `M ${sx} ${sy} L ${sx} ${my} L ${tx} ${my} L ${tx} ${ty}`;
+      } else {
+        if (dx >= 0) { sx = a.x + a.w; sy = a.y + a.h/2; tx = b.x;       ty = b.y + b.h/2; }
+        else         { sx = a.x;       sy = a.y + a.h/2; tx = b.x + b.w; ty = b.y + b.h/2; }
+        const mx = (sx + tx) / 2;
+        mid = `M ${sx} ${sy} L ${mx} ${sy} L ${mx} ${ty} L ${tx} ${ty}`;
+      }
+      return mid;
+    }
+
+    function paintEdges() {
+      const svg = document.getElementById('edges');
+      svg.innerHTML = '';
+      edges.forEach(([a, b], idx) => {
+        const ra = nodeRect(a), rb = nodeRect(b);
+        if (!ra || !rb) return;
+        const d = elbowPath(ra, rb);
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', d);
+        path.setAttribute('stroke', '#94a3b8');
+        path.setAttribute('stroke-width', '2');
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke-linejoin', 'round');
+        path.style.pointerEvents = 'stroke';
+        if (isAdmin) {
+          path.style.cursor = 'pointer';
+          path.addEventListener('click', () => {
+            confirmDialog('이 연결을 삭제하시겠습니까?', () => { edges.splice(idx, 1); paint(); });
+          });
+          path.addEventListener('mouseenter', () => path.setAttribute('stroke', '#ef4444'));
+          path.addEventListener('mouseleave', () => path.setAttribute('stroke', '#94a3b8'));
+        }
+        svg.appendChild(path);
+      });
+    }
+
+    // ===== Grid snap settings =====
+    const GRID_SIZE = 12;             // 12px grid (촘촘함)
+    const ALIGN_THRESHOLD = 6;        // px: how close before snapping to alignment
+    const snap = (v) => Math.round(v / GRID_SIZE) * GRID_SIZE;
+
+    // Show vertical/horizontal red guide line at canvas position (in canvas coords)
+    function showGuide(orientation, pos) {
+      removeGuides();
+      const layer = document.getElementById('zoomLayer');
+      const g = document.createElement('div');
+      g.className = `align-guide ${orientation}`;
+      if (orientation === 'vertical') g.style.left = pos + 'px';
+      else g.style.top = pos + 'px';
+      layer.appendChild(g);
+    }
+    function removeGuides() {
+      document.querySelectorAll('.align-guide').forEach(g => g.remove());
+    }
+
+    function startDrag(e, n, el) {
+      e.preventDefault();
+      const sx = e.clientX, sy = e.clientY;
+      const ox = n.x, oy = n.y;
+      const w = el.offsetWidth, h = el.offsetHeight;
+
+      // 다중 드래그: 클릭한 노드가 선택 그룹에 속해 있으면 그 그룹 전체 이동
+      const isMultiDrag = selectedIds.has(n.id) && selectedIds.size > 1;
+      const dragIds = isMultiDrag ? new Set(selectedIds) : new Set([n.id]);
+      // 드래그 시작 시점의 각 노드 위치를 저장
+      const initial = Array.from(dragIds).map(id => {
+        const node = nodes.find(x => x.id === id);
+        return { id, x: node.x, y: node.y };
+      });
+
+      // 정렬 가이드용 기준 — 드래그 중인 노드들은 제외
+      const others = nodes.filter(o => !dragIds.has(o.id)).map(o => {
+        const oel = document.querySelector(`.node[data-node-id="${o.id}"]`);
+        const ow = oel?.offsetWidth || o.width || 160;
+        const oh = oel?.offsetHeight || o.height || 80;
+        return {
+          id: o.id,
+          centerX: o.x + ow / 2,
+          centerY: o.y + oh / 2,
+          left: o.x, right: o.x + ow,
+          top: o.y, bottom: o.y + oh
+        };
+      });
+
+      const move = (e) => {
+        let nx = Math.max(0, ox + (e.clientX - sx) / zoomScale);
+        let ny = Math.max(0, oy + (e.clientY - sy) / zoomScale);
+
+        // Snap to grid
+        nx = snap(nx);
+        ny = snap(ny);
+
+        // Snap to alignment with other nodes (단일 드래그일 때만 — 다중 드래그는 그룹 형태 유지를 위해 격자 스냅만)
+        let alignVx = null, alignHy = null;
+        if (!isMultiDrag) {
+          const myCx = nx + w / 2, myCy = ny + h / 2;
+          for (const o of others) {
+            if (Math.abs(myCx - o.centerX) < ALIGN_THRESHOLD) { nx = o.centerX - w / 2; alignVx = o.centerX; break; }
+            if (Math.abs(nx - o.left) < ALIGN_THRESHOLD) { nx = o.left; alignVx = o.left; break; }
+            if (Math.abs(nx + w - o.right) < ALIGN_THRESHOLD) { nx = o.right - w; alignVx = o.right; break; }
+          }
+          for (const o of others) {
+            if (Math.abs(myCy - o.centerY) < ALIGN_THRESHOLD) { ny = o.centerY - h / 2; alignHy = o.centerY; break; }
+            if (Math.abs(ny - o.top) < ALIGN_THRESHOLD) { ny = o.top; alignHy = o.top; break; }
+            if (Math.abs(ny + h - o.bottom) < ALIGN_THRESHOLD) { ny = o.bottom - h; alignHy = o.bottom; break; }
+          }
+        }
+
+        // Show/hide alignment guides
+        removeGuides();
+        if (alignVx !== null) showGuide('vertical', alignVx);
+        if (alignHy !== null) {
+          const layer = document.getElementById('zoomLayer');
+          const g = document.createElement('div');
+          g.className = 'align-guide horizontal';
+          g.style.top = alignHy + 'px';
+          layer.appendChild(g);
+        }
+
+        // Visual indicator on connected nodes when current connection becomes straight (단일 드래그)
+        document.querySelectorAll('.node.aligned-with-target').forEach(x => x.classList.remove('aligned-with-target'));
+        if (!isMultiDrag) {
+          const myCx2 = nx + w / 2, myCy2 = ny + h / 2;
+          const connectedIds = new Set();
+          edges.forEach(([a, b]) => {
+            if (a === n.id) connectedIds.add(b);
+            if (b === n.id) connectedIds.add(a);
+          });
+          connectedIds.forEach(id => {
+            const o = others.find(x => x.id === id);
+            if (!o) return;
+            if (Math.abs(myCx2 - o.centerX) < ALIGN_THRESHOLD || Math.abs(myCy2 - o.centerY) < ALIGN_THRESHOLD) {
+              const tel = document.querySelector(`.node[data-node-id="${id}"]`);
+              if (tel) tel.classList.add('aligned-with-target');
+              el.classList.add('aligned-with-target');
+            }
+          });
+        }
+
+        // 기준 노드 이동량을 그룹 전체에 적용
+        const dx = nx - ox;
+        const dy = ny - oy;
+        initial.forEach(p => {
+          const node = nodes.find(x => x.id === p.id);
+          if (!node) return;
+          const newX = Math.max(0, p.x + dx);
+          const newY = Math.max(0, p.y + dy);
+          node.x = newX;
+          node.y = newY;
+          const nodeEl = document.querySelector(`.node[data-node-id="${node.id}"]`);
+          if (nodeEl) {
+            nodeEl.style.left = newX + 'px';
+            nodeEl.style.top = newY + 'px';
+          }
+        });
+        paintEdges();
+      };
+      const up = () => {
+        removeGuides();
+        document.querySelectorAll('.node.aligned-with-target').forEach(x => x.classList.remove('aligned-with-target'));
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+      };
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+    }
+
+    function startResize(e, n, el) {
+      const sx = e.clientX, sy = e.clientY;
+      const ow = el.offsetWidth, oh = el.offsetHeight;
+      const move = (e) => {
+        let w = Math.max(140, ow + (e.clientX - sx) / zoomScale);
+        let h = Math.max(60, oh + (e.clientY - sy) / zoomScale);
+        // Snap to grid
+        w = snap(w); h = snap(h);
+        n.width = w; n.height = h;
+        el.style.width = w + 'px';
+        el.style.height = h + 'px';
+        paintEdges();
+      };
+      const up = () => {
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+      };
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+    }
+
+    // ===== Copy node =====
+    function copyNode(id) {
+      const orig = nodes.find(n => n.id === id);
+      if (!orig) return;
+      const el = document.querySelector(`.node[data-node-id="${id}"]`);
+      const w = el?.offsetWidth || orig.width || 160;
+      const h = el?.offsetHeight || orig.height || 80;
+      const newNode = {
+        id: nextId++,
+        x: snap((orig.x || 0) + 24),
+        y: snap((orig.y || 0) + 24),
+        title: orig.title,
+        contents: Array.isArray(orig.contents) ? [...orig.contents] : [],
+        color: orig.color,
+        width: w,
+        height: h
+      };
+      nodes.push(newNode);
+      paint();
+      toast('노드가 복사되었습니다.', 'success');
+    }
+
+    function startConnect(id) { connectFrom = id; paint(); }
+    function cancelConnect() { connectFrom = null; paint(); }
+
+    function deleteNode(id) {
+      confirmDialog('이 노드를 삭제하시겠습니까? 연결된 라인도 함께 삭제됩니다.', () => {
+        nodes = nodes.filter(n => n.id !== id);
+        edges = edges.filter(e => e[0] !== id && e[1] !== id);
+        paint();
+      });
+    }
+
+    async function save() {
+      try {
+        // Capture actual rendered dimensions so display matches the editor exactly
+        nodes.forEach(n => {
+          const el = document.querySelector(`.node[data-node-id="${n.id}"]`);
+          if (el) {
+            n.width = el.offsetWidth;
+            n.height = el.offsetHeight;
+          }
+        });
+        await api.post(`/api/orgchart/${orgId}`, { data: JSON.stringify({ nodes, edges }) });
+        toast('저장되었습니다.', 'success');
+      } catch (e) { toast(e.message, 'error'); }
+    }
+
+    // ===== 버전 관리 =====
+    function openVersionsModal() {
+      modal({
+        title: '조직도 버전',
+        size: 'lg',
+        hideFoot: true,
+        body: `
+          <div class="text-sm text-muted mb-12">현재 작업 중인 조직도를 버전으로 저장하거나, 이전 버전으로 복원할 수 있습니다.</div>
+          <div class="flex gap-8 mb-16">
+            <input class="input" id="vname" placeholder="새 버전 이름 (예: 2025년 개정)" style="flex:1;">
+            <button class="btn btn-primary" id="saveVerBtn">버전 저장</button>
+          </div>
+          <div id="versionList"></div>
+        `
+      });
+      paintVersionList();
+      document.getElementById('saveVerBtn').onclick = saveVersion;
+    }
+
+    function paintVersionList() {
+      const root = document.getElementById('versionList');
+      if (!root) return;
+      root.innerHTML = `
+        <div class="card-title" style="font-size:13px;margin-bottom:8px;">버전 이력 (${versions.length}건)</div>
+        ${versions.length ? versions.map(v => `
+          <div class="flex items-center justify-between" style="padding:10px 0;border-bottom:1px solid var(--border);">
+            <div>
+              <div class="fw-700 text-sm">${escapeHtml(v.version_name)}</div>
+              <div class="text-sm text-muted">${fmtDate(v.created_at)}</div>
+            </div>
+            <div class="flex gap-8">
+              <button class="btn btn-sm" onclick="restoreVersion(${v.id})">복원</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteVersion(${v.id})">🗑</button>
+            </div>
+          </div>
+        `).join('') : '<div class="text-sm text-muted text-center" style="padding:20px;">저장된 버전이 없습니다.</div>'}
+      `;
+    }
+
+    async function saveVersion() {
+      const name = document.getElementById('vname').value.trim();
+      if (!name) { toast('버전명을 입력하세요.', 'error'); return; }
+      try {
+        await api.post(`/api/orgchart/${orgId}/version`, { version_name: name, data: JSON.stringify({ nodes, edges }) });
+        toast('버전이 저장되었습니다.', 'success');
+        document.getElementById('vname').value = '';
+        const data = await api.get(`/api/orgchart/${orgId}`);
+        versions = data.versions || [];
+        paintVersionList();
+      } catch (e) { toast(e.message, 'error'); }
+    }
+
+    async function restoreVersion(id) {
+      confirmDialog('이 버전으로 복원하시겠습니까? 현재 작업 중인 변경사항은 사라질 수 있습니다. (복원 후 별도 저장 필요)', async () => {
+        try {
+          const r = await api.post(`/api/orgchart/${orgId}/restore/${id}`);
+          // The restore endpoint also updates current org_charts. Reload
+          await loadAll();
+          paint();
+          paintVersionList();
+          toast('복원되었습니다.', 'success');
+        } catch (e) { toast(e.message, 'error'); return false; }
+      });
+    }
+
+    async function deleteVersion(id) {
+      confirmDialog('이 버전을 삭제하시겠습니까?', async () => {
+        try {
+          await api.del(`/api/orgchart/version/${id}`);
+          versions = versions.filter(v => v.id !== id);
+          paintVersionList();
+          toast('삭제되었습니다.', 'success');
+        } catch (e) { toast(e.message, 'error'); return false; }
+      });
+    }
+
+    function exportJson() {
+      const blob = new Blob([JSON.stringify({ nodes, edges }, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${organization.name}_조직도.json`;
+      a.click();
+    }
+
+    function importJson() {
+      const inp = document.createElement('input');
+      inp.type = 'file'; inp.accept = '.json';
+      inp.onchange = (e) => {
+        const f = e.target.files[0]; if (!f) return;
+        const r = new FileReader();
+        r.onload = () => {
+          try {
+            const d = JSON.parse(r.result);
+            nodes = (d.nodes || []).map(n => {
+              if (!Array.isArray(n.contents)) n.contents = n.sub ? [n.sub] : [];
+              delete n.sub;
+              return n;
+            });
+            edges = d.edges || [];
+            nextId = (Math.max(0, ...nodes.map(n => n.id || 0))) + 1;
+            paint();
+            toast('가져왔습니다.', 'success');
+          } catch (e) { toast('파일 파싱 실패', 'error'); }
+        };
+        r.readAsText(f);
+      };
+      inp.click();
+    }
+  </script>
+</body>
+</html>

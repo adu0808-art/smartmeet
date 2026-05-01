@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>역대 회장 · SmartMeet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    .pres-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
+    }
+    .pres-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px 20px;
+      text-align: center;
+      transition: all 0.2s;
+      box-shadow: var(--shadow-sm);
+    }
+    .pres-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); border-color: var(--border-strong); }
+    .pres-avatar {
+      width: 80px; height: 80px;
+      border-radius: 50%;
+      margin: 0 auto 14px;
+      background: linear-gradient(135deg, #fef3c7, #fbbf24);
+      display: grid; place-items: center;
+      font-size: 30px;
+      box-shadow: var(--shadow);
+    }
+    .pres-gen {
+      display: inline-block;
+      padding: 3px 10px;
+      background: var(--surface-2);
+      color: var(--text-muted);
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .pres-name { font-weight: 800; font-size: 18px; margin-bottom: 4px; }
+    .pres-info { color: var(--text-muted); font-size: 12px; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main">
+      <div class="topbar">
+        <div class="topbar-title">역대 회장</div>
+        <div class="topbar-actions" id="userArea"></div>
+      </div>
+      <div class="content">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">👑 역대 회장</h1>
+            <div class="page-sub" id="cnt">기관을 이끌어주신 역대 회장님들의 명단입니다.</div>
+          </div>
+          <div class="topbar-actions">
+            <button class="btn" id="exportBtn">📤 엑셀 내려받기</button>
+          </div>
+        </div>
+
+        <div id="list"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/sidebar.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script>
+    const orgId = qs('org');
+    let me, organization, role, presidents = [];
+
+    (async function init() {
+      me = await requireAuth();
+      document.getElementById('userArea').innerHTML = renderUserChip(me);
+      const o = await api.get(`/api/organizations/${orgId}`);
+      organization = o.organization; role = o.my_role;
+      renderOrgSidebar(organization, 'presidents', { role });
+      document.getElementById('exportBtn').onclick = exportExcel;
+      load();
+    })();
+
+    async function load() {
+      const all = await api.get(`/api/members?organization_id=${orgId}`);
+      // Filter for 회장 (exact match preferred; also includes 명예회장 etc. that contain "회장" but exclude 부회장/이사)
+      presidents = all.members.filter(m => {
+        const p = (m.position || '').trim();
+        return p === '회장' || p.includes('회장') && !p.startsWith('부') && !p.startsWith('이');
+      }).sort((a, b) => (b.generation || '').localeCompare(a.generation || ''));
+
+      document.getElementById('cnt').textContent = `총 ${presidents.length}명`;
+      const root = document.getElementById('list');
+      if (!presidents.length) {
+        root.innerHTML = `<div class="empty">
+          <div class="empty-title">등록된 회장이 없습니다</div>
+          <div class="empty-sub">‘임원 명단’에서 직책이 ‘회장’인 임원을 등록하면 자동으로 표시됩니다.</div>
+        </div>`;
+        return;
+      }
+      root.innerHTML = `<div class="pres-grid">${presidents.map(p => `
+        <div class="pres-card">
+          <div class="pres-avatar">👑</div>
+          <div class="pres-gen">${p.generation || '미지정'}</div>
+          <div class="pres-name">${p.name}</div>
+          <div class="text-sm text-muted">${p.position || '회장'}</div>
+          ${p.major ? `<div class="pres-info">${p.major}</div>` : ''}
+          ${p.workplace ? `<div class="pres-info">${p.workplace}</div>` : ''}
+          ${p.phone ? `<div class="pres-info">📞 ${p.phone}</div>` : ''}
+          ${p.email ? `<div class="pres-info">✉ ${p.email}</div>` : ''}
+        </div>
+      `).join('')}</div>`;
+    }
+
+    function exportExcel() {
+      if (!presidents.length) { toast('내보낼 데이터가 없습니다.', 'error'); return; }
+      const data = presidents.map(p => ({
+        기수: p.generation || '',
+        직책: p.position || '',
+        성명: p.name || '',
+        전화: p.phone || '',
+        이메일: p.email || '',
+        전공: p.major || '',
+        직장: p.workplace || ''
+      }));
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '역대회장');
+      XLSX.writeFile(wb, `${organization.name}_역대회장.xlsx`);
+    }
+  </script>
+</body>
+</html>

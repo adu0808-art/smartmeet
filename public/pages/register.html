@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>회원가입 · SmartMeet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body class="auth-shell">
+  <div class="auth-card">
+    <div class="auth-brand">
+      <div class="auth-logo">SM</div>
+      <div>
+        <div class="auth-brand-name">SmartMeet</div>
+        <div class="auth-brand-sub">이사회·총회 자료 관리 시스템</div>
+      </div>
+    </div>
+    <h1 class="auth-title">회원가입</h1>
+    <p class="auth-subtitle" id="subtitle">기관을 등록하고 회의를 시작해보세요.</p>
+
+    <div id="invitePreview" class="card mb-16" style="display:none;background:var(--accent-soft);border-color:var(--accent);"></div>
+
+    <div class="auth-error" id="err"></div>
+    <form id="registerForm">
+      <div class="field">
+        <label class="label">이름 *</label>
+        <input class="input" type="text" name="name" placeholder="홍길동" required />
+      </div>
+      <div class="field">
+        <label class="label">이메일 *</label>
+        <input class="input" type="email" name="email" placeholder="name@example.com" required autocomplete="email" />
+      </div>
+      <div class="field">
+        <label class="label">전화번호</label>
+        <input class="input" type="tel" name="phone" placeholder="010-1234-5678" autocomplete="tel" />
+      </div>
+      <div class="field">
+        <label class="label">소속 (직장·소속 단체)</label>
+        <input class="input" type="text" name="workplace" placeholder="예: 한국전자(주)" autocomplete="organization" />
+      </div>
+      <div class="field">
+        <label class="label">비밀번호 *</label>
+        <input class="input" type="password" name="password" placeholder="6자 이상" required minlength="6" autocomplete="new-password" />
+      </div>
+      <div class="field">
+        <label class="label">비밀번호 확인 *</label>
+        <input class="input" type="password" name="password2" placeholder="다시 입력" required minlength="6" autocomplete="new-password" />
+      </div>
+      <button type="submit" class="btn btn-primary btn-block btn-lg">계정 만들기</button>
+    </form>
+
+    <div class="auth-foot">
+      이미 계정이 있으신가요? <a href="/login" id="loginLink">로그인</a>
+    </div>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script>
+    const inviteToken = qs('invite');
+    let invitation = null;
+
+    (async function init() {
+      if (inviteToken) {
+        try {
+          const r = await fetch(`/api/invitations/by-token/${inviteToken}`);
+          const data = await r.json();
+          if (!r.ok) throw new Error(data.error);
+          invitation = data.invitation;
+          document.getElementById('subtitle').textContent = `${invitation.organization_name}의 신규 회원으로 가입합니다.`;
+          renderInvitePreview();
+        } catch (e) {
+          document.getElementById('err').textContent = '초대 링크 오류: ' + e.message;
+          document.getElementById('err').classList.add('active');
+        }
+      }
+      // Already logged in?
+      const u = await getMe();
+      if (u && !inviteToken) {
+        // No invite — already-logged-in user goes to their workspace
+        return smartRedirect(u);
+      }
+      if (u && inviteToken && invitation) {
+        // Logged in + invite link: still show signup form, but offer "join with current account"
+        const banner = document.createElement('div');
+        banner.className = 'card mb-16';
+        banner.style.cssText = 'background:var(--info-soft);border-color:var(--info);font-size:13px;color:var(--info);';
+        banner.innerHTML = `
+          현재 <b>${u.name}</b>님으로 로그인되어 있습니다.
+          <div class="flex gap-8 mt-8">
+            <button type="button" class="btn btn-sm" id="joinBtn">${u.name} 계정으로 가입</button>
+            <button type="button" class="btn btn-sm" id="logoutBtn">로그아웃 후 새 계정 만들기</button>
+          </div>
+        `;
+        const inviteCard = document.getElementById('invitePreview');
+        inviteCard.parentNode.insertBefore(banner, inviteCard.nextSibling);
+        document.getElementById('joinBtn').onclick = doJoin;
+        document.getElementById('logoutBtn').onclick = async () => {
+          await api.post('/api/auth/logout');
+          location.reload();
+        };
+      }
+    })();
+
+    function renderInvitePreview() {
+      const p = document.getElementById('invitePreview');
+      p.style.display = 'block';
+      p.innerHTML = `
+        <div class="flex items-center gap-12">
+          <div class="auth-logo" style="background:var(--accent);width:36px;height:36px;font-size:14px;">${(invitation.organization_name||'?').slice(0,2)}</div>
+          <div>
+            <div class="text-sm text-muted">초대된 기관</div>
+            <div class="fw-700">${invitation.organization_name}</div>
+            <div class="text-sm">기본 권한: ${invitation.default_role === 'admin' ? '🔑 관리자' : '👤 일반 사용자'}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function doJoin() {
+      try {
+        const r = await api.post('/api/auth/join', { invite_token: inviteToken });
+        toast('가입되었습니다!', 'success');
+        setTimeout(() => location.href = `/home?org=${r.organization_id}`, 700);
+      } catch (e) { toast(e.message, 'error'); }
+    }
+
+    document.getElementById('registerForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const err = document.getElementById('err');
+      err.classList.remove('active');
+      if (fd.get('password') !== fd.get('password2')) {
+        err.textContent = '비밀번호가 일치하지 않습니다.';
+        err.classList.add('active');
+        return;
+      }
+      try {
+        const r = await api.post('/api/auth/register', {
+          name: fd.get('name'),
+          email: fd.get('email'),
+          phone: fd.get('phone') || '',
+          workplace: fd.get('workplace') || '',
+          password: fd.get('password'),
+          invite_token: inviteToken || undefined
+        });
+        location.href = r.joined_organization_id ? `/home?org=${r.joined_organization_id}` : '/dashboard';
+      } catch (ex) {
+        err.textContent = ex.message;
+        err.classList.add('active');
+      }
+    });
+  </script>
+</body>
+</html>

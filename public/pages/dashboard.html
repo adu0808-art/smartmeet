@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>기관 목록 · SmartMeet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">SM</div>
+        <div>
+          <div class="brand-name">SmartMeet</div>
+          <div class="brand-sub">이사회·총회 관리</div>
+        </div>
+      </div>
+      <div class="nav-section-title">메뉴</div>
+      <a href="/dashboard" class="nav-item active">
+        <span class="icon">📋</span> 기관 목록
+      </a>
+      <a id="adminLink" href="/admin" class="nav-item" style="display:none;">
+        <span class="icon">⚙️</span> 관리자
+      </a>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div class="topbar-title">기관 목록</div>
+        <div class="topbar-actions" id="userArea"></div>
+      </div>
+
+      <div class="content">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">등록된 기관</h1>
+            <div class="page-sub">관리할 기관을 선택하거나 새 기관을 등록하세요.</div>
+          </div>
+          <button class="btn btn-primary" id="newOrgBtn">+ 기관 등록</button>
+        </div>
+
+        <div id="orgList" class="grid-cards"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/editor.js"></script>
+  <script>
+    let me;
+    (async function init() {
+      me = await requireAuth();
+      if (!me) return;
+      document.getElementById('userArea').innerHTML = renderUserChip(me);
+      if (me.role === 'admin') document.getElementById('adminLink').style.display = '';
+      document.getElementById('newOrgBtn').onclick = openNewOrg;
+      load();
+    })();
+
+    async function load() {
+      const list = document.getElementById('orgList');
+      try {
+        const { organizations } = await api.get('/api/organizations');
+        if (!organizations.length) {
+          list.innerHTML = `
+            <div class="empty" style="grid-column:1/-1;">
+              <div class="empty-title">등록된 기관이 없습니다</div>
+              <div class="empty-sub">우측 상단의 ‘기관 등록’ 버튼으로 시작하세요.</div>
+            </div>`;
+          return;
+        }
+        list.innerHTML = organizations.map(o => {
+          const role = o.my_role;
+          const badge = role === 'system_admin' ? '<span class="tag tag-status-progress">시스템</span>'
+                      : role === 'admin' ? '<span class="tag tag-status-progress">관리자</span>'
+                      : '<span class="tag tag-status-prep">회원</span>';
+          const logoSrc = pickLogo(o, 'logo');
+          const logoCell = logoSrc
+            ? `<div class="org-card-logo" style="background:white;border:1px solid var(--border);overflow:hidden;"><img src="${logoSrc}" style="width:100%;height:100%;object-fit:contain;background:white;"></div>`
+            : `<div class="org-card-logo">${logoText(o.name)}</div>`;
+          return `
+          <div class="org-card" onclick="goOrg(${o.id})">
+            <div class="org-card-head">
+              ${logoCell}
+              <div style="flex:1;">
+                <div class="org-card-name">${o.name}</div>
+                ${o.owner_name ? `<div class="text-sm text-muted">${o.owner_name}</div>` : ''}
+              </div>
+              ${badge}
+            </div>
+            <div class="org-card-desc">${o.description || '설명이 없습니다.'}</div>
+            <div class="org-card-stats">
+              <div>회의 <b>${o.meeting_count || 0}</b>건</div>
+              <div>구성원 <b>${o.member_count || 0}</b>명</div>
+            </div>
+          </div>`;
+        }).join('');
+      } catch (e) {
+        list.innerHTML = `<div class="empty"><div class="empty-title">불러오기 실패</div><div class="empty-sub">${e.message}</div></div>`;
+      }
+    }
+
+    function goOrg(id) { location.href = `/home?org=${id}`; }
+
+    function openNewOrg() {
+      const logoState = { logo_url: '', logo_text_url: '', logo_combo_url: '' };
+      const heroState = { hero_image_url: '' };
+      let introEditor = null;
+      let greetingEditor = null;
+      modal({
+        title: '기관 등록',
+        size: 'lg',
+        body: `
+          ${heroImageHtml('ne', '')}
+          <div class="label" style="margin-bottom:6px;">기관 로고 (3종)</div>
+          ${logoSlotsHtml('ne', logoState)}
+          <div class="field"><label class="label">기관명 *</label><input class="input" id="m_name" placeholder="예: 연세대학교 공학동창회" /></div>
+          <div class="field">
+            <label class="label">기관 소개</label>
+            <div class="text-sm text-muted mb-8">기관에 대한 일반 소개</div>
+            <div id="m_intro_host"></div>
+          </div>
+          <div class="field">
+            <label class="label">인사말</label>
+            <div class="text-sm text-muted mb-8">기관장의 인사말</div>
+            <div id="m_desc_host"></div>
+          </div>
+        `,
+        confirmText: '등록',
+        onConfirm: async () => {
+          const name = document.getElementById('m_name').value.trim();
+          if (!name) { toast('기관명을 입력하세요.', 'error'); return false; }
+          const intro_html = introEditor ? introEditor.getHtml() : '';
+          const description = greetingEditor ? greetingEditor.getHtml() : '';
+          const logos = readLogoSlots('ne', logoState);
+          const hero_image_url = readHeroImage('ne', heroState);
+          try {
+            await api.post('/api/organizations', { name, description, intro_html, hero_image_url, ...logos });
+            toast('기관이 등록되었습니다.', 'success');
+            load();
+          } catch (e) { toast(e.message, 'error'); return false; }
+        }
+      });
+      setTimeout(() => {
+        bindHeroImage('ne', heroState);
+        bindLogoSlots('ne', logoState);
+      }, 30);
+      RichEditor.mount(document.getElementById('m_intro_host'), {
+        placeholder: '예: 우리 학회는 1980년에 설립되어 ...'
+      }).then(ed => introEditor = ed);
+      RichEditor.mount(document.getElementById('m_desc_host'), {
+        placeholder: '예: 안녕하십니까, 회원 여러분. ...'
+      }).then(ed => greetingEditor = ed);
+    }
+  </script>
+</body>
+</html>

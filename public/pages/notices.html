@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>공지사항 · SmartMeet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main">
+      <div class="topbar">
+        <div class="topbar-title">공지사항</div>
+        <div class="topbar-actions" id="userArea"></div>
+      </div>
+      <div class="content">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">📣 공지사항</h1>
+            <div class="page-sub" id="cnt">전체 공지를 확인합니다.</div>
+          </div>
+          <button class="btn btn-primary" id="addBtn" data-admin-only>+ 공지 작성</button>
+        </div>
+        <div id="list"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/sidebar.js"></script>
+  <script src="/js/editor.js"></script>
+  <script>
+    const orgId = qs('org');
+    let me, organization, role;
+
+    (async function init() {
+      me = await requireAuth();
+      document.getElementById('userArea').innerHTML = renderUserChip(me);
+      const o = await api.get(`/api/organizations/${orgId}`);
+      organization = o.organization;
+      role = o.my_role;
+      renderOrgSidebar(organization, 'notices', { role });
+      showOnlyForAdmin(role);
+      document.getElementById('addBtn').onclick = () => openForm();
+      load();
+    })();
+
+    async function load() {
+      const { notices } = await api.get(`/api/notices?organization_id=${orgId}`);
+      document.getElementById('cnt').textContent = `총 ${notices.length}건`;
+      const list = document.getElementById('list');
+      if (!notices.length) {
+        list.innerHTML = `<div class="empty"><div class="empty-title">공지가 없습니다</div><div class="empty-sub">관리자가 작성한 공지가 여기에 표시됩니다.</div></div>`;
+        return;
+      }
+      list.innerHTML = `<div class="card" style="padding:0;">${notices.map(n => `
+        <div class="agenda-item" style="border:none;border-bottom:1px solid var(--border);border-radius:0;" onclick="location.href='/notice?id=${n.id}'">
+          <div class="agenda-no" style="${n.is_pinned ? 'background:var(--accent-soft);border-color:var(--accent);' : ''}">
+            ${n.is_pinned ? '<div class="num" style="font-size:14px;">📌</div>' : '<div class="small">공지</div><div class="num" style="font-size:13px;">📣</div>'}
+          </div>
+          <div class="agenda-body">
+            <div class="agenda-title">${n.title}</div>
+            <div class="agenda-summary">${n.author_name || ''} · ${fmtDateOnly(n.created_at)} · 조회 ${n.view_count}</div>
+          </div>
+          <div class="agenda-actions"><span class="text-sm text-muted">상세 →</span></div>
+        </div>
+      `).join('')}</div>`;
+    }
+
+    function openForm(existing) {
+      const n = existing || {};
+      let editor = null;
+      modal({
+        title: existing ? '공지 수정' : '공지 작성',
+        size: 'lg',
+        body: `
+          <div class="field"><label class="label">제목 *</label><input class="input" id="nt_title" value="${n.title || ''}"></div>
+          <div class="field"><label class="flex items-center gap-8"><input type="checkbox" id="nt_pin" ${n.is_pinned ? 'checked' : ''}> <span>📌 상단 고정</span></label></div>
+          <div class="field"><label class="label">내용</label><div id="nt_editor"></div></div>
+        `,
+        confirmText: existing ? '저장' : '게시',
+        onConfirm: async () => {
+          const title = document.getElementById('nt_title').value.trim();
+          if (!title) { toast('제목을 입력하세요.', 'error'); return false; }
+          const payload = {
+            organization_id: Number(orgId),
+            title,
+            content: editor.getHtml(),
+            is_pinned: document.getElementById('nt_pin').checked
+          };
+          try {
+            if (existing) await api.put(`/api/notices/${existing.id}`, payload);
+            else await api.post('/api/notices', payload);
+            toast('저장되었습니다.', 'success');
+            load();
+          } catch (e) { toast(e.message, 'error'); return false; }
+        }
+      });
+      RichEditor.mount(document.getElementById('nt_editor'), { value: n.content || '', placeholder: '공지 내용을 입력하세요.' }).then(ed => editor = ed);
+    }
+  </script>
+</body>
+</html>

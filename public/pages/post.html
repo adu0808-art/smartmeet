@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>게시글 · SmartMeet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main">
+      <div class="topbar">
+        <div class="topbar-title">게시글</div>
+        <div class="topbar-actions" id="userArea"></div>
+      </div>
+      <div class="content">
+        <a href="javascript:back()" class="text-sm text-muted">← 게시판</a>
+        <div class="card mt-12" id="postBox">불러오는 중...</div>
+        <div class="card mt-16" id="commentBox"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/sidebar.js"></script>
+  <script src="/js/editor.js"></script>
+  <script>
+    const postId = qs('id');
+    let me, organization, role, post, comments;
+
+    (async function init() {
+      me = await requireAuth();
+      document.getElementById('userArea').innerHTML = renderUserChip(me);
+      const data = await api.get(`/api/posts/${postId}`);
+      post = data.post; comments = data.comments;
+      const o = await api.get(`/api/organizations/${post.organization_id}`);
+      organization = o.organization; role = o.my_role;
+      renderOrgSidebar(organization, 'board', { role });
+      paint();
+    })();
+
+    function paint() {
+      const isAdmin = role === 'system_admin' || role === 'admin';
+      const isAuthor = me.id === post.author_id;
+      document.getElementById('postBox').innerHTML = `
+        <div class="flex items-center justify-between mb-12">
+          <div>
+            <h1 style="margin:0 0 4px;font-size:22px;">${post.title}</h1>
+            <div class="text-sm text-muted">${post.author_name || ''} · ${fmtDate(post.created_at)} · 조회 ${post.view_count}</div>
+          </div>
+          ${(isAdmin || isAuthor) ? `
+            <div class="flex gap-8">
+              <button class="btn btn-sm" id="editBtn">수정</button>
+              <button class="btn btn-sm btn-danger" id="delBtn">삭제</button>
+            </div>` : ''}
+        </div>
+        <div class="html-render mt-16">${post.content || '<span class="text-muted">내용이 없습니다.</span>'}</div>
+      `;
+      if (isAdmin || isAuthor) {
+        document.getElementById('editBtn').onclick = openEdit;
+        document.getElementById('delBtn').onclick = doDelete;
+      }
+      paintComments();
+    }
+
+    function paintComments() {
+      const isAdmin = role === 'system_admin' || role === 'admin';
+      document.getElementById('commentBox').innerHTML = `
+        <div class="card-title">댓글 ${comments.length}건</div>
+        ${comments.length ? comments.map(c => `
+          <div style="padding:12px 0;border-bottom:1px solid var(--border);">
+            <div class="flex items-center justify-between">
+              <div class="text-sm fw-700">${c.author_name || '?'}</div>
+              <div class="flex gap-8 items-center">
+                <span class="text-sm text-muted">${fmtDate(c.created_at)}</span>
+                ${(isAdmin || c.author_id === me.id) ? `<button class="btn btn-sm btn-danger" onclick="delComment(${c.id})">🗑</button>` : ''}
+              </div>
+            </div>
+            <div class="text-sm mt-8" style="white-space:pre-wrap;">${c.content}</div>
+          </div>
+        `).join('') : '<div class="text-sm text-muted" style="padding:14px 0;">첫 댓글을 남겨보세요.</div>'}
+        <div class="mt-16 flex gap-8">
+          <input class="input" id="cmtInput" placeholder="댓글을 작성하세요..." style="flex:1;">
+          <button class="btn btn-primary" onclick="addComment()">등록</button>
+        </div>
+      `;
+    }
+
+    async function addComment() {
+      const v = document.getElementById('cmtInput').value.trim();
+      if (!v) return;
+      try {
+        await api.post(`/api/posts/${postId}/comments`, { content: v });
+        const data = await api.get(`/api/posts/${postId}`);
+        comments = data.comments;
+        paintComments();
+      } catch (e) { toast(e.message, 'error'); }
+    }
+
+    async function delComment(id) {
+      confirmDialog('댓글을 삭제하시겠습니까?', async () => {
+        try { await api.del(`/api/posts/comments/${id}`); const data = await api.get(`/api/posts/${postId}`); comments = data.comments; paintComments(); }
+        catch (e) { toast(e.message, 'error'); return false; }
+      });
+    }
+
+    function openEdit() {
+      let editor = null;
+      modal({
+        title: '글 수정', size: 'lg',
+        body: `
+          <div class="field"><label class="label">제목 *</label><input class="input" id="po_title" value="${post.title}"></div>
+          <div class="field"><label class="label">내용</label><div id="po_editor"></div></div>
+        `,
+        confirmText: '저장',
+        onConfirm: async () => {
+          try {
+            await api.put(`/api/posts/${post.id}`, {
+              title: document.getElementById('po_title').value.trim(),
+              content: editor.getHtml()
+            });
+            const data = await api.get(`/api/posts/${postId}`);
+            post = data.post; paint();
+            toast('저장되었습니다.', 'success');
+          } catch (e) { toast(e.message, 'error'); return false; }
+        }
+      });
+      RichEditor.mount(document.getElementById('po_editor'), { value: post.content }).then(ed => editor = ed);
+    }
+
+    function doDelete() {
+      confirmDialog('이 글을 삭제하시겠습니까?', async () => {
+        try { await api.del(`/api/posts/${post.id}`); location.href = `/board?org=${post.organization_id}`; }
+        catch (e) { toast(e.message, 'error'); return false; }
+      });
+    }
+
+    function back() { location.href = `/board?org=${post.organization_id}`; }
+  </script>
+</body>
+</html>

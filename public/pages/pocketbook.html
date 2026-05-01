@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>회원 전자수첩 · SmartMeet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    .pb-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 14px;
+    }
+    .pb-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px;
+      box-shadow: var(--shadow-sm);
+      transition: all 0.2s;
+      position: relative;
+    }
+    .pb-card:hover { box-shadow: var(--shadow-md); border-color: var(--border-strong); }
+    .pb-edit {
+      position: absolute; top: 10px; right: 10px;
+      width: 28px; height: 28px;
+      border-radius: 8px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      display: none;
+      place-items: center;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .pb-card:hover .pb-edit { display: grid; }
+    .pb-edit:hover { background: var(--surface); border-color: var(--accent); }
+    .pb-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .pb-avatar {
+      width: 48px; height: 48px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #cbd5e0, #a0aec0);
+      color: white;
+      display: grid; place-items: center;
+      font-weight: 800;
+      font-size: 16px;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+    .pb-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .pb-card.is-admin .pb-avatar { background: linear-gradient(135deg, #fbbf24, #f59e0b); }
+    .pb-card.is-owner .pb-avatar { background: linear-gradient(135deg, #4f46e5, #6366f1); }
+    .pb-name { font-weight: 700; font-size: 15px; }
+    .pb-role { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .pb-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 0;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .pb-row .ic { width: 14px; opacity: 0.7; }
+    .pb-row .val { color: var(--text); }
+    .pb-row a { color: var(--info); }
+    .pb-bio {
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 1.5;
+      padding: 6px 0;
+      border-top: 1px dashed var(--border);
+      margin-top: 8px;
+    }
+
+    .view-toggle {
+      display: inline-flex;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+    }
+    .view-toggle button {
+      padding: 8px 14px;
+      border: none;
+      background: transparent;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+    .view-toggle button.active { background: var(--primary); color: white; }
+
+    @media print {
+      .sidebar, .topbar, .topbar-actions, .searchbar, .filter-row, .page-header { display: none !important; }
+      .content { padding: 0; }
+      .pb-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+      .pb-card { box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main">
+      <div class="topbar">
+        <div class="topbar-title">회원 전자수첩</div>
+        <div class="topbar-actions" id="userArea"></div>
+      </div>
+      <div class="content">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">📒 회원 전자수첩</h1>
+            <div class="page-sub" id="cnt">이 기관에 가입한 회원들의 연락처입니다.</div>
+          </div>
+          <div class="topbar-actions">
+            <div class="view-toggle">
+              <button class="active" data-view="card">🗂 카드</button>
+              <button data-view="list">📋 리스트</button>
+            </div>
+            <button class="btn" id="profileBtn">✏️ 내 프로필</button>
+            <button class="btn" onclick="window.print()">🖨 인쇄</button>
+            <button class="btn" id="exportBtn">📤 엑셀</button>
+          </div>
+        </div>
+
+        <div class="searchbar mb-12" style="max-width:480px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2"/></svg>
+          <input id="searchInput" placeholder="이름·이메일·전화·전공·직장 검색" />
+        </div>
+
+        <div class="filter-row mb-16">
+          <button class="filter-pill active" data-filter="all">전체</button>
+          <button class="filter-pill" data-filter="admin">관리자만</button>
+          <button class="filter-pill" data-filter="member">일반 회원</button>
+        </div>
+
+        <div id="list"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/sidebar.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script>
+    const orgId = qs('org');
+    let me, organization, role, users = [];
+    let searchQ = '';
+    let filter = 'all';
+    let view = 'card';
+
+    (async function init() {
+      me = await requireAuth();
+      document.getElementById('userArea').innerHTML = renderUserChip(me);
+      const o = await api.get(`/api/organizations/${orgId}`);
+      organization = o.organization; role = o.my_role;
+      renderOrgSidebar(organization, 'pocketbook', { role });
+      document.getElementById('searchInput').oninput = (e) => { searchQ = e.target.value.trim(); render(); };
+      document.querySelectorAll('[data-filter]').forEach(b => b.onclick = () => {
+        filter = b.dataset.filter;
+        document.querySelectorAll('[data-filter]').forEach(x => x.classList.toggle('active', x === b));
+        render();
+      });
+      document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => {
+        view = b.dataset.view;
+        document.querySelectorAll('[data-view]').forEach(x => x.classList.toggle('active', x === b));
+        render();
+      });
+      document.getElementById('exportBtn').onclick = exportExcel;
+      document.getElementById('profileBtn').onclick = openMyProfile;
+      load();
+    })();
+
+    async function load() {
+      const data = await api.get(`/api/organizations/${orgId}/users`);
+      users = data.users;
+      render();
+    }
+
+    function getFiltered() {
+      let list = users;
+      if (filter === 'admin') list = list.filter(u => u.member_role === 'admin' || u.is_owner);
+      else if (filter === 'member') list = list.filter(u => u.member_role !== 'admin' && !u.is_owner);
+      if (searchQ) {
+        const q = searchQ.toLowerCase();
+        list = list.filter(u =>
+          (u.name || '').toLowerCase().includes(q) ||
+          (u.email || '').toLowerCase().includes(q) ||
+          (u.phone || '').includes(q) ||
+          (u.major || '').toLowerCase().includes(q) ||
+          (u.workplace || '').toLowerCase().includes(q)
+        );
+      }
+      return list;
+    }
+
+    function roleLabel(u) {
+      if (u.is_owner) return '🏛️ 소유자';
+      if (u.member_role === 'admin') return '🔑 관리자';
+      return '👤 회원';
+    }
+
+    const isSysAdmin = () => me?.role === 'admin';
+
+    function render() {
+      const list = getFiltered();
+      document.getElementById('cnt').textContent = `이 기관에 가입한 회원 · 총 ${users.length}명 (필터: ${list.length}명)`;
+      const root = document.getElementById('list');
+      if (!list.length) {
+        root.innerHTML = `<div class="empty">
+          <div class="empty-title">표시할 회원이 없습니다</div>
+          <div class="empty-sub">검색어/필터를 확인하세요. 새 회원을 초대하려면 사이드바의 ‘구성원·초대’에서 초대 링크를 발급할 수 있습니다.</div>
+        </div>`;
+        return;
+      }
+      root.innerHTML = view === 'card' ? renderCards(list) : renderTable(list);
+      // Bind edit buttons
+      root.querySelectorAll('[data-edit]').forEach(b => b.onclick = (e) => {
+        e.stopPropagation();
+        const id = Number(b.dataset.edit);
+        const u = users.find(x => x.id === id);
+        if (u) openSysAdminEdit(u);
+      });
+    }
+
+    function renderCards(list) {
+      return `<div class="pb-grid">${list.map(u => {
+        const cls = u.is_owner ? 'is-owner' : (u.member_role === 'admin' ? 'is-admin' : '');
+        const initial = (u.name || '?').slice(0, 1);
+        return `
+        <div class="pb-card ${cls}">
+          ${isSysAdmin() ? `<button class="pb-edit" title="회원 정보 수정" data-edit="${u.id}">✏️</button>` : ''}
+          <div class="pb-head">
+            <div class="pb-avatar">${u.profile_image ? `<img src="${u.profile_image}">` : initial}</div>
+            <div style="min-width:0;flex:1;">
+              <div class="pb-name">${u.name}</div>
+              <div class="pb-role">${roleLabel(u)}</div>
+            </div>
+          </div>
+          ${u.email ? `<div class="pb-row"><span class="ic">✉️</span><a href="mailto:${u.email}" class="val">${u.email}</a></div>` : ''}
+          ${u.phone ? `<div class="pb-row"><span class="ic">📞</span><a href="tel:${u.phone}" class="val">${u.phone}</a></div>` : ''}
+          ${u.major ? `<div class="pb-row"><span class="ic">🎓</span><span class="val">${u.major}</span></div>` : ''}
+          ${u.workplace ? `<div class="pb-row"><span class="ic">🏢</span><span class="val">${u.workplace}</span></div>` : ''}
+          ${u.bio ? `<div class="pb-bio">${u.bio}</div>` : ''}
+        </div>`;
+      }).join('')}</div>`;
+    }
+
+    function renderTable(list) {
+      return `
+        <table class="table">
+          <thead><tr>
+            <th style="width:40px;"></th>
+            <th>성명</th>
+            <th>권한</th>
+            <th>이메일</th>
+            <th>전화</th>
+            <th>전공</th>
+            <th>직장</th>
+            ${isSysAdmin() ? '<th style="width:80px;text-align:right;">관리</th>' : ''}
+          </tr></thead>
+          <tbody>
+            ${list.map(u => `
+              <tr>
+                <td><div class="pb-avatar" style="width:32px;height:32px;font-size:12px;${u.is_owner ? 'background:linear-gradient(135deg,#4f46e5,#6366f1);' : (u.member_role==='admin' ? 'background:linear-gradient(135deg,#fbbf24,#f59e0b);' : '')}">${(u.name||'?').slice(0,1)}</div></td>
+                <td><b>${u.name}</b>${u.bio ? `<div class="text-sm text-muted" style="margin-top:2px;">${u.bio}</div>` : ''}</td>
+                <td>${roleLabel(u)}</td>
+                <td>${u.email ? `<a href="mailto:${u.email}">${u.email}</a>` : '-'}</td>
+                <td>${u.phone ? `<a href="tel:${u.phone}">${u.phone}</a>` : '-'}</td>
+                <td>${u.major || '-'}</td>
+                <td>${u.workplace || '-'}</td>
+                ${isSysAdmin() ? `<td style="text-align:right;"><button class="btn btn-sm" data-edit="${u.id}">✏️ 수정</button></td>` : ''}
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>`;
+    }
+
+    function openSysAdminEdit(u) {
+      let photoData = u.profile_image || '';
+      modal({
+        title: `회원 정보 수정 — ${u.name}`,
+        size: 'lg',
+        body: `
+          <div class="text-sm text-muted mb-12">시스템 관리자 권한으로 ${u.name}님의 정보를 직접 수정합니다.</div>
+          <div class="flex items-center gap-16 mb-16" style="padding-bottom:14px;border-bottom:1px solid var(--border);">
+            <div id="su_preview" style="width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg,#cbd5e0,#a0aec0);color:white;display:grid;place-items:center;font-weight:800;font-size:22px;flex-shrink:0;overflow:hidden;">
+              ${u.profile_image ? `<img src="${u.profile_image}" style="width:100%;height:100%;object-fit:cover;">` : (u.name||'?').slice(0,1)}
+            </div>
+            <div>
+              <input type="file" id="su_photo" accept="image/*" style="display:none;">
+              <div class="flex gap-8">
+                <button type="button" class="btn btn-sm" id="su_pickBtn">📷 사진 변경</button>
+                <button type="button" class="btn btn-sm btn-danger" id="su_clearBtn" ${!u.profile_image?'style="display:none;"':''}>사진 삭제</button>
+              </div>
+              <div class="text-sm text-muted mt-8">JPG / PNG, 최대 4MB</div>
+            </div>
+          </div>
+          <div class="flex gap-12">
+            <div class="field flex-1"><label class="label">이름 *</label><input class="input" id="su_name" value="${(u.name||'').replace(/"/g,'&quot;')}"></div>
+            <div class="field flex-1"><label class="label">이메일</label><input class="input" value="${u.email||''}" disabled style="background:var(--surface-2);"></div>
+          </div>
+          <div class="flex gap-12">
+            <div class="field flex-1"><label class="label">전화번호</label><input class="input" id="su_phone" value="${(u.phone||'').replace(/"/g,'&quot;')}"></div>
+            <div class="field flex-1"><label class="label">전공</label><input class="input" id="su_major" value="${(u.major||'').replace(/"/g,'&quot;')}"></div>
+          </div>
+          <div class="field"><label class="label">직장 / 소속</label><input class="input" id="su_work" value="${(u.workplace||'').replace(/"/g,'&quot;')}"></div>
+          <div class="field"><label class="label">소개</label><textarea class="textarea" id="su_bio" rows="3">${u.bio||''}</textarea></div>
+        `,
+        confirmText: '저장',
+        onConfirm: async () => {
+          const name = document.getElementById('su_name').value.trim();
+          if (!name) { toast('이름을 입력하세요.', 'error'); return false; }
+          try {
+            await api.put(`/api/admin/users/${u.id}`, {
+              name,
+              phone: document.getElementById('su_phone').value.trim(),
+              major: document.getElementById('su_major').value.trim(),
+              workplace: document.getElementById('su_work').value.trim(),
+              bio: document.getElementById('su_bio').value.trim(),
+              profile_image: photoData
+            });
+            toast('저장되었습니다.', 'success');
+            load();
+          } catch (e) { toast(e.message, 'error'); return false; }
+        }
+      });
+      setTimeout(() => {
+        document.getElementById('su_pickBtn').onclick = () => document.getElementById('su_photo').click();
+        document.getElementById('su_photo').onchange = (e) => {
+          const f = e.target.files[0]; if (!f) return;
+          if (f.size > 4 * 1024 * 1024) { toast('이미지는 4MB 이하만 가능합니다.', 'error'); return; }
+          const r = new FileReader();
+          r.onload = (ev) => {
+            photoData = ev.target.result;
+            document.getElementById('su_preview').innerHTML = `<img src="${photoData}" style="width:100%;height:100%;object-fit:cover;">`;
+            document.getElementById('su_clearBtn').style.display = '';
+          };
+          r.readAsDataURL(f);
+        };
+        document.getElementById('su_clearBtn').onclick = () => {
+          photoData = '';
+          document.getElementById('su_preview').innerHTML = (u.name||'?').slice(0,1);
+          document.getElementById('su_clearBtn').style.display = 'none';
+        };
+      }, 50);
+    }
+
+    function exportExcel() {
+      const list = getFiltered();
+      if (!list.length) { toast('내보낼 데이터가 없습니다.', 'error'); return; }
+      const data = list.map(u => ({
+        성명: u.name || '',
+        이메일: u.email || '',
+        권한: u.is_owner ? '소유자' : (u.member_role === 'admin' ? '관리자' : '회원'),
+        전화: u.phone || '',
+        전공: u.major || '',
+        직장: u.workplace || ''
+      }));
+      const ws = XLSX.utils.json_to_sheet(data);
+      ws['!cols'] = [{wch:10},{wch:24},{wch:10},{wch:18},{wch:14},{wch:18}];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '회원전자수첩');
+      XLSX.writeFile(wb, `${organization.name}_회원전자수첩.xlsx`);
+    }
+  </script>
+</body>
+</html>

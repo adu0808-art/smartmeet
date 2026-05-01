@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>기관 대시보드 · SmartMeet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div class="topbar-title" id="topbarTitle">기관 대시보드</div>
+        <div class="topbar-actions" id="userArea"></div>
+      </div>
+      <div class="content">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title" id="orgTitle">-</h1>
+            <div class="page-sub" id="orgDesc"></div>
+          </div>
+          <div class="topbar-actions">
+            <button class="btn" id="editOrgBtn" data-admin-only>수정</button>
+            <button class="btn btn-danger" id="delOrgBtn" data-admin-only>삭제</button>
+            <button class="btn btn-primary" id="newMeetingBtn" data-admin-only>+ 새 회의 등록</button>
+          </div>
+        </div>
+
+        <div class="grid-cards" style="grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); margin-bottom:24px;">
+          <div class="card">
+            <div class="text-sm text-muted mb-8">회의 수</div>
+            <div style="font-size:28px;font-weight:800;" id="stat-meetings">-</div>
+          </div>
+          <div class="card">
+            <div class="text-sm text-muted mb-8">의원 수</div>
+            <div style="font-size:28px;font-weight:800;" id="stat-members">-</div>
+          </div>
+          <div class="card">
+            <div class="text-sm text-muted mb-8">예정 일정</div>
+            <div style="font-size:28px;font-weight:800;" id="stat-schedules">-</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="flex items-center justify-between mb-16">
+            <div class="card-title" style="margin:0;">회의 목록</div>
+            <span class="text-sm text-muted" id="meetingCount"></span>
+          </div>
+          <div id="meetingList"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/sidebar.js"></script>
+  <script src="/js/editor.js"></script>
+  <script>
+    const orgId = qs('id');
+    let me, org;
+
+    let role;
+    (async function init() {
+      me = await requireAuth();
+      if (!me) return;
+      document.getElementById('userArea').innerHTML = renderUserChip(me);
+      if (!orgId) { location.href = '/dashboard'; return; }
+      const data = await api.get(`/api/organizations/${orgId}`);
+      org = data.organization; role = data.my_role;
+      if (!(role === 'system_admin' || role === 'admin')) {
+        // Non-admins go to homepage
+        location.href = `/home?org=${orgId}`;
+        return;
+      }
+      document.getElementById('orgTitle').textContent = org.name;
+      document.getElementById('orgDesc').innerHTML = org.description || '';
+      document.getElementById('topbarTitle').textContent = org.name;
+      renderOrgSidebar(org, 'dashboard', { role });
+      showOnlyForAdmin(role);
+      document.getElementById('editOrgBtn').onclick = openEdit;
+      document.getElementById('delOrgBtn').onclick = doDelete;
+      document.getElementById('newMeetingBtn').onclick = openNewMeeting;
+      loadDashboard();
+    })();
+
+    async function loadDashboard() {
+      const data = await api.get(`/api/organizations/${orgId}/dashboard`);
+      document.getElementById('stat-meetings').textContent = data.meetings.length;
+      document.getElementById('stat-members').textContent = data.memberCount;
+      document.getElementById('stat-schedules').textContent = data.upcomingSchedules.length;
+      document.getElementById('meetingCount').textContent = `총 ${data.meetings.length}건`;
+
+      const list = document.getElementById('meetingList');
+      if (!data.meetings.length) {
+        list.innerHTML = `<div class="empty"><div class="empty-title">등록된 회의가 없습니다</div><div class="empty-sub">‘새 회의 등록’ 버튼으로 회의를 만들어 시작하세요.</div></div>`;
+        return;
+      }
+      list.innerHTML = data.meetings.map(m => `
+        <div class="agenda-item" onclick="location.href='/meeting?id=${m.id}'">
+          <div class="agenda-no">
+            <div class="small">회의</div>
+            <div class="num">${meetingTypeLabel[m.meeting_type] || ''}</div>
+          </div>
+          <div class="agenda-body">
+            <div class="agenda-title">
+              ${m.title}
+              <span class="tag ${meetingStatusClass[m.status]}" style="margin-left:8px;">${meetingStatusLabel[m.status] || m.status}</span>
+            </div>
+            <div class="agenda-summary">${fmtDate(m.meeting_date)} · ${m.location || '장소 미정'} · 총 ${m.total_members}명</div>
+          </div>
+          <div class="agenda-actions">
+            <span class="text-sm text-muted">상세 →</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function openEdit() {
+      const logoState = {
+        logo_url:       org.logo_url       || '',
+        logo_text_url:  org.logo_text_url  || '',
+        logo_combo_url: org.logo_combo_url || ''
+      };
+      const heroState = { hero_image_url: org.hero_image_url || '' };
+      let introEditor = null;
+      let greetingEditor = null;
+      modal({
+        title: '기관 정보 수정',
+        size: 'lg',
+        body: `
+          ${heroImageHtml('oe', org.hero_image_url || '')}
+          <div class="label" style="margin-bottom:6px;">기관 로고 (3종)</div>
+          ${logoSlotsHtml('oe', logoState)}
+          <div class="field"><label class="label">기관명 *</label><input class="input" id="e_name" value="${(org.name||'').replace(/"/g,'&quot;')}"></div>
+          <div class="field">
+            <label class="label">기관 소개</label>
+            <div class="text-sm text-muted mb-8">기관에 대한 일반 소개 (홈 페이지 "기관 소개" 섹션에 표시)</div>
+            <div id="e_intro_host"></div>
+          </div>
+          <div class="field">
+            <label class="label">인사말</label>
+            <div class="text-sm text-muted mb-8">기관장의 인사말 (홈 페이지 "인사말" 섹션에 표시)</div>
+            <div id="e_desc_host"></div>
+          </div>
+        `,
+        confirmText: '저장',
+        onConfirm: async () => {
+          const logos = readLogoSlots('oe', logoState);
+          const hero_image_url = readHeroImage('oe', heroState);
+          try {
+            await api.put(`/api/organizations/${orgId}`, {
+              name: document.getElementById('e_name').value.trim(),
+              intro_html: introEditor ? introEditor.getHtml() : '',
+              description: greetingEditor ? greetingEditor.getHtml() : '',
+              hero_image_url,
+              ...logos
+            });
+            toast('수정되었습니다.', 'success');
+            location.reload();
+          } catch (e) { toast(e.message, 'error'); return false; }
+        }
+      });
+      setTimeout(() => {
+        bindHeroImage('oe', heroState);
+        bindLogoSlots('oe', logoState);
+      }, 30);
+      RichEditor.mount(document.getElementById('e_intro_host'), {
+        value: org.intro_html || '',
+        placeholder: '예: 우리 학회는 1980년에 설립되어 ...'
+      }).then(ed => introEditor = ed);
+      RichEditor.mount(document.getElementById('e_desc_host'), {
+        value: org.description || '',
+        placeholder: '예: 안녕하십니까, 회원 여러분. ...'
+      }).then(ed => greetingEditor = ed);
+    }
+
+    function doDelete() {
+      confirmDialog(`<b>${org.name}</b>을(를) 삭제하시겠습니까? 모든 회의·의안·의원 데이터가 함께 삭제됩니다.`, async () => {
+        try {
+          await api.del(`/api/organizations/${orgId}`);
+          toast('삭제되었습니다.', 'success');
+          location.href = '/dashboard';
+        } catch (e) { toast(e.message, 'error'); return false; }
+      });
+    }
+
+    function openNewMeeting() {
+      modal({
+        title: '새 회의 등록',
+        size: 'lg',
+        body: meetingFormHtml({}),
+        confirmText: '등록',
+        onConfirm: async () => {
+          const payload = readMeetingFormPayload();
+          if (!payload.title) { toast('회의 제목을 입력하세요.', 'error'); return false; }
+          payload.organization_id = Number(orgId);
+          try {
+            const data = await api.post('/api/meetings', payload);
+            toast('회의가 등록되었습니다.', 'success');
+            location.href = `/meeting?id=${data.meeting.id}`;
+          } catch (e) { toast(e.message, 'error'); return false; }
+        }
+      });
+      bindMeetingForm();
+      document.getElementById('mf_autoTotal').onclick = async () => {
+        try {
+          const { members: list } = await api.get(`/api/members?organization_id=${orgId}`);
+          document.getElementById('mf_total').value = list.length;
+          document.getElementById('mf_total').dispatchEvent(new Event('input'));
+          toast(`등록된 임원 ${list.length}명으로 설정되었습니다.`, 'success');
+        } catch (e) { toast(e.message, 'error'); }
+      };
+    }
+  </script>
+</body>
+</html>

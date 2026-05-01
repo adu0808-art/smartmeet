@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>프레젠테이션 · SmartMeet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    body { background:#0f172a; }
+    /* 슬라이드 컨텐츠가 길어지면 자연스럽게 스크롤되도록 */
+    .slide {
+      padding: 28px 50px 90px;
+      justify-content: flex-start;
+      overflow-y: auto;            /* 페이지 길이 초과 시 세로 스크롤 */
+      overflow-x: hidden;
+      align-items: safe center;     /* 컨텐츠가 길 때도 위에서부터 보이도록 */
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255,255,255,0.2) transparent;
+    }
+    .slide::-webkit-scrollbar { width: 10px; }
+    .slide::-webkit-scrollbar-track { background: rgba(255,255,255,0.04); }
+    .slide::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.18);
+      border-radius: 5px;
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+    .slide::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); background-clip: padding-box; }
+    .slide-agenda {
+      width: 100%;
+      max-width: 1600px;
+      padding: 0 20px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .agenda-title-row {
+      display: flex; align-items: flex-start; gap: 16px; margin-bottom: 14px;
+      flex-shrink: 0;
+    }
+    .agenda-no-box {
+      background: var(--accent-soft);
+      color: var(--accent-hover);
+      border-radius: 8px;
+      padding: 6px 12px;
+      text-align: center;
+      flex-shrink: 0;
+      font-weight: 800;
+    }
+    .agenda-no-box .small { font-size: 10px; display: block; }
+    .agenda-no-box .num { font-size: 22px; }
+    .agenda-tags-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .agenda-tags-row .tag-budget {
+      background: rgba(245, 158, 11, 0.2);
+      color: #fbbf24;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .agenda-tags-row .presenter-text {
+      color: rgba(255,255,255,0.5);
+      font-size: 13px;
+    }
+    .agenda-h1 {
+      font-size: 38px;
+      font-weight: 800;
+      margin: 0 0 10px;
+      letter-spacing: -0.5px;
+      line-height: 1.15;
+    }
+    .agenda-section-head {
+      color: rgba(255,255,255,0.5);
+      font-size: 13px;
+      margin: 8px 0 6px;
+    }
+    .agenda-content {
+      font-size: 16px;
+      line-height: 1.75;
+      color: rgba(255,255,255,0.9);
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding-right: 8px;
+    }
+    .agenda-content img {
+      max-width: 100%;
+      max-height: 65vh;
+      height: auto;
+      display: block;
+      margin: 12px auto;
+      border-radius: 8px;
+    }
+    .agenda-content table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+    .agenda-content th, .agenda-content td {
+      border: 1px solid rgba(255,255,255,0.15);
+      padding: 8px 12px;
+      text-align: left;
+    }
+    .agenda-content th { background: rgba(255,255,255,0.05); }
+    /* TOC overview slide: bigger list */
+    .slide-toc { width: 100%; max-width: 1200px; padding: 0 40px; }
+    .slide-toc h2 { font-size: 42px; }
+    .slide-toc ul li { font-size: 24px; padding: 16px 22px; }
+    /* Budget tables in slides */
+    .slide-budget {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 10px;
+    }
+    .slide-bt {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .slide-bt-head {
+      padding: 10px 16px;
+      font-weight: 700;
+      color: white;
+      text-align: center;
+      letter-spacing: 1px;
+      font-size: 14px;
+    }
+    .slide-bt.income .slide-bt-head { background: #047857; }
+    .slide-bt.expense .slide-bt-head { background: #b91c1c; }
+    .slide-bt table { width: 100%; border-collapse: collapse; }
+    .slide-bt th, .slide-bt td {
+      padding: 8px 14px;
+      font-size: 12.5px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .slide-bt th {
+      color: rgba(255,255,255,0.5);
+      font-weight: 600;
+      background: rgba(0,0,0,0.2);
+    }
+    .slide-bt td { color: rgba(255,255,255,0.85); }
+    .slide-bt td.amount { text-align: right; font-weight: 600; }
+    .slide-bt tr.total td {
+      background: rgba(0,0,0,0.2);
+      font-weight: 700;
+      border-bottom: none;
+    }
+    .slide-bt.income tr.total td.amount { color: #34d399; }
+    .slide-bt.expense tr.total td.amount { color: #f87171; }
+
+    /* Vote result footer on slide */
+    .slide-vote-footer {
+      margin-top: 22px;
+      padding: 14px 22px;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .slide-vote-footer.fail {
+      background: rgba(239, 68, 68, 0.12);
+      border-color: rgba(239, 68, 68, 0.3);
+    }
+    .slide-vote-footer.warn {
+      background: rgba(245, 158, 11, 0.12);
+      border-color: rgba(245, 158, 11, 0.3);
+    }
+    .vote-foot-left { display: flex; align-items: center; gap: 12px; flex: 1; }
+    .vote-foot-icon { font-size: 18px; }
+    .vote-foot-label { font-weight: 700; color: rgba(255,255,255,0.95); display:flex; gap:8px; align-items:center; }
+    .vote-foot-tag {
+      background: rgba(16, 185, 129, 0.3);
+      color: #34d399;
+      padding: 3px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .slide-vote-footer.fail .vote-foot-tag {
+      background: rgba(239, 68, 68, 0.3);
+      color: #f87171;
+    }
+    .slide-vote-footer.warn .vote-foot-tag {
+      background: rgba(245, 158, 11, 0.3);
+      color: #fbbf24;
+    }
+    .vote-foot-summary {
+      color: rgba(255,255,255,0.7);
+      font-size: 13px;
+      font-weight: 400;
+    }
+    .vote-foot-done {
+      background: rgba(255,255,255,0.06);
+      color: rgba(255,255,255,0.5);
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <div class="presentation" id="root">
+    <div style="margin:auto;color:white;">불러오는 중...</div>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script>
+    const meetingId = qs('id');
+    let meeting, organization, agendas = [], tocItems = [], slides = [];
+    let cur = 0;
+    let quorum = null;
+    let _voteState = null;
+
+    (async function init() {
+      await requireAuth();
+      const m = await api.get(`/api/meetings/${meetingId}`);
+      meeting = m.meeting; organization = m.organization;
+      const a = await api.get(`/api/agendas?meeting_id=${meetingId}`);
+      agendas = a.agendas;
+      try {
+        const t = await api.get(`/api/toc-items?meeting_id=${meetingId}`);
+        tocItems = t.items;
+      } catch { tocItems = []; }
+      buildSlides();
+      paint();
+      bindKeys();
+      refreshQuorum();
+      setInterval(refreshQuorum, 5000);
+    })();
+
+    async function refreshQuorum() {
+      try {
+        const prevMet = quorum ? !!quorum.quorumMet : null;
+        quorum = await api.get(`/api/meetings/${meetingId}/quorum`);
+        const newMet = !!quorum.quorumMet;
+        // 표지 슬라이드이거나 정족수 충족 상태가 변경되면 현재 슬라이드 재렌더 → 의결 버튼 갱신
+        if (cur === 0 || prevMet !== newMet) paint();
+      } catch (e) {}
+    }
+
+    function buildSlides() {
+      slides = [{ type: 'cover' }, { type: 'toc' }];
+      tocItems.forEach(it => slides.push({ type: 'toc-item', item: it }));
+      slides.push({ type: 'end' });
+    }
+
+    function escapeHtml(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    function renderBudgetSlide(a) {
+      let parsed = { income: [], expense: [] };
+      try {
+        const j = JSON.parse(a.budget_data || '{}');
+        parsed.income = Array.isArray(j.income) ? j.income : [];
+        parsed.expense = Array.isArray(j.expense) ? j.expense : [];
+      } catch {}
+      const incomeTotal = parsed.income.reduce((s, x) => s + (Number(x.amount)||0), 0);
+      const expenseTotal = parsed.expense.reduce((s, x) => s + (Number(x.amount)||0), 0);
+
+      const tbl = (type, items, total, headLabel) => `
+        <div class="slide-bt ${type}">
+          <div class="slide-bt-head">${headLabel}</div>
+          <table>
+            <thead><tr><th>관</th><th>내역</th><th class="amount">금액(원)</th></tr></thead>
+            <tbody>
+              ${items.length ? items.map(it => `
+                <tr>
+                  <td>${escapeHtml(it.item || '')}</td>
+                  <td>${escapeHtml(it.detail || '')}</td>
+                  <td class="amount">${(Number(it.amount)||0).toLocaleString()}</td>
+                </tr>
+              `).join('') : '<tr><td colspan="3" style="text-align:center;color:rgba(255,255,255,0.4);">항목이 없습니다</td></tr>'}
+              <tr class="total"><td colspan="2">합계</td><td class="amount">${total.toLocaleString()}</td></tr>
+            </tbody>
+          </table>
+        </div>`;
+      return `
+        <div class="agenda-section-head">${a.title.replace('의안','').trim() ? '결산 내역 보고 및 승인' : '예산안'}</div>
+        <div class="slide-budget">
+          ${tbl('income', parsed.income, incomeTotal, '수 입')}
+          ${tbl('expense', parsed.expense, expenseTotal, '지 출')}
+        </div>`;
+    }
+
+    function renderAgendaSlide(a) {
+      const isBudget = a.agenda_type === 'budget';
+      const typeLabel = agendaTypeLabel[a.agenda_type] || '일반';
+      return `
+        <div class="slide">
+          <div class="slide-agenda">
+            <div class="agenda-title-row">
+              <div class="agenda-no-box">
+                <span class="small">제</span><span class="num">${a.agenda_no}</span><span class="small">호</span>
+              </div>
+              <div style="flex:1;min-width:0;">
+                <div class="agenda-tags-row">
+                  <span class="tag-budget">${typeLabel}</span>
+                  ${a.presenter ? `<span class="presenter-text">보고: ${escapeHtml(a.presenter)}</span>` : ''}
+                </div>
+                <h2 class="agenda-h1">${escapeHtml(a.title)}</h2>
+              </div>
+            </div>
+            ${isBudget ? renderBudgetSlide(a) : (a.content ? `
+              <div class="agenda-content html-render">${a.content}</div>
+            ` : '')}
+            ${renderVoteFooter(a)}
+          </div>
+          ${renderVoteButton(a)}
+        </div>`;
+    }
+
+    // 현장 의결 버튼 — 정족수 미달이면 비활성화 + 안내 문구로 표시
+    function renderVoteButton(a) {
+      // quorum 데이터가 아직 도착 안했으면 일단 충족된 것으로 간주 (이후 refresh 때 재렌더)
+      const quorumMet = !quorum || quorum.quorumMet !== false;
+      if (!quorumMet) {
+        return `<button class="pres-vote-btn is-disabled" disabled title="현재 출석 인원이 의결 정족수에 미달합니다.">⚠ 정족수 미달입니다.</button>`;
+      }
+      return `<button class="pres-vote-btn" onclick="openVote(${a.id})">⚡ 현장 의결</button>`;
+    }
+
+    function renderVoteFooter(a) {
+      if (!a.vote_result) return '';
+      const cls = a.vote_result === '부결' ? 'fail'
+                : a.vote_result === '보류' ? 'warn'
+                : '';
+      const summary = a.vote_summary || `참여인원 ${(a.approve_count||0)+(a.oppose_count||0)+(a.abstain_count||0)}명, 찬성 ${a.approve_count||0}명, 반대 ${a.oppose_count||0}명, 기권 ${a.abstain_count||0}명.`;
+      return `
+        <div class="slide-vote-footer ${cls}">
+          <div class="vote-foot-left">
+            <div class="vote-foot-icon">🔨</div>
+            <div>
+              <div class="vote-foot-label">현장 의결 <span class="vote-foot-tag">${a.vote_result}</span></div>
+              <div class="vote-foot-summary">${escapeHtml(summary)}</div>
+            </div>
+          </div>
+          <div class="vote-foot-done">의결 완료</div>
+        </div>`;
+    }
+
+    function paint() {
+      const r = document.getElementById('root');
+      const s = slides[cur];
+      let body = '';
+      if (s.type === 'cover') {
+        const formal = meeting.meeting_type === 'board' || meeting.meeting_type === 'general';
+        const status = quorum ? (quorum.quorumMet ? 'met' : 'not-met') : '';
+        const quorumCard = formal ? `
+            <div class="slide-status-card ${status}">
+              <div class="stat"><div class="num">${quorum?.attended ?? '-'}</div><div class="lbl">참석</div></div>
+              <div class="stat"><div class="num">${quorum?.target ?? '-'}</div><div class="lbl">정족수</div></div>
+              <div class="stat"><div class="num">${quorum?.total ?? '-'}</div><div class="lbl">전체</div></div>
+              <div class="stat"><div class="num" style="color:${quorum?.quorumMet ? '#10b981' : '#ef4444'}">${quorum ? (quorum.quorumMet ? '충족' : '미달') : '-'}</div><div class="lbl">상태</div></div>
+            </div>` : '';
+        body = `
+          <div class="slide slide-cover">
+            <div class="org">${organization.name}</div>
+            <h1>${meeting.title}</h1>
+            <div class="meta">${fmtDate(meeting.meeting_date)} · ${meeting.location || ''}</div>
+            ${quorumCard}
+          </div>`;
+      } else if (s.type === 'toc') {
+        body = `
+          <div class="slide">
+            <div class="slide-toc">
+              <h2>회의목차</h2>
+              <ul>
+                ${tocItems.length
+                  ? tocItems.map((it, i) => `<li><span class="no">${i+1}.</span> ${escapeHtml(it.title)}</li>`).join('')
+                  : '<li>등록된 항목이 없습니다.</li>'}
+              </ul>
+            </div>
+          </div>`;
+      } else if (s.type === 'toc-item') {
+        const it = s.item;
+        // If this TOC item references an agenda, render full agenda content
+        let linked = it.agenda_id ? agendas.find(a => a.id === it.agenda_id) : null;
+        if (!linked) {
+          // Fallback: title pattern "[제 N호]" → find agenda by no
+          const m = it.title && it.title.match(/^\[제\s*(\d+)호\]/);
+          if (m) linked = agendas.find(a => a.agenda_no === Number(m[1]));
+        }
+        if (linked) {
+          // Render as full agenda slide
+          body = renderAgendaSlide(linked);
+        } else {
+          body = `
+            <div class="slide">
+              <div class="slide-agenda">
+                <h2 class="agenda-h1" style="text-align:center;margin-top:6px;font-size:48px;">${escapeHtml(it.title)}</h2>
+                ${it.description ? `
+                  <div class="agenda-content html-render">${it.description}</div>
+                ` : '<div class="agenda-content" style="opacity:0.4;font-style:italic;text-align:center;">설명이 없습니다.</div>'}
+              </div>
+            </div>`;
+        }
+      } else if (s.type === 'agenda') {
+        body = renderAgendaSlide(s.agenda);
+      } else {
+        body = `
+          <div class="slide slide-cover">
+            <h1>회의를 마칩니다</h1>
+            <div class="meta">참석해주셔서 감사합니다.</div>
+          </div>`;
+      }
+
+      r.innerHTML = `
+        ${body}
+        <div class="presentation-controls">
+          <div class="pres-btn" onclick="prev()">←</div>
+          <div class="pres-progress">${cur + 1} / ${slides.length}</div>
+          <div class="pres-btn" onclick="next()">→</div>
+          <div class="pres-btn" onclick="toggleFs()">⛶</div>
+          <div class="pres-btn danger" onclick="exitPresentation()">✕</div>
+        </div>
+      `;
+    }
+
+    function exitPresentation() { try { window.close(); } catch(e) {} history.length > 1 ? history.back() : (location.href = `/meeting?id=${meetingId}`); }
+    function next() { if (cur < slides.length - 1) { cur++; paint(); } }
+    function prev() { if (cur > 0) { cur--; paint(); } }
+    function toggleFs() { if (!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); }
+
+    function bindKeys() {
+      document.addEventListener('keydown', (e) => {
+        if (e.target.matches('input, textarea, [contenteditable]')) return;
+        if (e.key === 'ArrowRight' || e.key === ' ') next();
+        else if (e.key === 'ArrowLeft') prev();
+        else if (e.key === 'Escape') {}
+        else if (e.key === 'f' || e.key === 'F') toggleFs();
+      });
+      document.addEventListener('click', (e) => {
+        if (e.target.closest('.presentation-controls') || e.target.closest('.pres-vote-btn') || e.target.closest('.modal-backdrop')) return;
+        next();
+      });
+    }
+
+    // ===== 현장 의결 모달 (full vote panel) =====
+    async function openVote(agendaId) {
+      const ag = agendas.find(a => a.id === agendaId);
+      // 최신 정족수(참석자 인원) 가져오기 — 항상 fresh fetch
+      try { quorum = await api.get(`/api/meetings/${meetingId}/quorum`); } catch (e) {
+        console.warn('quorum fetch failed', e);
+      }
+      const attendedFromQuorum = Number(quorum && quorum.attended) || 0;
+      // 명시적으로 의결 결과(vote_result)가 저장된 경우에만 "이미 의결됨" 으로 간주
+      //   → 그 외에는 항상 현재 참석자 인원으로 찬성 미리 채움
+      const hasFinalVote = !!(ag.vote_result && String(ag.vote_result).trim());
+      _voteState = {
+        id: agendaId,
+        voteResult: ag.vote_result || '',
+        approve: hasFinalVote ? (Number(ag.approve_count) || 0) : attendedFromQuorum,
+        oppose: hasFinalVote ? (Number(ag.oppose_count) || 0) : 0,
+        abstain: hasFinalVote ? (Number(ag.abstain_count) || 0) : 0,
+        // 의결 결과가 확정된 경우에만 저장된 요지 표시 — 신규 의결은 빈 값으로 시작 (사용자가 의결 결과 클릭/입력 시 자동 작성)
+        summary: hasFinalVote ? (ag.vote_summary || '') : '',
+        attendedRef: attendedFromQuorum,   // 참석자 인원 (참여인원/정족수 표시 기준)
+        userEditedSummary: false           // 사용자가 직접 요지를 수정했는지 (true 면 자동 갱신 안함)
+      };
+      modal({
+        title: `🔨 현장 의결 — 제 ${ag.agenda_no}호 ${ag.title}`,
+        size: 'lg',
+        hideFoot: true,
+        body: `<div id="voteModalRoot"></div>`
+      });
+      paintVoteModal();
+    }
+
+    // 참석 인원으로 찬성 다시 채우기 (사용자가 손으로 변경한 경우 복원용)
+    function pRefillFromAttended() {
+      const attended = Number(_voteState.attendedRef) || Number(quorum && quorum.attended) || 0;
+      _voteState.approve = attended;
+      _voteState.oppose = 0;
+      _voteState.abstain = 0;
+      // 명시적 리셋 — 사용자 수정 추적 초기화 + voteResult 가 있을 때만 요지 자동 작성
+      _voteState.userEditedSummary = false;
+      _voteState.summary = _voteState.voteResult ? autoVoteSummary() : '';
+      paintVoteModal();
+    }
+
+    function paintVoteModal() {
+      const s = _voteState;
+      const totalMembers = meeting.total_members || 0;
+      const passRatio = meeting.pass_ratio || 0.5;
+      // 참여인원: 우선순위 → ① 정족수의 참석자 합 (attendedRef) ② 입력된 찬반/기권 합 ③ 재적 의원 수
+      const attended = Number(s.attendedRef) || (s.approve + s.oppose + s.abstain) || totalMembers;
+      const majority = Math.ceil(attended * passRatio);
+      const root = document.getElementById('voteModalRoot');
+      if (!root) return;
+      root.innerHTML = `
+        <div class="text-sm text-muted mb-16">회의 중 결정된 사항을 기록합니다.</div>
+
+        <div class="flex items-center justify-between mb-8">
+          <label class="label" style="margin:0;">의결 결과</label>
+          <span class="text-sm text-muted">투표 결과에 따라 자동 판정</span>
+        </div>
+        <div class="vote-grid mb-16">
+          <button type="button" class="vote-btn ${s.voteResult==='원안가결'?'active':''}" onclick="pSelectVote('원안가결')">원안가결</button>
+          <button type="button" class="vote-btn warn ${s.voteResult==='수정가결'?'active':''}" onclick="pSelectVote('수정가결')">수정가결</button>
+          <button type="button" class="vote-btn danger ${s.voteResult==='부결'?'active':''}" onclick="pSelectVote('부결')">부결</button>
+          <button type="button" class="vote-btn ${s.voteResult==='보류'?'active':''}" onclick="pSelectVote('보류')">보류</button>
+        </div>
+
+        <div class="flex items-center justify-between mb-8">
+          <label class="label" style="margin:0;">투표 결과</label>
+          <span class="text-sm text-muted">
+            참석 ${Number(s.attendedRef) || 0}명 (출석 ${quorum ? quorum.present : 0}명 + 위임 ${quorum ? quorum.proxy : 0}명) · 가결 기준 ${majority}명 이상
+            <button type="button" onclick="pRefillFromAttended()" style="margin-left:8px;padding:2px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:11px;font-weight:600;">↻ 참석 인원으로 채우기</button>
+          </span>
+        </div>
+        <div class="tally-grid mb-16">
+          <div>
+            <label class="label">찬성 (입력)</label>
+            <input class="input approve" type="number" min="0" value="${s.approve}" oninput="pChangeTally('approve', this.value)">
+          </div>
+          <div>
+            <label class="label">반대 (입력)</label>
+            <input class="input oppose" type="number" min="0" value="${s.oppose}" oninput="pChangeTally('oppose', this.value)">
+          </div>
+          <div>
+            <label class="label">기권/무효 (자동계산)</label>
+            <input class="input" type="number" value="${s.abstain}" readonly style="background:var(--surface-2);text-align:center;">
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between mb-8">
+          <label class="label" style="margin:0;">의결 요지 / 비고</label>
+          <span class="text-sm text-muted">의결 결과 클릭 시 자동 작성 · 직접 수정 가능</span>
+        </div>
+        <textarea class="textarea" id="pv_summary" rows="4"
+          placeholder="의결 결과를 클릭하면 요지가 자동 작성됩니다. 직접 입력도 가능합니다."
+          oninput="_voteState.summary = this.value; _voteState.userEditedSummary = true;">${(s.summary||'').replace(/</g,'&lt;')}</textarea>
+
+        <div class="flex gap-8 mt-16">
+          <button type="button" class="btn flex-1" onclick="document.querySelector('.modal-backdrop').remove()">닫기</button>
+          <button type="button" class="btn btn-primary flex-1" onclick="saveVote()">⊙ 의결 결과 저장</button>
+        </div>
+      `;
+    }
+
+    function pSelectVote(result) {
+      _voteState.voteResult = (_voteState.voteResult === result) ? '' : result;
+      // 사용자가 요지를 직접 수정한 적 없으면 자동 작성, 있으면 사용자 입력 보존
+      if (!_voteState.userEditedSummary) {
+        _voteState.summary = _voteState.voteResult ? autoVoteSummary() : '';
+      }
+      paintVoteModal();
+    }
+    function pChangeTally(kind, val) {
+      const v = Math.max(0, Number(val) || 0);
+      // 참여인원 = 참석자 인원 (출석+위임) — 이 기준으로 찬반/기권 비율을 분배
+      const attended = Number(_voteState.attendedRef) || Number(quorum && quorum.attended) || meeting.total_members || 0;
+      if (kind === 'approve') {
+        // 찬성 변경 → 나머지를 반대로, 기권은 0
+        _voteState.approve = Math.min(v, attended);
+        _voteState.oppose = Math.max(0, attended - _voteState.approve);
+        _voteState.abstain = 0;
+      } else if (kind === 'oppose') {
+        // 반대 변경 → 나머지를 기권/무효로
+        _voteState.oppose = Math.min(v, Math.max(0, attended - _voteState.approve));
+        _voteState.abstain = Math.max(0, attended - _voteState.approve - _voteState.oppose);
+      }
+      const passRatio = meeting.pass_ratio || 0.5;
+      const need = Math.ceil(attended * passRatio);
+      if (_voteState.approve >= need) _voteState.voteResult = '원안가결';
+      else _voteState.voteResult = '부결';
+      // 사용자가 요지를 직접 수정한 적 없으면 자동 작성
+      if (!_voteState.userEditedSummary) {
+        _voteState.summary = autoVoteSummary();
+      }
+      paintVoteModal();
+    }
+    function autoVoteSummary() {
+      const s = _voteState;
+      const attended = s.approve + s.oppose + s.abstain;
+      const passRatio = meeting.pass_ratio || 0.5;
+      const need = Math.ceil(attended * passRatio);
+      const ratioLabel = passRatio === 0.5 ? '과반수' : passRatio === 0.66 ? '2/3' : passRatio === 0.75 ? '3/4' : `${Math.round(passRatio*100)}%`;
+      if (!s.voteResult) return `참여인원 ${attended}명, 찬성 ${s.approve}명, 반대 ${s.oppose}명, 기권 ${s.abstain}명.`;
+      const reason = s.voteResult === '원안가결' ? `${ratioLabel} 기준 충족` : s.voteResult === '부결' ? `${ratioLabel} 기준 미달 (필요 ${need}명)` : '회의에서 결정';
+      return `참여인원 ${attended}명, 찬성 ${s.approve}명, 반대 ${s.oppose}명, 기권 ${s.abstain}명. ${reason}으로 ${s.voteResult}.`;
+    }
+
+    async function saveVote() {
+      const s = _voteState;
+      try {
+        await api.post(`/api/agendas/${s.id}/vote`, {
+          approve_count: s.approve,
+          oppose_count: s.oppose,
+          abstain_count: s.abstain,
+          vote_result: s.voteResult,
+          vote_summary: s.summary
+        });
+        const a = await api.get(`/api/agendas/${s.id}`);
+        const idx = agendas.findIndex(x => x.id === s.id);
+        agendas[idx] = a.agenda;
+        buildSlides();
+        paint();
+        toast('저장되었습니다.', 'success');
+        document.querySelector('.modal-backdrop')?.remove();
+      } catch (e) { toast(e.message, 'error'); }
+    }
+  </script>
+</body>
+</html>

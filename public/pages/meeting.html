@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>회의 관리 · SmartMeet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    /* 회의 상세 페이지에서는 좌측 사이드바 숨김 — 회의 정보·관리에 집중할 수 있도록 */
+    .app { grid-template-columns: 1fr !important; }
+    body > .app > .sidebar { display: none !important; }
+
+    /* Embed mode (iframe inside home page): hide chrome */
+    body.embed .sidebar,
+    body.embed .topbar { display: none !important; }
+    body.embed .app { grid-template-columns: 1fr; }
+    body.embed .content { padding: 16px; }
+
+    /* "임원명단에서 가져오기" picker 테이블 — 깔끔한 행 정렬 */
+    .ipx-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .ipx-table thead {
+      position: sticky; top: 0;
+      background: var(--surface-2);
+      z-index: 1;
+    }
+    .ipx-table th {
+      padding: 10px 12px;
+      text-align: left;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .ipx-table td {
+      padding: 8px 12px;
+      vertical-align: middle;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;        /* 글자가 세로로 쪼개지지 않게 */
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .ipx-table tbody tr {
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .ipx-table tbody tr:hover { background: var(--surface-2); }
+    .ipx-table tbody tr:last-child td { border-bottom: none; }
+  </style>
+  <script>
+    // Detect ?embed=1 ASAP so chrome doesn't flash
+    if (new URLSearchParams(location.search).get('embed') === '1') {
+      document.documentElement.classList.add('embed-html');
+      document.addEventListener('DOMContentLoaded', () => document.body.classList.add('embed'));
+    }
+  </script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div class="topbar-title">회의 관리</div>
+        <div class="topbar-actions" id="userArea"></div>
+      </div>
+
+      <div class="content">
+        <div class="meeting-hero">
+          <div class="meeting-hero-left">
+            <div class="meeting-hero-logo" id="heroLogo">SM</div>
+            <div>
+              <div class="meeting-hero-meta">
+                <span class="tag tag-board" id="heroType">이사회</span>
+                <span class="tag tag-status-prep" id="heroStatus">준비중</span>
+              </div>
+              <h1 class="meeting-hero-title" id="heroTitle">-</h1>
+              <div class="meeting-hero-info">
+                <span id="heroDate"></span>
+                <span id="heroLocation"></span>
+              </div>
+            </div>
+          </div>
+          <div class="topbar-actions">
+            <button class="btn" id="editMeetingBtn">⚙ 수정</button>
+            <button class="btn" id="invitationBtn">💬 초대장</button>
+            <button class="btn" id="minutesBtn">🖨 회의록</button>
+            <button class="btn btn-primary" id="presentBtn">📺 회의진행</button>
+          </div>
+        </div>
+
+        <div class="with-rightpanel">
+          <div>
+            <div class="tabs" id="tabs">
+              <div class="tab active" data-tab="toc">📖 회의목차</div>
+              <div class="tab" data-tab="agendas">📑 의안 관리 <span class="tab-badge" id="tabbadge-agendas">0</span></div>
+              <div class="tab" data-tab="members">👥 의원 관리 (출석부)</div>
+              <div class="tab" data-tab="proxies">✍️ 위임장 <span class="tab-badge" id="tabbadge-proxies">0</span></div>
+            </div>
+
+            <!-- Agenda tab -->
+            <div class="tab-panel hidden" data-panel="agendas">
+              <div class="page-header">
+                <div>
+                  <div class="page-title" style="font-size:16px;">의안 목록 <span class="text-soft" id="agendaCount"></span></div>
+                </div>
+                <button class="btn btn-accent" id="addAgendaBtn">+ 의안 추가</button>
+              </div>
+              <div id="agendaList" class="agenda-list"></div>
+            </div>
+
+            <!-- Members tab -->
+            <div class="tab-panel hidden" data-panel="members">
+              <div class="page-header">
+                <div>
+                  <div class="page-title" style="font-size:16px;">의원 명단 <span class="text-soft" id="memberCount"></span></div>
+                </div>
+                <div class="topbar-actions">
+                  <button class="btn" id="importExecBtn">📋 임원명단에서 가져오기</button>
+                  <button class="btn" id="excelImportBtn">📥 엑셀 일괄등록</button>
+                  <button class="btn btn-accent" id="addMemberBtn">+ 의원 추가</button>
+                </div>
+              </div>
+              <div class="searchbar mb-12">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2"/></svg>
+                <input id="memberSearch" placeholder="이름·직책·전화번호 검색" />
+              </div>
+              <div class="filter-row mb-12">
+                <button class="filter-pill active" data-filter="all">전체</button>
+                <button class="filter-pill" data-filter="present">참석</button>
+                <button class="filter-pill" data-filter="proxy">위임장</button>
+                <button class="filter-pill" data-filter="absent">불참</button>
+              </div>
+              <div id="memberList"></div>
+            </div>
+
+            <!-- Proxies tab -->
+            <div class="tab-panel hidden" data-panel="proxies">
+              <div class="page-header">
+                <div>
+                  <div class="page-title" style="font-size:16px;">위임장 현황 <span class="text-soft" id="proxyCount"></span></div>
+                </div>
+                <div class="topbar-actions"></div>
+              </div>
+              <div id="proxyList"></div>
+            </div>
+
+            <!-- TOC tab (default) -->
+            <div class="tab-panel" data-panel="toc">
+              <div class="page-header">
+                <div>
+                  <div class="page-title" style="font-size:16px;">회의 목차 <span class="text-soft" id="tocCount"></span></div>
+                  <div class="text-sm text-muted">개회사·인사·보고·폐회 등 진행 순서를 정의합니다. 드래그&드롭으로 순서를 변경할 수 있습니다.</div>
+                </div>
+                <button class="btn btn-accent" id="addTocBtn">+ 항목 추가</button>
+              </div>
+              <div id="tocList" class="agenda-list"></div>
+            </div>
+          </div>
+
+          <!-- Right panel -->
+          <div class="rightpanel">
+            <div class="quorum-card" id="quorumCard">
+              <div class="quorum-head">
+                <div class="quorum-title">정족수 현황</div>
+                <span class="quorum-status-badge quorum-status-not" id="qBadge">미달</span>
+              </div>
+              <div class="flex justify-between items-center">
+                <div class="quorum-num">
+                  <span id="qAttended">0</span>
+                  <span class="total" id="qTotal">/ 0명</span>
+                </div>
+                <div class="quorum-target">목표: <b id="qTarget">0</b>명</div>
+              </div>
+              <div class="quorum-bar"><div class="quorum-bar-fill" id="qBarFill" style="width:0%"></div></div>
+              <div class="quorum-detail-row"><div class="key">직접 출석</div><div id="qPresent">0명</div></div>
+              <div class="quorum-detail-row"><div class="key">위임장</div><div id="qProxy">0명</div></div>
+              <div class="quorum-info-box" id="qInfoBox">
+                <span>ℹ️</span><span id="qInfo">정족수 미달입니다.</span>
+              </div>
+              <div class="quorum-detail-row mt-12" style="border-top:1px solid var(--border);padding-top:10px;">
+                <div class="key">안건 의결 기준</div>
+                <div id="qMajority" class="fw-700">과반 -</div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-title">회의 요약</div>
+              <div class="summary-row"><div class="summary-key">총 의안</div><div class="summary-val" id="sm-total">0건</div></div>
+              <div class="summary-row"><div class="summary-key">원안/수정가결</div><div class="summary-val success" id="sm-pass">0건</div></div>
+              <div class="summary-row"><div class="summary-key">부결/보류</div><div class="summary-val danger" id="sm-fail">0건</div></div>
+              <div class="summary-row"><div class="summary-key">미결의</div><div class="summary-val warn" id="sm-pending">0건</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/sidebar.js"></script>
+  <script src="/js/editor.js"></script>
+  <script src="/js/meeting.js"></script>
+</body>
+</html>

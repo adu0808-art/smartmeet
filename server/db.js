@@ -1,0 +1,380 @@
+const Database = require('better-sqlite3');
+const path = require('path');
+const fs = require('fs');
+
+// DB 경로: 환경변수 DB_DIR 우선 (Railway 등 PaaS의 영속 Volume 경로용)
+//   배포 환경 예: DB_DIR=/data
+//   로컬 개발: 기본값 ../DB
+const DB_DIR = process.env.DB_DIR || path.resolve(__dirname, '..', 'DB');
+if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
+
+const dbPath = path.join(DB_DIR, 'smartmeet.db');
+console.log('[db] using SQLite path:', dbPath);
+const db = new Database(dbPath);
+db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON');
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'user',
+  created_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS organizations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  description TEXT,
+  logo_url TEXT,
+  owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS organization_members (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  member_role TEXT DEFAULT 'staff',
+  UNIQUE(organization_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS meetings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  meeting_type TEXT DEFAULT 'board',
+  meeting_date TEXT,
+  location TEXT,
+  total_members INTEGER DEFAULT 0,
+  quorum_ratio REAL DEFAULT 0.5,
+  status TEXT DEFAULT 'preparing',
+  created_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS agendas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  agenda_no INTEGER,
+  agenda_type TEXT DEFAULT 'general',
+  title TEXT NOT NULL,
+  presenter TEXT,
+  summary TEXT,
+  content TEXT,
+  budget_data TEXT,
+  approve_count INTEGER DEFAULT 0,
+  oppose_count INTEGER DEFAULT 0,
+  abstain_count INTEGER DEFAULT 0,
+  vote_result TEXT,
+  sort_order INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS members (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  seq INTEGER,
+  position TEXT,
+  name TEXT NOT NULL,
+  phone TEXT,
+  email TEXT,
+  major TEXT,
+  workplace TEXT,
+  generation TEXT,
+  created_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS attendances (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  member_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  status TEXT DEFAULT 'absent',
+  checked_at TEXT,
+  UNIQUE(meeting_id, member_id)
+);
+
+CREATE TABLE IF NOT EXISTS proxies (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  member_id INTEGER REFERENCES members(id) ON DELETE SET NULL,
+  token TEXT UNIQUE NOT NULL,
+  submitter_name TEXT,
+  submitter_phone TEXT,
+  signature_data TEXT,
+  status TEXT DEFAULT 'pending',
+  submitted_at TEXT,
+  created_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS charters (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  content TEXT,
+  updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS charter_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  version_name TEXT NOT NULL,
+  content TEXT,
+  created_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS org_charts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  data TEXT,
+  updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS schedules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  schedule_date TEXT NOT NULL,
+  description TEXT,
+  created_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS toc_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT,
+  sort_order INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS invitations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  token TEXT UNIQUE NOT NULL,
+  default_role TEXT DEFAULT 'member',
+  max_uses INTEGER DEFAULT 0,
+  used_count INTEGER DEFAULT 0,
+  expires_at TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS notices (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  content TEXT,
+  is_pinned INTEGER DEFAULT 0,
+  author_id INTEGER REFERENCES users(id),
+  view_count INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now', 'localtime')),
+  updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS posts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  content TEXT,
+  author_id INTEGER REFERENCES users(id),
+  view_count INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now', 'localtime')),
+  updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS comments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  author_id INTEGER REFERENCES users(id),
+  created_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS org_chart_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  version_name TEXT NOT NULL,
+  data TEXT,
+  created_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+`);
+
+// Migration: add pass_ratio column to meetings if missing
+try { db.exec("ALTER TABLE meetings ADD COLUMN pass_ratio REAL DEFAULT 0.5"); } catch (e) {}
+try { db.exec("ALTER TABLE meetings ADD COLUMN invitation_message TEXT"); } catch (e) {}
+try { db.exec("ALTER TABLE agendas ADD COLUMN vote_summary TEXT"); } catch (e) {}
+try { db.exec("ALTER TABLE toc_items ADD COLUMN agenda_id INTEGER REFERENCES agendas(id) ON DELETE SET NULL"); } catch (e) {}
+
+// Organization: 3 logo variants — symbol(logo), text-only, logo+text combined
+try { db.exec("ALTER TABLE organizations ADD COLUMN logo_text_url TEXT"); } catch (e) {}
+try { db.exec("ALTER TABLE organizations ADD COLUMN logo_combo_url TEXT"); } catch (e) {}
+// Organization: hero image (separate from logo) for home page main banner
+try { db.exec("ALTER TABLE organizations ADD COLUMN hero_image_url TEXT"); } catch (e) {}
+// Organization: footer HTML (admin-editable, shown at bottom of home page)
+try { db.exec("ALTER TABLE organizations ADD COLUMN footer_html TEXT"); } catch (e) {}
+// Organization: 기관 소개 (intro), separate from 인사말 (description/greeting)
+try { db.exec("ALTER TABLE organizations ADD COLUMN intro_html TEXT"); } catch (e) {}
+// Organization: hero sub-title (under org name) and slogan bar text — admin editable on home
+try { db.exec("ALTER TABLE organizations ADD COLUMN hero_sub TEXT"); } catch (e) {}
+try { db.exec("ALTER TABLE organizations ADD COLUMN slogan TEXT"); } catch (e) {}
+
+// Posts: category — 'free' (자유게시판) | 'news' (회원소식)
+try { db.exec("ALTER TABLE posts ADD COLUMN category TEXT DEFAULT 'free'"); } catch (e) {}
+
+// Members: 사진 (data URL or external URL)
+try { db.exec("ALTER TABLE members ADD COLUMN photo TEXT"); } catch (e) {}
+
+// 회의 의원 (meeting_members) — 임원명단(members)과 완전히 독립된 테이블
+//   각 row 는 특정 회의의 의원 정보를 모두 포함 (members 와 무관)
+//   임원이 삭제돼도 의원 데이터는 그대로 유지됨
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS meeting_members (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+      seq INTEGER,
+      position TEXT,
+      name TEXT NOT NULL,
+      phone TEXT,
+      email TEXT,
+      major TEXT,
+      workplace TEXT,
+      photo TEXT,
+      source_member_id INTEGER,
+      created_at TEXT DEFAULT (datetime('now', 'localtime'))
+    );
+  `);
+} catch (e) { console.warn('[DB] meeting_members table:', e.message); }
+
+// 마이그레이션: 옛 junction 구조 → 독립 테이블 구조로 변환
+//   옛 구조: (meeting_id, member_id) FK 만 갖는 정션
+//   새 구조: 각 row 가 의원 정보 자체를 포함 (members 와 분리)
+try {
+  const tableInfo = db.prepare("PRAGMA table_info(meeting_members)").all();
+  const hasMemberId = tableInfo.some(c => c.name === 'member_id');
+  const hasName = tableInfo.some(c => c.name === 'name');
+  // junction 구조이면서 새 컬럼이 없는 경우 → v2 로 마이그레이션
+  if (hasMemberId && !hasName) {
+    db.exec(`
+      CREATE TABLE meeting_members_v2 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+        seq INTEGER,
+        position TEXT,
+        name TEXT NOT NULL,
+        phone TEXT,
+        email TEXT,
+        major TEXT,
+        workplace TEXT,
+        photo TEXT,
+        source_member_id INTEGER,
+        created_at TEXT DEFAULT (datetime('now', 'localtime'))
+      );
+    `);
+    db.exec(`
+      INSERT INTO meeting_members_v2 (meeting_id, seq, position, name, phone, email, major, workplace, photo, source_member_id)
+      SELECT mm.meeting_id, m.seq, m.position, m.name, m.phone, m.email, m.major, m.workplace, m.photo, m.id
+      FROM meeting_members mm
+      INNER JOIN members m ON m.id = mm.member_id;
+    `);
+    db.exec('DROP TABLE meeting_members');
+    db.exec('ALTER TABLE meeting_members_v2 RENAME TO meeting_members');
+    console.log('[DB] meeting_members migrated: junction → standalone table');
+  }
+} catch (e) { console.warn('[DB] meeting_members migration:', e.message); }
+
+// proxies 마이그레이션: member_id 가 옛 members(id) 를 참조했지만 이제는 meeting_members(id) 사용
+//   members(id) FK 가 남아있으면 INSERT 시 FK 위반 발생 → 테이블 재생성으로 FK 제거 + 데이터 remap
+try {
+  const proxyForeignKeys = db.prepare("PRAGMA foreign_key_list(proxies)").all();
+  const fkToMembers = proxyForeignKeys.find(fk => fk.table === 'members');
+  if (fkToMembers) {
+    db.exec(`
+      CREATE TABLE proxies_v2 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+        member_id INTEGER,
+        token TEXT UNIQUE NOT NULL,
+        submitter_name TEXT,
+        submitter_phone TEXT,
+        signature_data TEXT,
+        status TEXT DEFAULT 'pending',
+        submitted_at TEXT,
+        created_at TEXT DEFAULT (datetime('now', 'localtime'))
+      );
+    `);
+    // 기존 proxies.member_id (members.id) → meeting_members.id 로 remap (source_member_id 매칭)
+    db.exec(`
+      INSERT INTO proxies_v2 (id, meeting_id, member_id, token, submitter_name, submitter_phone, signature_data, status, submitted_at, created_at)
+      SELECT
+        p.id, p.meeting_id,
+        (SELECT mm.id FROM meeting_members mm WHERE mm.meeting_id = p.meeting_id AND mm.source_member_id = p.member_id LIMIT 1),
+        p.token, p.submitter_name, p.submitter_phone, p.signature_data, p.status, p.submitted_at, p.created_at
+      FROM proxies p;
+    `);
+    db.exec('DROP TABLE proxies');
+    db.exec('ALTER TABLE proxies_v2 RENAME TO proxies');
+    console.log('[DB] proxies migrated: member_id FK to members removed → now stores meeting_members.id');
+  }
+} catch (e) { console.warn('[DB] proxies migration:', e.message); }
+
+// attendances 마이그레이션: member_id (members.id) → meeting_member_id (meeting_members.id)
+//   회의 의원이 독립 테이블이 되었으므로 출석 체크도 meeting_member 단위로 변경
+try {
+  const attInfo = db.prepare("PRAGMA table_info(attendances)").all();
+  const hasMeetingMemberId = attInfo.some(c => c.name === 'meeting_member_id');
+  if (attInfo.length > 0 && !hasMeetingMemberId) {
+    db.exec(`
+      CREATE TABLE attendances_v2 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        meeting_member_id INTEGER NOT NULL REFERENCES meeting_members(id) ON DELETE CASCADE,
+        status TEXT DEFAULT 'absent',
+        checked_at TEXT,
+        UNIQUE(meeting_member_id)
+      );
+    `);
+    // 기존 attendances.member_id 가 members.id 였으나, 마이그레이션된 meeting_members 의 source_member_id 로 매핑 시도
+    db.exec(`
+      INSERT OR IGNORE INTO attendances_v2 (meeting_member_id, status, checked_at)
+      SELECT mm.id, a.status, a.checked_at
+      FROM attendances a
+      JOIN meeting_members mm ON mm.meeting_id = a.meeting_id AND mm.source_member_id = a.member_id
+    `);
+    db.exec('DROP TABLE attendances');
+    db.exec('ALTER TABLE attendances_v2 RENAME TO attendances');
+    console.log('[DB] attendances migrated: member_id → meeting_member_id');
+  }
+} catch (e) { console.warn('[DB] attendances migration:', e.message); }
+
+// User profile fields
+try { db.exec("ALTER TABLE users ADD COLUMN phone TEXT"); } catch (e) {}
+try { db.exec("ALTER TABLE users ADD COLUMN major TEXT"); } catch (e) {}
+try { db.exec("ALTER TABLE users ADD COLUMN workplace TEXT"); } catch (e) {}
+try { db.exec("ALTER TABLE users ADD COLUMN profile_image TEXT"); } catch (e) {}
+try { db.exec("ALTER TABLE users ADD COLUMN bio TEXT"); } catch (e) {}
+
+// Migration: ensure org owners have an organization_members row with admin role
+try {
+  const orgs = db.prepare('SELECT id, owner_id FROM organizations WHERE owner_id IS NOT NULL').all();
+  const ins = db.prepare('INSERT OR IGNORE INTO organization_members (organization_id, user_id, member_role) VALUES (?, ?, ?)');
+  const update = db.prepare(`UPDATE organization_members SET member_role = 'admin' WHERE organization_id = ? AND user_id = ?`);
+  const tx = db.transaction(() => {
+    orgs.forEach(o => { ins.run(o.id, o.owner_id, 'admin'); update.run(o.id, o.owner_id); });
+  });
+  tx();
+} catch (e) { console.warn('[DB] owner-membership migration warning:', e.message); }
+
+const ensureAdmin = () => {
+  const bcrypt = require('bcryptjs');
+  const exists = db.prepare('SELECT id FROM users WHERE email = ?').get('admin@smartmeet.local');
+  if (!exists) {
+    const hash = bcrypt.hashSync('admin1234', 10);
+    db.prepare('INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)')
+      .run('admin@smartmeet.local', hash, '시스템 관리자', 'admin');
+    console.log('[DB] 기본 관리자 생성 완료: admin@smartmeet.local / admin1234');
+  }
+};
+ensureAdmin();
+
+module.exports = db;

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>회의 리스트 · SmartMeet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main">
+      <div class="topbar">
+        <div class="topbar-title">회의 리스트</div>
+        <div class="topbar-actions" id="userArea"></div>
+      </div>
+      <div class="content">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">📋 회의 리스트</h1>
+            <div class="page-sub" id="cnt">등록된 모든 회의를 확인합니다.</div>
+          </div>
+          <button class="btn btn-primary" id="newMeetingBtn" data-admin-only>+ 새 회의 등록</button>
+        </div>
+
+        <div class="filter-row mb-16">
+          <button class="filter-pill active" data-status="all">전체</button>
+          <button class="filter-pill" data-status="preparing">준비중</button>
+          <button class="filter-pill" data-status="progress">진행중</button>
+          <button class="filter-pill" data-status="done">완료</button>
+        </div>
+
+        <div id="list"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/sidebar.js"></script>
+  <script>
+    const orgId = qs('org');
+    let me, organization, role, meetings = [];
+    let statusFilter = 'all';
+
+    (async function init() {
+      me = await requireAuth();
+      document.getElementById('userArea').innerHTML = renderUserChip(me);
+      const o = await api.get(`/api/organizations/${orgId}`);
+      organization = o.organization; role = o.my_role;
+      renderOrgSidebar(organization, 'meetings-list', { role });
+      showOnlyForAdmin(role);
+      document.getElementById('newMeetingBtn').onclick = openNewMeeting;
+      document.querySelectorAll('[data-status]').forEach(b => b.onclick = () => {
+        statusFilter = b.dataset.status;
+        document.querySelectorAll('[data-status]').forEach(x => x.classList.toggle('active', x === b));
+        render();
+      });
+      load();
+    })();
+
+    async function load() {
+      const data = await api.get(`/api/meetings?organization_id=${orgId}`);
+      meetings = data.meetings;
+      render();
+    }
+
+    function render() {
+      const list = statusFilter === 'all' ? meetings : meetings.filter(m => m.status === statusFilter);
+      document.getElementById('cnt').textContent = `총 ${meetings.length}건 (필터: ${list.length}건)`;
+      const root = document.getElementById('list');
+      const isAdmin = role === 'system_admin' || role === 'admin';
+      if (!list.length) {
+        root.innerHTML = `<div class="empty"><div class="empty-title">표시할 회의가 없습니다</div><div class="empty-sub">${isAdmin ? '‘+ 새 회의 등록’ 버튼으로 시작하세요.' : '관리자가 회의를 등록하면 여기에 표시됩니다.'}</div></div>`;
+        return;
+      }
+      root.innerHTML = list.map(m => `
+        <div class="agenda-item" onclick="location.href='/meeting?id=${m.id}'">
+          <div class="agenda-no">
+            <div class="small">${meetingTypeLabel[m.meeting_type] || ''}</div>
+            <div class="num" style="font-size:14px;">📋</div>
+          </div>
+          <div class="agenda-body">
+            <div class="agenda-title">
+              ${m.title}
+              <span class="tag ${meetingStatusClass[m.status]}" style="margin-left:8px;">${meetingStatusLabel[m.status] || m.status}</span>
+            </div>
+            <div class="agenda-summary">${fmtDate(m.meeting_date)} · ${m.location || '장소 미정'} · 총 ${m.total_members}명 · 정족수 ${Math.round((m.quorum_ratio||0.5)*100)}%</div>
+          </div>
+          <div class="agenda-actions">
+            <span class="text-sm text-muted">상세 →</span>
+            ${isAdmin ? `<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();delMeeting(${m.id})">🗑</button>` : ''}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function delMeeting(id) {
+      confirmDialog('이 회의를 삭제하시겠습니까? 의안·출석·위임장 등 모든 데이터가 함께 삭제됩니다.', async () => {
+        try { await api.del(`/api/meetings/${id}`); toast('삭제되었습니다.', 'success'); load(); }
+        catch (e) { toast(e.message, 'error'); return false; }
+      });
+    }
+
+    function openNewMeeting() {
+      modal({
+        title: '새 회의 등록',
+        size: 'lg',
+        body: meetingFormHtml({}),
+        confirmText: '등록',
+        onConfirm: async () => {
+          const payload = readMeetingFormPayload();
+          if (!payload.title) { toast('회의 제목을 입력하세요.', 'error'); return false; }
+          payload.organization_id = Number(orgId);
+          try {
+            const data = await api.post('/api/meetings', payload);
+            toast('회의가 등록되었습니다.', 'success');
+            location.href = `/meeting?id=${data.meeting.id}`;
+          } catch (e) { toast(e.message, 'error'); return false; }
+        }
+      });
+      bindMeetingForm();
+      document.getElementById('mf_autoTotal').onclick = async () => {
+        try {
+          const { members: list } = await api.get(`/api/members?organization_id=${orgId}`);
+          document.getElementById('mf_total').value = list.length;
+          document.getElementById('mf_total').dispatchEvent(new Event('input'));
+          toast(`등록된 임원 ${list.length}명으로 설정되었습니다.`, 'success');
+        } catch (e) { toast(e.message, 'error'); }
+      };
+    }
+  </script>
+</body>
+</html>

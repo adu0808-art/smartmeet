@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>게시판 · SmartMeet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main">
+      <div class="topbar">
+        <div class="topbar-title">게시판</div>
+        <div class="topbar-actions" id="userArea"></div>
+      </div>
+      <div class="content">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">게시판</h1>
+            <div class="page-sub" id="cnt">자유롭게 글을 남기고 의견을 나눠보세요.</div>
+          </div>
+          <button class="btn btn-primary" id="addBtn">+ 글쓰기</button>
+        </div>
+        <div class="flex gap-8 mb-16">
+          <button class="btn btn-sm" data-cat="" id="cat-all">전체</button>
+          <button class="btn btn-sm" data-cat="free" id="cat-free">자유게시판</button>
+          <button class="btn btn-sm" data-cat="news" id="cat-news">회원소식</button>
+        </div>
+        <div id="list"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/sidebar.js"></script>
+  <script src="/js/editor.js"></script>
+  <script>
+    const orgId = qs('org');
+    let me, organization, role;
+    let currentCat = ''; // '' = 전체, 'free' = 자유게시판, 'news' = 회원소식
+
+    (async function init() {
+      me = await requireAuth();
+      document.getElementById('userArea').innerHTML = renderUserChip(me);
+      const o = await api.get(`/api/organizations/${orgId}`);
+      organization = o.organization; role = o.my_role;
+      renderOrgSidebar(organization, 'board', { role });
+      document.getElementById('addBtn').onclick = openForm;
+      ['all','free','news'].forEach(k => {
+        const el = document.getElementById('cat-' + k);
+        el.onclick = () => { currentCat = el.dataset.cat; updateCatBtns(); load(); };
+      });
+      updateCatBtns();
+      load();
+    })();
+
+    function updateCatBtns() {
+      ['all','free','news'].forEach(k => {
+        const el = document.getElementById('cat-' + k);
+        el.classList.toggle('btn-primary', el.dataset.cat === currentCat);
+      });
+    }
+
+    async function load() {
+      const url = currentCat
+        ? `/api/posts?organization_id=${orgId}&category=${currentCat}`
+        : `/api/posts?organization_id=${orgId}`;
+      const { posts } = await api.get(url);
+      document.getElementById('cnt').textContent = `총 ${posts.length}건`;
+      const list = document.getElementById('list');
+      if (!posts.length) {
+        list.innerHTML = `<div class="empty"><div class="empty-title">등록된 글이 없습니다</div><div class="empty-sub">첫 번째 글의 작성자가 되어보세요.</div></div>`;
+        return;
+      }
+      const catLabel = (c) => c === 'news' ? '<span class="tag tag-status-progress">회원소식</span>' : '<span class="tag tag-status-prep">자유게시판</span>';
+      list.innerHTML = `
+        <table class="table">
+          <thead><tr><th style="width:110px;">분류</th><th>제목</th><th style="width:120px;">작성자</th><th style="width:120px;">작성일</th><th style="width:80px;">조회</th><th style="width:80px;">댓글</th></tr></thead>
+          <tbody>
+            ${posts.map(p => `
+              <tr style="cursor:pointer;" onclick="location.href='/post?id=${p.id}'">
+                <td>${catLabel(p.category || 'free')}</td>
+                <td><b>${p.title}</b></td>
+                <td>${p.author_name || ''}</td>
+                <td class="text-sm text-muted">${fmtDateOnly(p.created_at)}</td>
+                <td class="text-sm text-muted">${p.view_count}</td>
+                <td class="text-sm text-muted">${p.comment_count}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+    }
+
+    function openForm() {
+      let editor = null;
+      modal({
+        title: '글쓰기', size: 'lg',
+        body: `
+          <div class="field">
+            <label class="label">분류 *</label>
+            <select class="select" id="po_cat">
+              <option value="free">자유게시판</option>
+              <option value="news">회원소식</option>
+            </select>
+          </div>
+          <div class="field"><label class="label">제목 *</label><input class="input" id="po_title" placeholder="제목을 입력하세요"></div>
+          <div class="field"><label class="label">내용</label><div id="po_editor"></div></div>
+        `,
+        confirmText: '게시',
+        onConfirm: async () => {
+          const title = document.getElementById('po_title').value.trim();
+          const category = document.getElementById('po_cat').value;
+          if (!title) { toast('제목을 입력하세요.', 'error'); return false; }
+          try {
+            await api.post('/api/posts', { organization_id: Number(orgId), title, category, content: editor.getHtml() });
+            toast('게시되었습니다.', 'success'); load();
+          } catch (e) { toast(e.message, 'error'); return false; }
+        }
+      });
+      // Default to currently filtered category if any
+      setTimeout(() => {
+        if (currentCat) document.getElementById('po_cat').value = currentCat;
+      }, 30);
+      RichEditor.mount(document.getElementById('po_editor'), { placeholder: '내용을 입력하세요. 표·이미지·서식이 지원됩니다.' }).then(ed => editor = ed);
+    }
+  </script>
+</body>
+</html>

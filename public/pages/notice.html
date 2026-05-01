@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>공지 · SmartMeet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main">
+      <div class="topbar">
+        <div class="topbar-title">공지 상세</div>
+        <div class="topbar-actions" id="userArea"></div>
+      </div>
+      <div class="content">
+        <a href="javascript:back()" class="text-sm text-muted">← 공지 목록</a>
+        <div class="card mt-12" id="noticeBox">불러오는 중...</div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/sidebar.js"></script>
+  <script src="/js/editor.js"></script>
+  <script>
+    const noticeId = qs('id');
+    let me, organization, role, notice;
+
+    (async function init() {
+      me = await requireAuth();
+      document.getElementById('userArea').innerHTML = renderUserChip(me);
+      const data = await api.get(`/api/notices/${noticeId}`);
+      notice = data.notice;
+      const o = await api.get(`/api/organizations/${notice.organization_id}`);
+      organization = o.organization; role = o.my_role;
+      renderOrgSidebar(organization, 'notices', { role });
+      paint();
+    })();
+
+    function paint() {
+      const isAdmin = role === 'system_admin' || role === 'admin';
+      document.getElementById('noticeBox').innerHTML = `
+        <div class="flex items-center justify-between mb-12">
+          <div>
+            ${notice.is_pinned ? '<span class="tag tag-status-prep">📌 상단고정</span>' : '<span class="tag tag-board">공지</span>'}
+            <h1 style="margin:6px 0 4px;font-size:22px;">${notice.title}</h1>
+            <div class="text-sm text-muted">${notice.author_name || ''} · ${fmtDate(notice.created_at)} · 조회 ${notice.view_count}</div>
+          </div>
+          ${isAdmin ? `
+            <div class="flex gap-8">
+              <button class="btn btn-sm" id="editBtn">수정</button>
+              <button class="btn btn-sm btn-danger" id="delBtn">삭제</button>
+            </div>` : ''}
+        </div>
+        <div class="html-render mt-16">${notice.content || '<span class="text-muted">내용이 없습니다.</span>'}</div>
+      `;
+      if (isAdmin) {
+        document.getElementById('editBtn').onclick = openEdit;
+        document.getElementById('delBtn').onclick = doDelete;
+      }
+    }
+
+    function openEdit() {
+      let editor = null;
+      modal({
+        title: '공지 수정', size: 'lg',
+        body: `
+          <div class="field"><label class="label">제목 *</label><input class="input" id="nt_title" value="${notice.title}"></div>
+          <div class="field"><label class="flex items-center gap-8"><input type="checkbox" id="nt_pin" ${notice.is_pinned ? 'checked' : ''}> 📌 상단 고정</label></div>
+          <div class="field"><label class="label">내용</label><div id="nt_editor"></div></div>
+        `,
+        confirmText: '저장',
+        onConfirm: async () => {
+          try {
+            await api.put(`/api/notices/${notice.id}`, {
+              title: document.getElementById('nt_title').value.trim(),
+              content: editor.getHtml(),
+              is_pinned: document.getElementById('nt_pin').checked
+            });
+            const data = await api.get(`/api/notices/${notice.id}`);
+            notice = data.notice;
+            paint();
+            toast('저장되었습니다.', 'success');
+          } catch (e) { toast(e.message, 'error'); return false; }
+        }
+      });
+      RichEditor.mount(document.getElementById('nt_editor'), { value: notice.content }).then(ed => editor = ed);
+    }
+
+    function doDelete() {
+      confirmDialog('이 공지를 삭제하시겠습니까?', async () => {
+        try { await api.del(`/api/notices/${notice.id}`); location.href = `/notices?org=${notice.organization_id}`; }
+        catch (e) { toast(e.message, 'error'); return false; }
+      });
+    }
+
+    function back() { location.href = `/notices?org=${notice.organization_id}`; }
+  </script>
+</body>
+</html>
