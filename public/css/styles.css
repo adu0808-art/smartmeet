@@ -303,14 +303,14 @@ html { word-break: keep-all; overflow-wrap: break-word; }
   align-items: center;
   justify-content: space-between;
   margin-bottom: 20px;
-  flex-wrap: wrap;          /* 모바일에서 버튼이 다음 줄로 */
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 12px 16px;
 }
 .page-header > div:first-child {
-  flex: 1 1 auto;
-  min-width: 0;             /* 한글 세로 깨짐 방지 핵심 */
+  flex: 1 1 240px;          /* 240px 미만이면 자동 줄바꿈 */
+  min-width: 0;
 }
-.page-header .topbar-actions { flex-wrap: wrap; gap: 6px; }
+.page-header .topbar-actions { flex: 0 1 auto; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .page-title {
   font-size: 22px; font-weight: 800; margin: 0;
   word-break: keep-all;
@@ -322,11 +322,22 @@ html { word-break: keep-all; overflow-wrap: break-word; }
   word-break: keep-all;
   overflow-wrap: break-word;
 }
-/* 모바일: page-header 를 세로로 — 제목이 가로 전체 차지 */
-@media (max-width: 600px) {
-  .page-header { flex-direction: column; align-items: stretch; gap: 12px; }
-  .page-header > div:first-child { width: 100%; }
-  .page-header .topbar-actions { width: 100%; justify-content: flex-start; }
+/* 모바일 (≤768px): page-header 세로 정렬 강제 */
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px;
+  }
+  .page-header > div:first-child {
+    flex: 1 1 100% !important;
+    width: 100% !important;
+  }
+  .page-header .topbar-actions {
+    flex: 1 1 100% !important;
+    width: 100% !important;
+    justify-content: flex-start;
+  }
 }
 
 /* ========== 회의 헤더 카드 ========== */
