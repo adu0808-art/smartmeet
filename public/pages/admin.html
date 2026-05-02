@@ -172,22 +172,32 @@
       });
     }
 
+    let _orgsCache = [];
     async function loadOrgs() {
       const { organizations } = await api.get('/api/admin/organizations');
+      _orgsCache = organizations;
       document.getElementById('orgCount').textContent = `(총 ${organizations.length}개)`;
+      const platformDomain = window.PLATFORM_DOMAIN || 'smartmeet.co.kr';
+      const domainCell = (o) => {
+        const sub = o.subdomain ? `<a href="https://${o.subdomain}.${platformDomain}" target="_blank" style="color:var(--accent);text-decoration:none;font-weight:600;">${o.subdomain}.${platformDomain}</a>` : '<span class="text-sm text-muted">미설정</span>';
+        const cust = o.custom_domain ? `<div class="text-sm" style="margin-top:4px;"><a href="https://${o.custom_domain}" target="_blank" style="color:var(--accent);">${o.custom_domain}</a></div>` : '';
+        return sub + cust;
+      };
       document.getElementById('orgsList').innerHTML = `
         <table class="table">
-          <thead><tr><th>기관명</th><th>소유자</th><th>회의</th><th>의원</th><th>등록일</th><th style="text-align:right;">작업</th></tr></thead>
+          <thead><tr><th>기관명</th><th>소유자</th><th>도메인</th><th>회의</th><th>의원</th><th>등록일</th><th style="text-align:right;">작업</th></tr></thead>
           <tbody>
             ${organizations.map(o => `
               <tr>
                 <td><b>${o.name}</b></td>
                 <td>${o.owner_name || '-'}<div class="text-sm text-muted">${o.owner_email||''}</div></td>
+                <td>${domainCell(o)}</td>
                 <td>${o.meeting_count}건</td>
                 <td>${o.member_count}명</td>
                 <td class="text-sm text-muted">${fmtDateOnly(o.created_at)}</td>
-                <td style="text-align:right;">
+                <td style="text-align:right;white-space:nowrap;">
                   <a class="btn btn-sm" href="/organization?id=${o.id}">진입</a>
+                  <button class="btn btn-sm" onclick="editOrgDomain(${o.id})">🌐 도메인</button>
                   <button class="btn btn-sm btn-danger" onclick="delOrg(${o.id})">🗑</button>
                 </td>
               </tr>`).join('')}
@@ -198,6 +208,55 @@
       confirmDialog('기관과 모든 데이터를 삭제하시겠습니까? 되돌릴 수 없습니다.', async () => {
         try { await api.del(`/api/organizations/${id}`); toast('삭제되었습니다.', 'success'); loadOrgs(); }
         catch (e) { toast(e.message, 'error'); return false; }
+      });
+    }
+
+    function editOrgDomain(id) {
+      const o = _orgsCache.find(x => x.id === id);
+      if (!o) return;
+      const platformDomain = window.PLATFORM_DOMAIN || 'smartmeet.co.kr';
+      modal({
+        title: `🌐 도메인 설정 — ${o.name}`,
+        size: 'lg',
+        body: `
+          <div class="text-sm text-muted mb-16">
+            서브도메인 또는 자체 도메인을 설정하면 사용자가 해당 주소로 접속 시 이 기관 홈으로 자동 이동됩니다.
+          </div>
+          <div class="field">
+            <label class="label">서브도메인 <span class="text-sm text-muted">(${platformDomain} 의 하위)</span></label>
+            <div class="flex gap-8 items-center">
+              <input class="input" id="domSub" value="${(o.subdomain||'').replace(/"/g,'&quot;')}" placeholder="예: ksitm" style="flex:0 0 180px;text-align:right;">
+              <span style="color:var(--text-muted);">.${platformDomain}</span>
+            </div>
+            <div class="text-sm text-muted mt-8">영문 소문자·숫자·하이픈만 사용 (2~30자). 비우면 서브도메인 미사용.</div>
+          </div>
+          <div class="field">
+            <label class="label">자체 도메인 <span class="text-sm text-muted">(선택)</span></label>
+            <input class="input" id="domCustom" value="${(o.custom_domain||'').replace(/"/g,'&quot;')}" placeholder="예: kistem.or.kr">
+            <div class="text-sm text-muted mt-8">기관 자체 도메인을 사용할 경우. DNS 에 CNAME 등록 + Railway 에 도메인 추가 필요.</div>
+          </div>
+          <div style="background:var(--surface-2);border-radius:8px;padding:12px 14px;margin-top:12px;font-size:13px;">
+            <div class="fw-700 mb-8">📌 도메인 설정 후 추가로 필요한 작업</div>
+            <ol style="margin:0;padding-left:20px;color:var(--text-muted);">
+              <li>Railway 대시보드 → Settings → Networking 에서 도메인 등록 (서브도메인은 와일드카드 1번이면 됨)</li>
+              <li>도메인 등록업체에서 CNAME DNS 레코드 추가</li>
+              <li>SSL 자동 발급 대기 (5~30분)</li>
+            </ol>
+          </div>
+        `,
+        confirmText: '저장',
+        onConfirm: async () => {
+          const subdomain = document.getElementById('domSub').value.trim();
+          const custom_domain = document.getElementById('domCustom').value.trim();
+          try {
+            await api.put(`/api/organizations/${id}/domain`, { subdomain, custom_domain });
+            toast('도메인 설정이 저장되었습니다.', 'success');
+            loadOrgs();
+          } catch (e) {
+            toast(e.message || '저장 실패', 'error');
+            return false;
+          }
+        }
       });
     }
   </script>

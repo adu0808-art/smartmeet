@@ -1,13 +1,62 @@
 const express = require('express');
 const path = require('path');
 const cookieParser = require('cookie-parser');
+const db = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3030;
 
+// Railway / proxy 뒤에서 X-Forwarded-* 헤더 신뢰 (정확한 host·protocol 인식)
+app.set('trust proxy', 1);
+
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 app.use(cookieParser());
+
+// =====================================================
+// 도메인 → 기관 자동 라우팅 미들웨어
+//   - 환경변수 PLATFORM_DOMAIN (예: "smartmeet.co.kr") 의 서브도메인 매칭
+//   - 또는 organizations.custom_domain 일치
+//   - 매칭되면 req.orgFromDomain 에 org_id 주입
+//   - 페이지 루트(/, /home) 진입 시 → /home?org=X 로 자동 리다이렉트
+// =====================================================
+const PLATFORM_DOMAIN = process.env.PLATFORM_DOMAIN || '';
+const RESERVED_SUBDOMAINS = new Set(['www', 'api', 'admin', 'app', 'mail', 'static', 'cdn']);
+
+app.use((req, res, next) => {
+  try {
+    const host = (req.hostname || '').toLowerCase();
+    if (!host || host === 'localhost' || host.endsWith('.up.railway.app') || /^\d+\.\d+\.\d+\.\d+$/.test(host)) {
+      return next();
+    }
+
+    let org = null;
+
+    // 1) custom_domain 정확 일치
+    org = db.prepare('SELECT id FROM organizations WHERE LOWER(custom_domain) = ?').get(host);
+
+    // 2) PLATFORM_DOMAIN 의 서브도메인 매칭
+    if (!org && PLATFORM_DOMAIN && host.endsWith('.' + PLATFORM_DOMAIN.toLowerCase())) {
+      const sub = host.slice(0, -('.' + PLATFORM_DOMAIN).length).toLowerCase();
+      if (sub && !RESERVED_SUBDOMAINS.has(sub) && !sub.includes('.')) {
+        org = db.prepare('SELECT id FROM organizations WHERE LOWER(subdomain) = ?').get(sub);
+      }
+    }
+
+    if (org) {
+      req.orgFromDomain = org.id;
+      // 페이지 루트 진입 시 자동으로 해당 기관 홈으로 이동
+      if (req.method === 'GET' && (req.path === '/' || req.path === '/home') && !req.query.org) {
+        const qs = new URLSearchParams(req.query);
+        qs.set('org', String(org.id));
+        return res.redirect('/home?' + qs.toString());
+      }
+    }
+  } catch (e) {
+    console.warn('[domain-routing] error:', e.message);
+  }
+  next();
+});
 
 // API routes
 app.use('/api/public', require('./routes/public'));  // 비로그인 열람용 — 인증 불필요

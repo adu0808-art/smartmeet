@@ -88,6 +88,53 @@ router.delete('/:id', requireOrg(req => req.params.id, 'write'), (req, res) => {
   res.json({ ok: true });
 });
 
+// 도메인 설정 (서브도메인 / 커스텀 도메인)
+//   기관 관리자 또는 시스템 관리자만 호출 가능
+router.put('/:id/domain', requireOrg(req => req.params.id, 'write'), (req, res) => {
+  const { subdomain, custom_domain } = req.body || {};
+  // 검증: 서브도메인 형식 (소문자, 숫자, 하이픈, 2~30자)
+  let normalizedSub = null;
+  if (subdomain !== undefined && subdomain !== null) {
+    const s = String(subdomain).trim().toLowerCase();
+    if (s) {
+      if (!/^[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?$/.test(s)) {
+        return res.status(400).json({ error: '서브도메인은 영문 소문자·숫자·하이픈만 사용 가능합니다 (2~30자, 처음과 끝은 영문/숫자).' });
+      }
+      const reserved = ['www', 'api', 'admin', 'app', 'mail', 'static', 'cdn', 'ftp', 'localhost'];
+      if (reserved.includes(s)) {
+        return res.status(400).json({ error: `'${s}' 은 예약된 서브도메인입니다.` });
+      }
+      // 다른 기관과 중복 확인
+      const dup = db.prepare('SELECT id, name FROM organizations WHERE LOWER(subdomain) = ? AND id != ?').get(s, req.params.id);
+      if (dup) return res.status(400).json({ error: `이미 사용 중인 서브도메인입니다: ${dup.name}` });
+      normalizedSub = s;
+    }
+  }
+  // 검증: 커스텀 도메인 형식
+  let normalizedCustom = null;
+  if (custom_domain !== undefined && custom_domain !== null) {
+    const c = String(custom_domain).trim().toLowerCase();
+    if (c) {
+      if (!/^[a-z0-9]([a-z0-9-.]*[a-z0-9])?\.[a-z]{2,}$/.test(c) || c.length > 253) {
+        return res.status(400).json({ error: '유효한 도메인 형식이 아닙니다 (예: kistem.or.kr).' });
+      }
+      const dup = db.prepare('SELECT id, name FROM organizations WHERE LOWER(custom_domain) = ? AND id != ?').get(c, req.params.id);
+      if (dup) return res.status(400).json({ error: `이미 사용 중인 도메인입니다: ${dup.name}` });
+      normalizedCustom = c;
+    }
+  }
+  // 부분 갱신 (제공된 필드만)
+  const sets = [];
+  const params = [];
+  if (subdomain !== undefined) { sets.push('subdomain = ?'); params.push(normalizedSub); }
+  if (custom_domain !== undefined) { sets.push('custom_domain = ?'); params.push(normalizedCustom); }
+  if (!sets.length) return res.status(400).json({ error: '변경할 필드가 없습니다.' });
+  params.push(req.params.id);
+  db.prepare(`UPDATE organizations SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+  const org = db.prepare('SELECT id, name, subdomain, custom_domain FROM organizations WHERE id = ?').get(req.params.id);
+  res.json({ organization: org });
+});
+
 router.get('/:id/dashboard', requireOrg(req => req.params.id, 'read'), (req, res) => {
   const orgId = req.params.id;
   const meetings = db.prepare('SELECT * FROM meetings WHERE organization_id = ? ORDER BY meeting_date DESC').all(orgId);
