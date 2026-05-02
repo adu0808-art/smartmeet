@@ -409,21 +409,51 @@ try {
 } catch (e) { console.warn('[DB] owner-membership migration warning:', e.message); }
 
 // ======================================================================
-// 시스템 관리자 이메일 마이그레이션 (한 번만)
-//   admin@smartmeet.local → admin@smartmeet.co.kr 로 변경
-//   - 충돌 방지: 새 이메일이 이미 있으면 건너뜀
-//   - 멱등: 이미 변경된 경우 (옛 이메일이 없으면) 건너뜀
+// 시스템 관리자 admin@smartmeet.co.kr 보장 (Targeted Ensure)
+//   1단계: 옛 이메일(admin@smartmeet.local) 이 있으면 → 새 이메일로 rename
+//   2단계: 그래도 없고 SEED_ADMIN_PASSWORD 환경변수가 있으면 → 신규 생성
+//   3단계: 둘 다 안 되면 경고 로그 (수동 조치 필요)
 // ======================================================================
+const ADMIN_EMAIL = 'admin@smartmeet.co.kr';
 try {
-  const oldEmail = 'admin@smartmeet.local';
-  const newEmail = 'admin@smartmeet.co.kr';
-  const oldUser = db.prepare('SELECT id FROM users WHERE email = ?').get(oldEmail);
-  const newUser = db.prepare('SELECT id FROM users WHERE email = ?').get(newEmail);
-  if (oldUser && !newUser) {
-    db.prepare('UPDATE users SET email = ? WHERE id = ?').run(newEmail, oldUser.id);
-    console.log(`[DB] ✅ 시스템 관리자 이메일 변경: ${oldEmail} → ${newEmail}`);
+  const targetUser = db.prepare('SELECT id FROM users WHERE email = ?').get(ADMIN_EMAIL);
+  if (!targetUser) {
+    // 1단계 — 옛 이메일에서 rename 시도
+    const oldUser = db.prepare("SELECT id FROM users WHERE email = 'admin@smartmeet.local'").get();
+    if (oldUser) {
+      db.prepare('UPDATE users SET email = ? WHERE id = ?').run(ADMIN_EMAIL, oldUser.id);
+      console.log(`[DB] ✅ 시스템 관리자 이메일 변경: admin@smartmeet.local → ${ADMIN_EMAIL}`);
+    } else {
+      // 2단계 — SEED_ADMIN_PASSWORD 가 있으면 신규 생성
+      const seedPwd = process.env.SEED_ADMIN_PASSWORD;
+      if (seedPwd) {
+        const bcrypt = require('bcryptjs');
+        const seedName = process.env.SEED_ADMIN_NAME || '시스템 관리자';
+        const hash = bcrypt.hashSync(seedPwd, 10);
+        db.prepare('INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)')
+          .run(ADMIN_EMAIL, hash, seedName, 'admin');
+        console.log(`[DB] ✅ 시스템 관리자 신규 생성: ${ADMIN_EMAIL}`);
+      } else {
+        console.warn('[DB] ⚠️ admin@smartmeet.co.kr 계정이 없고 SEED_ADMIN_PASSWORD 도 설정되지 않음');
+        console.warn('[DB]    Railway Variables 에 SEED_ADMIN_PASSWORD 임시 추가 후 재배포하세요');
+      }
+    }
+  } else {
+    console.log(`[DB] 시스템 관리자 확인 완료: ${ADMIN_EMAIL} (id=${targetUser.id})`);
   }
-} catch (e) { console.warn('[DB] admin email migration warning:', e.message); }
+} catch (e) { console.warn('[DB] admin ensure warning:', e.message); }
+
+// 시스템 관리자 현황 출력 (startup 검증용)
+try {
+  const admins = db.prepare("SELECT id, email, name FROM users WHERE role = 'admin' ORDER BY id").all();
+  if (admins.length) {
+    console.log(`[DB] ━━━ 시스템 관리자 ${admins.length}명 ━━━`);
+    admins.forEach(a => console.log(`[DB]   id=${a.id}  ${a.email}  (${a.name})`));
+    console.log('[DB] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  } else {
+    console.log('[DB] ⚠️ 시스템 관리자가 한 명도 없습니다!');
+  }
+} catch (e) {}
 
 // ======================================================================
 // 시스템 관리자(system_admin) 자동 생성
