@@ -150,9 +150,12 @@ router.post('/forgot-password', async (req, res) => {
   const resetUrl = `${protocol}://${host}/reset-password?token=${token}`;
 
   const email_module = require('../email');
+
+  console.log('[debug] isEnabled:', email_module.isEnabled());
+  console.log('[debug] RESEND_API_KEY exists:', !!process.env.RESEND_API_KEY);
+
   if (!email_module.isEnabled()) {
-    // SMTP 미설정 — 운영자에게 안내
-    console.warn(`[forgot-password] SMTP 미설정 — 사용자 ${user.email} 의 재설정 링크: ${resetUrl}`);
+    console.warn('[forgot-password] 이메일 모듈 비활성화');
     return res.json({
       ok: true,
       sent: false,
@@ -161,6 +164,7 @@ router.post('/forgot-password', async (req, res) => {
   }
 
   try {
+    console.log('[debug] 이메일 발송 시도 → ', user.email);
     await email_module.sendEmail({
       to: user.email,
       subject: '[SmartMeet] 비밀번호 재설정 안내',
@@ -183,10 +187,11 @@ router.post('/forgot-password', async (req, res) => {
         </div>`,
       text: `[SmartMeet] 비밀번호 재설정\n\n${user.name}님, 다음 링크에서 비밀번호를 재설정하세요 (1시간 유효):\n${resetUrl}`
     });
-    res.json({ ok: true, sent: true });
+    console.log('[debug] 이메일 발송 완료');
+    return res.json({ ok: true, sent: true });
   } catch (e) {
-    console.error('[forgot-password] 이메일 발송 실패:', e.message);
-    res.status(500).json({ error: '이메일 발송에 실패했습니다. 잠시 후 다시 시도해주세요.' });
+    console.error('[debug] 이메일 발송 에러:', e.message);
+    return res.status(500).json({ error: e.message });
   }
 });
 
