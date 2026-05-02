@@ -1,6 +1,6 @@
 {
   "name": "smartmeet",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "이사회·총회 자료 관리 시스템",
   "main": "server/server.js",
   "scripts": {
@@ -17,7 +17,7 @@
     "express": "^4.21.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
-        "resend": "^4.0.0",
+    "resend": "^4.0.0",
     "uuid": "^10.0.0"
   }
 }

@@ -8,31 +8,21 @@ const emailModule = require('../email');
 const router = express.Router();
 router.use(adminRequired);
 
-// === SMTP 진단 — 시스템 관리자 전용 ===
-//   현재 SMTP 환경변수 상태 + 연결 테스트 + 시험 발송
+// === 이메일 발송 진단 — 시스템 관리자 전용 ===
+//   Resend SDK 환경변수 상태 + 시험 발송
 router.get('/smtp-status', (req, res) => {
   const env = {
-    SMTP_HOST: process.env.SMTP_HOST || null,
-    SMTP_PORT: process.env.SMTP_PORT || null,
-    SMTP_SECURE: process.env.SMTP_SECURE || null,
-    SMTP_USER: process.env.SMTP_USER ? `${process.env.SMTP_USER.slice(0, 3)}***${process.env.SMTP_USER.includes('@') ? '@' + process.env.SMTP_USER.split('@')[1] : ''}` : null,
-    SMTP_PASS: process.env.SMTP_PASS ? `[${process.env.SMTP_PASS.length}자 설정됨]` : null,
+    RESEND_API_KEY: process.env.RESEND_API_KEY ? `[${process.env.RESEND_API_KEY.length}자 설정됨, ${process.env.RESEND_API_KEY.slice(0, 3)}...]` : null,
     SMTP_FROM: process.env.SMTP_FROM || null,
     NODE_ENV: process.env.NODE_ENV || null
   };
   const isEnabled = emailModule.isEnabled();
-  const computedSecure = (() => {
-    const v = String(process.env.SMTP_SECURE || '').toLowerCase().trim();
-    if (['true','1','yes','on'].includes(v)) return true;
-    if (['false','0','no','off'].includes(v)) return false;
-    return Number(process.env.SMTP_PORT) === 465;
-  })();
   res.json({
     enabled: isEnabled,
+    provider: 'Resend',
     env_summary: env,
     computed: {
-      port: Number(process.env.SMTP_PORT) || 587,
-      secure: computedSecure
+      from: process.env.SMTP_FROM || 'SmartMeet <onboarding@resend.dev>'
     }
   });
 });
@@ -41,27 +31,25 @@ router.post('/smtp-test', async (req, res) => {
   const { to } = req.body || {};
   if (!to) return res.status(400).json({ error: '수신자 이메일을 입력하세요.' });
   if (!emailModule.isEnabled()) {
-    return res.status(400).json({ error: 'SMTP_HOST 환경변수가 설정되지 않았습니다.' });
+    return res.status(400).json({ error: 'RESEND_API_KEY 환경변수가 설정되지 않았습니다.' });
   }
   try {
     await emailModule.sendEmail({
       to,
-      subject: '[SmartMeet] SMTP 테스트 메일',
+      subject: '[SmartMeet] 이메일 발송 테스트',
       html: `<div style="font-family:sans-serif;padding:20px;">
-        <h2 style="color:#1e40af;">✅ SMTP 발송 성공</h2>
-        <p>이 메일이 보이시면 Railway 의 SMTP 설정이 정상 동작 중입니다.</p>
+        <h2 style="color:#1e40af;">✅ Resend 발송 성공</h2>
+        <p>이 메일이 보이시면 Railway 의 이메일 설정이 정상 동작 중입니다.</p>
         <p style="color:#64748b;font-size:13px;">발송 시각: ${new Date().toLocaleString('ko-KR')}</p>
+        <p style="color:#64748b;font-size:13px;">Provider: Resend</p>
       </div>`,
-      text: 'SmartMeet SMTP 테스트 발송 성공'
+      text: 'SmartMeet 이메일 발송 테스트 성공 (via Resend)'
     });
     res.json({ ok: true });
   } catch (e) {
-    console.error('[smtp-test] 실패:', e);
+    console.error('[email-test] 실패:', e);
     res.status(500).json({
-      error: e.message,
-      code: e.code,
-      command: e.command,
-      response: e.response
+      error: e.message
     });
   }
 });

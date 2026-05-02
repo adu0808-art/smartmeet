@@ -281,12 +281,12 @@
       const env = status.env_summary;
       const ok = status.enabled;
       modal({
-        title: '📧 SMTP 진단',
+        title: '📧 이메일 발송 진단 (Resend)',
         size: 'lg',
         body: `
           <div class="text-sm text-muted mb-12">현재 환경변수 상태와 발송 테스트를 진행할 수 있습니다.</div>
           <div style="background:${ok ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)'};color:${ok ? '#047857' : '#b91c1c'};padding:14px;border-radius:8px;margin-bottom:16px;font-weight:600;">
-            ${ok ? '✅ SMTP 활성 (SMTP_HOST 설정됨)' : '❌ SMTP 비활성 (SMTP_HOST 미설정)'}
+            ${ok ? '✅ Resend 활성 (RESEND_API_KEY 설정됨)' : '❌ Resend 비활성 (RESEND_API_KEY 미설정)'}
           </div>
 
           <div class="card-title mb-8" style="font-size:13px;">환경변수</div>
@@ -294,18 +294,17 @@
             <tbody>
               ${Object.entries(env).map(([k, v]) => `
                 <tr>
-                  <td style="width:140px;color:var(--text-muted);font-family:monospace;">${k}</td>
+                  <td style="width:160px;color:var(--text-muted);font-family:monospace;">${k}</td>
                   <td style="font-family:monospace;${v ? '' : 'color:#ef4444;'}">${v || '(미설정)'}</td>
                 </tr>
               `).join('')}
             </tbody>
           </table>
 
-          <div class="card-title mb-8" style="font-size:13px;">계산된 연결 설정</div>
+          <div class="card-title mb-8" style="font-size:13px;">발신자 (From)</div>
           <table class="table" style="font-size:13px;margin-bottom:16px;">
             <tbody>
-              <tr><td style="color:var(--text-muted);">port</td><td style="font-family:monospace;">${status.computed.port}</td></tr>
-              <tr><td style="color:var(--text-muted);">secure</td><td style="font-family:monospace;">${status.computed.secure}</td></tr>
+              <tr><td style="color:var(--text-muted);">사용 값</td><td style="font-family:monospace;">${status.computed.from}</td></tr>
             </tbody>
           </table>
 
