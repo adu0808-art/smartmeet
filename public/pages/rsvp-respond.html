@@ -122,44 +122,57 @@
         </div>`;
     }
 
+    // 단일 화면 렌더 — 응답 전후 모두 같은 레이아웃, 상태만 인라인으로 갱신
     function render() {
       const { member, meeting } = payload;
       const root = document.getElementById('root');
+      const customMsg = (meeting.invitation_message || '').trim();
+      const status = member.rsvp_status;            // 'attending' | 'declined' | null
+      const hasResponded = status === 'attending' || status === 'declined';
+      const isYes = status === 'attending';
 
-      // 이미 응답한 경우 — 현재 상태 + 변경 옵션
-      if (member.rsvp_status === 'attending' || member.rsvp_status === 'declined') {
-        const isYes = member.rsvp_status === 'attending';
-        root.innerHTML = `
-          ${meetingHeader()}
-          <div class="rsvp-greet">안녕하세요, <b>${escapeHtml(member.name)}</b> 님.</div>
+      // 응답 상태 배너 (응답 후에만 표시)
+      let banner = '';
+      if (hasResponded) {
+        let note = '';
+        if (isYes) {
+          if (member._proxyConflict) {
+            note = `<div style="font-size:12px;color:#991b1b;background:#fff;padding:8px 10px;border-radius:6px;margin-top:10px;line-height:1.6;border:1px solid #fecaca;">⚠️ 이미 위임장이 제출된 상태입니다. 관리자에게 문의해 주세요.</div>`;
+          } else if (member._autoMarked) {
+            note = `<div style="font-size:12px;color:#065f46;background:#fff;padding:8px 10px;border-radius:6px;margin-top:10px;line-height:1.6;border:1px solid #a7f3d0;">✓ 회의 출석부에 자동 등록되었습니다.</div>`;
+          }
+        }
+        banner = `
           <div class="rsvp-status-box ${isYes ? 'rsvp-status-attending' : 'rsvp-status-declined'}">
-            <div class="rsvp-result-icon">${isYes ? '✅' : '❌'}</div>
-            <b>${isYes ? '참석' : '불참'}</b> 으로 응답하셨습니다.
-            ${member.rsvp_at ? `<div style="font-size:12px;color:var(--text-muted);margin-top:6px;">응답 시각: ${escapeHtml(member.rsvp_at)}</div>` : ''}
-          </div>
-          <div style="text-align:center;font-size:13px;color:var(--text-muted);margin:14px 0 8px;">
-            응답을 변경하시려면 다른 버튼을 눌러주세요.
-          </div>
-          <div class="rsvp-buttons">
-            <button class="btn rsvp-btn-yes" ${isYes ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''} onclick="submitResponse('attending')">✅ 참석</button>
-            <button class="btn rsvp-btn-no"  ${!isYes ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''} onclick="submitResponse('declined')">❌ 불참</button>
+            <div style="font-size:36px;line-height:1;margin-bottom:6px;">${isYes ? '✅' : '❌'}</div>
+            <div><b>${isYes ? '참석' : '불참'}</b> 으로 응답하셨습니다.</div>
+            ${member.rsvp_at ? `<div style="font-size:12px;opacity:0.75;margin-top:4px;">응답 시각: ${escapeHtml(member.rsvp_at)}</div>` : ''}
+            ${note}
           </div>
         `;
-        return;
       }
 
-      // 첫 응답
-      const customMsg = (meeting.invitation_message || '').trim();
+      // 버튼 — 현재 응답한 쪽은 "현재 응답" 라벨 + disabled, 반대편은 변경 가능
+      const yesActive = status === 'attending';
+      const noActive  = status === 'declined';
+      const yesBtnStyle = yesActive ? 'opacity:1;box-shadow:0 0 0 3px rgba(16,185,129,0.25);' : '';
+      const noBtnStyle  = noActive  ? 'opacity:1;box-shadow:0 0 0 3px rgba(239,68,68,0.25);'  : '';
+
       root.innerHTML = `
         ${meetingHeader()}
         <div class="rsvp-greet">안녕하세요, <b>${escapeHtml(member.name)}</b> 님.</div>
         ${customMsg ? `<div class="rsvp-msg-box">${escapeHtml(customMsg).replace(/\n/g,'<br>')}</div>` : ''}
-        <div style="text-align:center;font-size:14px;color:var(--text);margin:16px 0 4px;font-weight:600;">
-          참석 여부를 알려주세요
+        ${banner}
+        <div style="text-align:center;font-size:14px;color:var(--text);margin:${hasResponded ? '8px' : '16px'} 0 8px;font-weight:600;">
+          ${hasResponded ? '응답을 변경하시려면 다른 버튼을 눌러주세요.' : '참석 여부를 알려주세요'}
         </div>
         <div class="rsvp-buttons">
-          <button class="btn rsvp-btn-yes" onclick="submitResponse('attending')">✅ 참석</button>
-          <button class="btn rsvp-btn-no"  onclick="submitResponse('declined')">❌ 불참</button>
+          <button class="btn rsvp-btn-yes" ${yesActive ? 'disabled' : ''} style="${yesBtnStyle}" onclick="submitResponse('attending')">
+            ✅ 참석${yesActive ? ' <span style="font-size:11px;font-weight:600;opacity:0.85;">(현재 응답)</span>' : ''}
+          </button>
+          <button class="btn rsvp-btn-no"  ${noActive  ? 'disabled' : ''} style="${noBtnStyle}"  onclick="submitResponse('declined')">
+            ❌ 불참${noActive ? ' <span style="font-size:11px;font-weight:600;opacity:0.85;">(현재 응답)</span>' : ''}
+          </button>
         </div>
         <div style="font-size:11.5px;color:var(--text-muted);text-align:center;margin-top:14px;line-height:1.6;">
           ※ "참석" 응답 시 회의 출석부에 자동 등록됩니다.<br>
@@ -172,7 +185,7 @@
     async function submitResponse(status) {
       if (submitting) return;
       submitting = true;
-      // 버튼 비활성
+      // 버튼 임시 비활성화 (응답 중)
       document.querySelectorAll('.rsvp-buttons .btn').forEach(b => { b.disabled = true; b.style.opacity = '0.6'; });
       try {
         const r = await fetch(`/api/rsvp/respond/${token}`, {
@@ -182,42 +195,19 @@
         });
         const data = await r.json();
         if (!r.ok) throw new Error(data.error || '응답 저장에 실패했습니다.');
-        showResultPage(status, data);
+        // payload 의 의원 상태를 갱신하고 같은 화면 재렌더 — 페이지 전환 없음
+        payload.member.rsvp_status = status;
+        payload.member.rsvp_at = new Date().toLocaleString('sv-SE');
+        payload.member._autoMarked   = !!data.autoMarked;
+        payload.member._proxyConflict = !!data.proxyConflict;
+        render();
       } catch (e) {
         if (typeof toast === 'function') toast(e.message, 'error');
         else alert(e.message);
-        submitting = false;
         document.querySelectorAll('.rsvp-buttons .btn').forEach(b => { b.disabled = false; b.style.opacity = ''; });
+      } finally {
+        submitting = false;
       }
-    }
-
-    function showResultPage(status, data) {
-      const root = document.getElementById('root');
-      const isYes = status === 'attending';
-      let extraNote = '';
-      if (isYes) {
-        if (data.proxyConflict) {
-          extraNote = `<div style="font-size:12px;color:#ef4444;background:#fef2f2;padding:10px;border-radius:6px;margin-top:12px;line-height:1.6;">⚠️ 이미 위임장이 제출된 상태로 확인되었습니다. 회의 관리자에게 문의해 주세요.</div>`;
-        } else if (data.autoMarked) {
-          extraNote = `<div style="font-size:12.5px;color:#065f46;background:#ecfdf5;padding:10px;border-radius:6px;margin-top:12px;line-height:1.6;">✓ 회의 출석부에 자동으로 등록되었습니다.</div>`;
-        }
-      }
-      root.innerHTML = `
-        ${meetingHeader()}
-        <div style="text-align:center;padding:24px 0 12px;">
-          <div class="rsvp-result-icon">${isYes ? '🎉' : '🙏'}</div>
-          <div style="font-weight:800;font-size:20px;margin:10px 0 4px;color:${isYes ? '#10b981' : '#64748b'};">
-            ${isYes ? '참석 응답해 주셔서 감사합니다' : '응답해 주셔서 감사합니다'}
-          </div>
-          <div style="font-size:14px;color:var(--text-muted);">
-            ${isYes ? '회의에서 뵙겠습니다.' : '다음에 뵐 수 있기를 바랍니다.'}
-          </div>
-          ${extraNote}
-        </div>
-        <div style="text-align:center;margin-top:14px;">
-          <button class="btn" onclick="location.reload()" style="font-size:13px;">응답 변경하기</button>
-        </div>
-      `;
     }
   </script>
 </body>
