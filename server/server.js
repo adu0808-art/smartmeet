@@ -158,6 +158,7 @@ const pages = {
   '/': 'index.html',
   '/login': 'pages/login.html',
   '/register': 'pages/register.html',
+  '/reset-password': 'pages/reset-password.html',
   '/admin': 'pages/admin.html',
   '/dashboard': 'pages/dashboard.html',
   '/organization': 'pages/organization.html',

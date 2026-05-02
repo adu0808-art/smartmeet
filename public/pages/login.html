@@ -32,11 +32,13 @@
       <button type="submit" class="btn btn-primary btn-block btn-lg">로그인</button>
     </form>
 
-    <div class="auth-foot">
-      아직 계정이 없으신가요? <a href="/register">회원가입</a>
-    </div>
-    <div class="auth-foot" style="margin-top:8px;font-size:11px;">
-      관리자: admin@smartmeet.local / admin1234
+    <div class="auth-foot" style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      <span>아직 계정이 없으신가요? <a href="/register">회원가입</a></span>
+      <span>
+        <a href="javascript:void(0)" onclick="openFindId()">아이디 찾기</a>
+        ·
+        <a href="javascript:void(0)" onclick="openForgotPassword()">비밀번호 찾기</a>
+      </span>
     </div>
   </div>
 
@@ -70,6 +72,70 @@
       if (next) location.href = next;
       else smartRedirect(u);
     });
+
+    // === 아이디 찾기 모달 ===
+    function openFindId() {
+      modal({
+        title: '🔍 아이디 (이메일) 찾기',
+        body: `
+          <div class="text-sm text-muted mb-16">가입 시 등록한 이름과 전화번호를 입력하세요.</div>
+          <div class="field"><label class="label">이름</label>
+            <input class="input" id="fid_name" placeholder="홍길동">
+          </div>
+          <div class="field"><label class="label">전화번호</label>
+            <input class="input" id="fid_phone" placeholder="010-1234-5678">
+          </div>
+          <div id="fid_result" style="display:none;background:var(--surface-2);padding:14px;border-radius:8px;margin-top:8px;text-align:center;"></div>
+        `,
+        confirmText: '찾기',
+        onConfirm: async () => {
+          const name = document.getElementById('fid_name').value.trim();
+          const phone = document.getElementById('fid_phone').value.trim();
+          if (!name || !phone) { toast('이름과 전화번호를 모두 입력하세요.', 'error'); return false; }
+          try {
+            const r = await api.post('/api/auth/find-id', { name, phone });
+            const result = document.getElementById('fid_result');
+            result.style.display = 'block';
+            result.innerHTML = `
+              <div class="text-sm text-muted mb-8">등록된 이메일 (보안상 일부 마스킹):</div>
+              <div style="font-size:18px;font-weight:700;color:var(--accent);">${r.email}</div>
+            `;
+            return false;  // 모달 닫지 않음
+          } catch (e) { toast(e.message, 'error'); return false; }
+        }
+      });
+    }
+
+    // === 비밀번호 찾기 모달 ===
+    function openForgotPassword() {
+      modal({
+        title: '🔑 비밀번호 재설정',
+        body: `
+          <div class="text-sm text-muted mb-16">가입한 이메일을 입력하시면 비밀번호 재설정 링크를 발송합니다.</div>
+          <div class="field"><label class="label">이메일</label>
+            <input class="input" id="fp_email" type="email" placeholder="name@example.com" autocomplete="email">
+          </div>
+          <div class="text-sm text-muted">메일이 안 오면 스팸함을 확인하세요. 1시간 동안만 유효합니다.</div>
+          <div id="fp_result" style="display:none;padding:12px;border-radius:8px;margin-top:12px;"></div>
+        `,
+        confirmText: '재설정 링크 발송',
+        onConfirm: async () => {
+          const email = document.getElementById('fp_email').value.trim();
+          if (!email) { toast('이메일을 입력하세요.', 'error'); return false; }
+          try {
+            const r = await api.post('/api/auth/forgot-password', { email });
+            const result = document.getElementById('fp_result');
+            result.style.display = 'block';
+            if (r.sent === false && r.message) {
+              result.innerHTML = `<div style="background:rgba(245,158,11,0.1);color:#92400e;">${r.message}</div>`;
+            } else {
+              result.innerHTML = `<div style="background:rgba(16,185,129,0.1);color:#047857;">📧 입력하신 이메일로 비밀번호 재설정 링크를 발송했습니다.<br>이메일이 등록되지 않은 경우 발송되지 않을 수 있습니다.</div>`;
+            }
+            return false;
+          } catch (e) { toast(e.message, 'error'); return false; }
+        }
+      });
+    }
   </script>
 </body>
 </html>

@@ -87,6 +87,129 @@ router.put('/profile', authRequired, (req, res) => {
   res.json({ user });
 });
 
+// === 비밀번호 변경 (로그인 상태) ===
+router.post('/change-password', authRequired, (req, res) => {
+  const { current_password, new_password } = req.body || {};
+  if (!current_password || !new_password) {
+    return res.status(400).json({ error: '현재 비밀번호와 새 비밀번호를 입력해주세요.' });
+  }
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  if (!user) return res.status(404).json({ error: '사용자를 찾을 수 없습니다.' });
+  if (!bcrypt.compareSync(current_password, user.password_hash)) {
+    return res.status(400).json({ error: '현재 비밀번호가 올바르지 않습니다.' });
+  }
+  const pwErr = passwordPolicy.validate(new_password);
+  if (pwErr) return res.status(400).json({ error: pwErr });
+  if (current_password === new_password) {
+    return res.status(400).json({ error: '새 비밀번호는 현재 비밀번호와 달라야 합니다.' });
+  }
+  const hash = bcrypt.hashSync(new_password, 10);
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, req.user.id);
+  res.json({ ok: true });
+});
+
+// === 아이디 찾기 (이름 + 전화번호 → 마스킹된 이메일) ===
+router.post('/find-id', (req, res) => {
+  const { name, phone } = req.body || {};
+  if (!name || !phone) return res.status(400).json({ error: '이름과 전화번호를 모두 입력하세요.' });
+  const norm = (s) => String(s || '').replace(/\D/g, '');
+  const phoneNorm = norm(phone);
+  // 이름 + 전화번호 매칭 (전화번호는 숫자만 비교)
+  const users = db.prepare(`SELECT id, email FROM users WHERE name = ?`).all(String(name).trim());
+  const matched = users.find(u => {
+    const userPhone = db.prepare('SELECT phone FROM users WHERE id = ?').get(u.id);
+    return norm(userPhone?.phone) === phoneNorm && phoneNorm.length >= 10;
+  });
+  if (!matched) {
+    return res.status(404).json({ error: '입력하신 정보로 등록된 계정을 찾을 수 없습니다.' });
+  }
+  // 이메일 마스킹: 첫 2자 + *** + @도메인
+  const [local, domain] = matched.email.split('@');
+  const masked = (local.length <= 2 ? local[0] + '*' : local.slice(0, 2) + '*'.repeat(Math.min(local.length - 2, 4))) + '@' + domain;
+  res.json({ email: masked, full_email: matched.email });
+});
+
+// === 비밀번호 재설정 요청 (이메일로 링크 발송) ===
+const { v4: uuidv4 } = require('uuid');
+router.post('/forgot-password', async (req, res) => {
+  const { email } = req.body || {};
+  if (!email) return res.status(400).json({ error: '이메일을 입력하세요.' });
+  const user = db.prepare('SELECT id, email, name FROM users WHERE email = ?').get(String(email).trim().toLowerCase());
+  if (!user) {
+    // 보안: 등록되지 않은 이메일이라도 동일 응답 (정보 노출 방지)
+    return res.json({ ok: true, sent: false });
+  }
+  // 토큰 생성 — 1시간 유효
+  const token = uuidv4();
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toLocaleString('sv-SE');
+  db.prepare('INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)')
+    .run(user.id, token, expiresAt);
+
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+  const host = req.get('host');
+  const resetUrl = `${protocol}://${host}/reset-password?token=${token}`;
+
+  const email_module = require('../email');
+  if (!email_module.isEnabled()) {
+    // SMTP 미설정 — 운영자에게 안내
+    console.warn(`[forgot-password] SMTP 미설정 — 사용자 ${user.email} 의 재설정 링크: ${resetUrl}`);
+    return res.json({
+      ok: true,
+      sent: false,
+      message: '이메일 발송이 설정되지 않아 재설정 링크를 발송하지 못했습니다. 시스템 관리자에게 문의해주세요.'
+    });
+  }
+
+  try {
+    await email_module.sendEmail({
+      to: user.email,
+      subject: '[SmartMeet] 비밀번호 재설정 안내',
+      html: `
+        <div style="font-family:sans-serif;max-width:560px;margin:auto;padding:24px;color:#1a202c;">
+          <h2 style="color:#0f2c5c;">비밀번호 재설정</h2>
+          <p>${user.name}님, 안녕하세요.</p>
+          <p>SmartMeet 비밀번호 재설정 요청이 접수되었습니다. 아래 버튼을 클릭하여 새 비밀번호를 설정해주세요.</p>
+          <p style="margin:24px 0;">
+            <a href="${resetUrl}"
+               style="background:#1e40af;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;">
+              비밀번호 재설정
+            </a>
+          </p>
+          <p style="font-size:13px;color:#64748b;">또는 다음 링크를 브라우저에 붙여넣으세요:<br>
+            <a href="${resetUrl}">${resetUrl}</a>
+          </p>
+          <p style="font-size:13px;color:#64748b;">이 링크는 <b>1시간 동안</b>만 유효합니다.</p>
+          <p style="font-size:13px;color:#64748b;">본인이 요청하지 않았다면 이 메일을 무시하셔도 됩니다.</p>
+        </div>`,
+      text: `[SmartMeet] 비밀번호 재설정\n\n${user.name}님, 다음 링크에서 비밀번호를 재설정하세요 (1시간 유효):\n${resetUrl}`
+    });
+    res.json({ ok: true, sent: true });
+  } catch (e) {
+    console.error('[forgot-password] 이메일 발송 실패:', e.message);
+    res.status(500).json({ error: '이메일 발송에 실패했습니다. 잠시 후 다시 시도해주세요.' });
+  }
+});
+
+// === 비밀번호 재설정 완료 (토큰으로 새 비밀번호 설정) ===
+router.post('/reset-password', (req, res) => {
+  const { token, new_password } = req.body || {};
+  if (!token || !new_password) return res.status(400).json({ error: '토큰과 새 비밀번호를 모두 입력하세요.' });
+  const pwErr = passwordPolicy.validate(new_password);
+  if (pwErr) return res.status(400).json({ error: pwErr });
+  const row = db.prepare('SELECT id, user_id, expires_at, used_at FROM password_reset_tokens WHERE token = ?').get(token);
+  if (!row) return res.status(400).json({ error: '유효하지 않은 토큰입니다.' });
+  if (row.used_at) return res.status(400).json({ error: '이미 사용된 토큰입니다.' });
+  if (new Date(row.expires_at) < new Date()) return res.status(400).json({ error: '토큰이 만료되었습니다. 다시 요청해주세요.' });
+  const hash = bcrypt.hashSync(new_password, 10);
+  const now = new Date().toLocaleString('sv-SE');
+  const tx = db.transaction(() => {
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, row.user_id);
+    db.prepare('UPDATE password_reset_tokens SET used_at = ? WHERE id = ?').run(now, row.id);
+  });
+  tx();
+  res.json({ ok: true });
+});
+
 // Authenticated user joining via invite (already logged in)
 router.post('/join', authRequired, (req, res) => {
   const { invite_token } = req.body || {};

@@ -222,6 +222,20 @@ try { db.exec("ALTER TABLE organizations ADD COLUMN slogan TEXT"); } catch (e) {
 // Posts: category — 'free' (자유게시판) | 'news' (회원소식)
 try { db.exec("ALTER TABLE posts ADD COLUMN category TEXT DEFAULT 'free'"); } catch (e) {}
 
+// Password reset tokens — 이메일로 비밀번호 재설정 링크 발송용
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token TEXT UNIQUE NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT DEFAULT (datetime('now', 'localtime'))
+    )
+  `);
+} catch (e) {}
+
 // Organizations: 도메인 라우팅 — 서브도메인 / 커스텀 도메인
 //   subdomain: 'ksitm' → ksitm.smartmeet.co.kr 로 접근 시 자동으로 이 기관 홈으로
 //   custom_domain: 'kistem.or.kr' 같은 자체 도메인

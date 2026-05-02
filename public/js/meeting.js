@@ -1215,6 +1215,24 @@ function renderProxies() {
       </div>`;
   }
 
+  // 이메일 일괄·선택 발송 카드 (관리자만)
+  const isAdminForEmail = myRole === 'system_admin' || myRole === 'admin';
+  const emailCard = isAdminForEmail ? `
+    <div class="card mb-16">
+      <div class="flex items-center justify-between mb-12" style="flex-wrap:wrap;gap:8px;">
+        <div>
+          <div class="fw-700" style="font-size:15px;">📧 위임장 이메일 발송</div>
+          <div class="text-sm text-muted">의원에게 등록된 이메일로 위임장 작성 링크를 보냅니다.</div>
+        </div>
+        <div class="flex gap-8">
+          <button class="btn btn-sm" onclick="openProxyEmailSendDialog(false)">🎯 선택 발송</button>
+          <button class="btn btn-primary btn-sm" onclick="openProxyEmailSendDialog(true)">📨 전체 일괄 발송</button>
+        </div>
+      </div>
+    </div>
+  ` : '';
+  banner += emailCard;
+
   // Submitted proxies only (member_id != null OR status == 'submitted')
   const submitted = proxies.filter(p => p.status === 'submitted' || p.member_id);
   if (!submitted.length) {
@@ -1290,6 +1308,86 @@ function openIssueProxy() {
     }
   });
 }
+
+// 위임장 이메일 발송 다이얼로그
+async function openProxyEmailSendDialog(isAll) {
+  // 회의 의원 목록 (이메일 있는 사람만)
+  const list = members || [];
+  const withEmail = list.filter(m => m.email && /.+@.+\..+/.test(m.email));
+  const withoutEmail = list.filter(m => !(m.email && /.+@.+\..+/.test(m.email)));
+
+  if (!withEmail.length) {
+    toast('이메일이 등록된 의원이 없습니다. 의원관리에서 이메일을 먼저 등록하세요.', 'error');
+    return;
+  }
+
+  const rowsHtml = isAll
+    ? withEmail.map(m => `
+        <div class="flex items-center gap-8" style="padding:6px 4px;border-bottom:1px solid var(--border);font-size:13px;">
+          <span style="flex:1;"><b>${escapeHtmlMt(m.name)}</b> <span class="text-muted">${escapeHtmlMt(m.position||'')}</span></span>
+          <span class="text-sm text-muted">${escapeHtmlMt(m.email)}</span>
+        </div>
+      `).join('')
+    : withEmail.map(m => `
+        <label class="flex items-center gap-8" style="padding:6px 4px;border-bottom:1px solid var(--border);cursor:pointer;font-size:13px;">
+          <input type="checkbox" class="pem-check" data-mid="${m.id}" checked>
+          <span style="flex:1;"><b>${escapeHtmlMt(m.name)}</b> <span class="text-muted">${escapeHtmlMt(m.position||'')}</span></span>
+          <span class="text-sm text-muted">${escapeHtmlMt(m.email)}</span>
+        </label>
+      `).join('');
+
+  const skipNotice = withoutEmail.length
+    ? `<div class="text-sm text-muted mt-12">⚠️ 이메일 미등록 ${withoutEmail.length}명 — 발송에서 자동 제외됩니다.</div>`
+    : '';
+
+  modal({
+    title: isAll ? '📨 위임장 일괄 이메일 발송' : '🎯 위임장 선택 발송',
+    size: 'lg',
+    body: `
+      <div class="text-sm text-muted mb-12">
+        ${isAll ? `<b>${withEmail.length}명</b>의 의원에게 위임장 이메일을 발송합니다.` : '받을 의원을 선택하세요.'}
+      </div>
+      <div style="max-height:380px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px 12px;">
+        ${rowsHtml || '<div class="text-sm text-muted text-center" style="padding:20px;">이메일 등록된 의원이 없습니다.</div>'}
+      </div>
+      ${skipNotice}
+      ${!isAll ? `
+        <div class="flex gap-8 mt-12">
+          <button type="button" class="btn btn-sm" onclick="document.querySelectorAll('.pem-check').forEach(c=>c.checked=true);">전체 선택</button>
+          <button type="button" class="btn btn-sm" onclick="document.querySelectorAll('.pem-check').forEach(c=>c.checked=false);">전체 해제</button>
+        </div>
+      ` : ''}
+      <div style="background:var(--surface-2);border-radius:8px;padding:12px 14px;margin-top:14px;font-size:12.5px;color:var(--text-muted);">
+        💡 메일에는 회의 정보 + 위임장 작성 링크가 포함됩니다.
+        ${meeting.invitation_message ? '<br>📝 등록된 초대장 메시지가 메일 본문에 포함됩니다.' : ''}
+      </div>
+    `,
+    confirmText: '📧 발송',
+    onConfirm: async () => {
+      let memberIds;
+      if (isAll) {
+        memberIds = withEmail.map(m => m.id);
+      } else {
+        memberIds = [...document.querySelectorAll('.pem-check:checked')].map(c => Number(c.dataset.mid));
+      }
+      if (!memberIds.length) { toast('대상을 선택하세요.', 'error'); return false; }
+      try {
+        const r = await api.post('/api/proxies/send-emails', {
+          meeting_id: Number(meetingId),
+          meeting_member_ids: memberIds
+        });
+        let msg = `✅ ${r.sent}명에게 발송했습니다.`;
+        if (r.skipped) msg += ` (이메일 누락 ${r.skipped}명 제외)`;
+        if (r.failed) msg += ` ⚠️ 실패 ${r.failed}명`;
+        toast(msg, r.failed ? 'warning' : 'success');
+        if (r.errors && r.errors.length) {
+          console.warn('이메일 발송 오류:', r.errors);
+        }
+      } catch (e) { toast(e.message, 'error'); return false; }
+    }
+  });
+}
+function escapeHtmlMt(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 async function issuePublicLink() {
   try {

@@ -310,32 +310,59 @@ async function openMyProfile() {
     title: '내 프로필 수정',
     size: 'lg',
     body: `
-      <div class="flex items-center gap-16 mb-16" style="padding-bottom:14px;border-bottom:1px solid var(--border);">
-        <div id="pfg_preview" style="width:80px;height:80px;border-radius:50%;background:linear-gradient(135deg,#cbd5e0,#a0aec0);color:white;display:grid;place-items:center;font-weight:800;font-size:26px;flex-shrink:0;overflow:hidden;">
-          ${u.profile_image ? `<img src="${u.profile_image}" style="width:100%;height:100%;object-fit:cover;">` : (u.name||'?').slice(0,1)}
-        </div>
-        <div>
-          <input type="file" id="pfg_photo" accept="image/*" style="display:none;">
-          <div class="flex gap-8">
-            <button type="button" class="btn btn-sm" id="pfg_pickBtn">📷 사진 변경</button>
-            <button type="button" class="btn btn-sm btn-danger" id="pfg_clearBtn" ${!u.profile_image?'style="display:none;"':''}>사진 삭제</button>
+      <!-- 탭 -->
+      <div class="profile-tabs flex gap-4 mb-16" style="border-bottom:2px solid var(--border);">
+        <button type="button" class="profile-tab active" data-ptab="info" style="padding:8px 16px;border:none;background:transparent;font-weight:700;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">기본 정보</button>
+        <button type="button" class="profile-tab" data-ptab="password" style="padding:8px 16px;border:none;background:transparent;font-weight:600;cursor:pointer;color:var(--text-muted);border-bottom:2px solid transparent;margin-bottom:-2px;">🔑 비밀번호 변경</button>
+      </div>
+
+      <!-- 기본 정보 탭 -->
+      <div data-ptab-panel="info">
+        <div class="flex items-center gap-16 mb-16" style="padding-bottom:14px;border-bottom:1px solid var(--border);">
+          <div id="pfg_preview" style="width:80px;height:80px;border-radius:50%;background:linear-gradient(135deg,#cbd5e0,#a0aec0);color:white;display:grid;place-items:center;font-weight:800;font-size:26px;flex-shrink:0;overflow:hidden;">
+            ${u.profile_image ? `<img src="${u.profile_image}" style="width:100%;height:100%;object-fit:cover;">` : (u.name||'?').slice(0,1)}
           </div>
-          <div class="text-sm text-muted mt-8">JPG / PNG, 최대 4MB</div>
+          <div>
+            <input type="file" id="pfg_photo" accept="image/*" style="display:none;">
+            <div class="flex gap-8">
+              <button type="button" class="btn btn-sm" id="pfg_pickBtn">📷 사진 변경</button>
+              <button type="button" class="btn btn-sm btn-danger" id="pfg_clearBtn" ${!u.profile_image?'style="display:none;"':''}>사진 삭제</button>
+            </div>
+            <div class="text-sm text-muted mt-8">JPG / PNG, 최대 4MB</div>
+          </div>
         </div>
+        <div class="flex gap-12">
+          <div class="field flex-1"><label class="label">이름 *</label><input class="input" id="pfg_name" value="${(u.name||'').replace(/"/g,'&quot;')}"></div>
+          <div class="field flex-1"><label class="label">이메일</label><input class="input" value="${u.email||''}" disabled style="background:var(--surface-2);"></div>
+        </div>
+        <div class="flex gap-12">
+          <div class="field flex-1"><label class="label">전화번호</label><input class="input" id="pfg_phone" value="${(u.phone||'').replace(/"/g,'&quot;')}" placeholder="010-1234-5678"></div>
+          <div class="field flex-1"><label class="label">전공</label><input class="input" id="pfg_major" value="${(u.major||'').replace(/"/g,'&quot;')}" placeholder="예: 경영학"></div>
+        </div>
+        <div class="field"><label class="label">직장 / 소속</label><input class="input" id="pfg_work" value="${(u.workplace||'').replace(/"/g,'&quot;')}" placeholder="회사명·소속"></div>
+        <div class="field"><label class="label">소개</label><textarea class="textarea" id="pfg_bio" rows="3" placeholder="간단한 자기소개">${u.bio||''}</textarea></div>
       </div>
-      <div class="flex gap-12">
-        <div class="field flex-1"><label class="label">이름 *</label><input class="input" id="pfg_name" value="${(u.name||'').replace(/"/g,'&quot;')}"></div>
-        <div class="field flex-1"><label class="label">이메일</label><input class="input" value="${u.email||''}" disabled style="background:var(--surface-2);"></div>
+
+      <!-- 비밀번호 변경 탭 -->
+      <div data-ptab-panel="password" style="display:none;">
+        <div class="text-sm text-muted mb-16">현재 비밀번호 확인 후 새 비밀번호로 변경합니다.</div>
+        <div class="field"><label class="label">현재 비밀번호 *</label>
+          <input class="input" type="password" id="pfg_curr_pw" autocomplete="current-password" placeholder="현재 비밀번호 입력">
+        </div>
+        <div class="field"><label class="label">새 비밀번호 *</label>
+          <input class="input" type="password" id="pfg_new_pw" autocomplete="new-password" placeholder="${PASSWORD_POLICY.REQUIREMENTS_TEXT}">
+        </div>
+        <div class="field"><label class="label">새 비밀번호 확인 *</label>
+          <input class="input" type="password" id="pfg_new_pw2" autocomplete="new-password" placeholder="다시 입력">
+        </div>
+        <button type="button" class="btn btn-primary btn-block" id="pfg_change_pw_btn" style="margin-top:8px;">🔑 비밀번호 변경</button>
       </div>
-      <div class="flex gap-12">
-        <div class="field flex-1"><label class="label">전화번호</label><input class="input" id="pfg_phone" value="${(u.phone||'').replace(/"/g,'&quot;')}" placeholder="010-1234-5678"></div>
-        <div class="field flex-1"><label class="label">전공</label><input class="input" id="pfg_major" value="${(u.major||'').replace(/"/g,'&quot;')}" placeholder="예: 경영학"></div>
-      </div>
-      <div class="field"><label class="label">직장 / 소속</label><input class="input" id="pfg_work" value="${(u.workplace||'').replace(/"/g,'&quot;')}" placeholder="회사명·소속"></div>
-      <div class="field"><label class="label">소개</label><textarea class="textarea" id="pfg_bio" rows="3" placeholder="간단한 자기소개">${u.bio||''}</textarea></div>
     `,
     confirmText: '저장',
     onConfirm: async () => {
+      // 현재 활성 탭이 비밀번호 탭이면 저장 액션 비활성 (별도 버튼 사용)
+      const isPwTab = document.querySelector('.profile-tab.active')?.dataset.ptab === 'password';
+      if (isPwTab) return;
       const name = document.getElementById('pfg_name').value.trim();
       if (!name) { toast('이름을 입력하세요.', 'error'); return false; }
       try {
@@ -372,6 +399,51 @@ async function openMyProfile() {
       photoData = '';
       document.getElementById('pfg_preview').innerHTML = (u.name||'?').slice(0,1);
       document.getElementById('pfg_clearBtn').style.display = 'none';
+    };
+
+    // 탭 전환
+    document.querySelectorAll('.profile-tab').forEach(t => {
+      t.onclick = () => {
+        document.querySelectorAll('.profile-tab').forEach(x => {
+          x.classList.toggle('active', x === t);
+          x.style.color = x === t ? 'var(--text)' : 'var(--text-muted)';
+          x.style.borderBottomColor = x === t ? 'var(--accent, #1e40af)' : 'transparent';
+          x.style.fontWeight = x === t ? '700' : '600';
+        });
+        const target = t.dataset.ptab;
+        document.querySelectorAll('[data-ptab-panel]').forEach(p => {
+          p.style.display = p.dataset.ptabPanel === target ? '' : 'none';
+        });
+      };
+    });
+    // 첫 활성 탭 색상 적용
+    const firstActive = document.querySelector('.profile-tab.active');
+    if (firstActive) {
+      firstActive.style.color = 'var(--text)';
+      firstActive.style.borderBottomColor = 'var(--accent, #1e40af)';
+    }
+
+    // 비밀번호 정책 실시간 표시
+    attachPasswordPolicy(document.getElementById('pfg_new_pw'));
+
+    // 비밀번호 변경 버튼
+    document.getElementById('pfg_change_pw_btn').onclick = async () => {
+      const cur = document.getElementById('pfg_curr_pw').value;
+      const nw  = document.getElementById('pfg_new_pw').value;
+      const nw2 = document.getElementById('pfg_new_pw2').value;
+      if (!cur) { toast('현재 비밀번호를 입력하세요.', 'error'); return; }
+      const pwErr = PASSWORD_POLICY.validate(nw);
+      if (pwErr) { toast(pwErr, 'error'); return; }
+      if (nw !== nw2) { toast('새 비밀번호가 일치하지 않습니다.', 'error'); return; }
+      if (cur === nw) { toast('새 비밀번호는 현재 비밀번호와 달라야 합니다.', 'error'); return; }
+      try {
+        await api.post('/api/auth/change-password', { current_password: cur, new_password: nw });
+        toast('비밀번호가 변경되었습니다. 다음 로그인부터 적용됩니다.', 'success');
+        document.getElementById('pfg_curr_pw').value = '';
+        document.getElementById('pfg_new_pw').value = '';
+        document.getElementById('pfg_new_pw2').value = '';
+        document.getElementById('pfg_new_pw').dispatchEvent(new Event('input'));
+      } catch (e) { toast(e.message || '비밀번호 변경 실패', 'error'); }
     };
   }, 50);
 }
