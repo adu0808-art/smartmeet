@@ -100,6 +100,16 @@ router.delete('/orgchart/version/:id', authRequired, (req, res) => {
   res.json({ ok: true });
 });
 
+// 단일 버전 조회 — 히스토리 보기용 (data 까지 함께 반환)
+router.get('/orgchart/version/:id', authRequired, (req, res) => {
+  const orgId = getOrgIdFromOrgChartVersion(req.params.id);
+  if (!orgId) return res.status(404).json({ error: '버전 없음' });
+  if (!getOrgRole(req.user, orgId)) return res.status(403).json({ error: '접근 권한이 없습니다.' });
+  const v = db.prepare('SELECT id, organization_id, version_name, data, created_at FROM org_chart_versions WHERE id = ?').get(req.params.id);
+  if (!v) return res.status(404).json({ error: '버전 없음' });
+  res.json({ version: v });
+});
+
 // ===== 일정 =====
 router.get('/schedules/:orgId', requireOrg(req => req.params.orgId, 'read'), (req, res) => {
   const rows = db.prepare('SELECT * FROM schedules WHERE organization_id = ? ORDER BY schedule_date ASC').all(req.params.orgId);
