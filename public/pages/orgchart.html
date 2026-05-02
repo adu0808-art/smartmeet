@@ -165,6 +165,99 @@
       text-align: center;
       font-style: italic;
     }
+    /* 노드 메모 — 우측 상단의 작은 아이콘 (시각적 인디케이터) */
+    .node-memo-indicator {
+      position: absolute;
+      top: 4px;
+      right: 6px;
+      width: 18px;
+      height: 18px;
+      font-size: 11px;
+      line-height: 18px;
+      text-align: center;
+      background: rgba(251, 191, 36, 0.95);
+      border-radius: 50%;
+      cursor: help;
+      z-index: 3;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+    }
+    /* 노드 메모 — 마우스 hover 시 풍선 (CSS 툴팁) */
+    .node-memo-tooltip {
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1f2937;
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      max-width: 260px;
+      width: max-content;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+      pointer-events: none;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.15s, visibility 0.15s;
+      z-index: 30;
+      text-align: left;
+    }
+    .node-memo-tooltip::after {
+      content: '';
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 6px solid transparent;
+      border-top-color: #1f2937;
+    }
+    .node:hover .node-memo-tooltip { opacity: 1; visibility: visible; }
+    .node.has-memo { box-shadow: var(--shadow), inset 0 0 0 1px rgba(251,191,36,0.5); }
+
+    /* 버전 보기 모드 배지 — 캔버스 좌상단 표시 */
+    .version-view-badge {
+      position: sticky;
+      top: 12px;
+      left: 12px;
+      width: max-content;
+      z-index: 11;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      color: #fff;
+      padding: 8px 14px;
+      border-radius: 999px;
+      font-size: 12.5px;
+      font-weight: 700;
+      box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+      margin-bottom: -32px;
+    }
+    .version-view-badge button {
+      background: rgba(255,255,255,0.25);
+      color: #fff;
+      border: none;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .version-view-badge button:hover { background: rgba(255,255,255,0.4); }
+
+    /* 버전 셀렉터 */
+    .version-select {
+      padding: 7px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      font-size: 13px;
+      cursor: pointer;
+      max-width: 220px;
+    }
+    .version-select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
     /* 액션 버튼·리사이즈 핸들의 호버/비호버 표시는 styles.css 에서 일괄 관리 */
     /* === Embed mode (iframe inside home page): hide chrome — but keep action buttons visible === */
     body.embed .sidebar,
@@ -230,9 +323,12 @@
             <h1 class="page-title">조직도 설계</h1>
             <div class="page-sub">제목과 여러 줄의 내용을 가진 노드로 조직 구조를 그리세요. 노드 우하단을 드래그해 크기를 조절할 수 있습니다.</div>
           </div>
-          <div class="topbar-actions">
+          <div class="topbar-actions" style="flex-wrap:wrap;">
+            <select class="version-select" id="versionView" title="조직도 버전 보기">
+              <option value="">📍 현재 (편집 모드)</option>
+            </select>
             <button class="btn" id="addNodeBtn" data-admin-only>+ 노드 추가</button>
-            <button class="btn" id="versionBtn" data-admin-only>📚 버전</button>
+            <button class="btn" id="versionBtn" data-admin-only>📚 버전 관리</button>
             <button class="btn" id="exportBtn">📥 내보내기</button>
             <button class="btn" id="importBtn" data-admin-only>📤 가져오기</button>
             <button class="btn btn-primary" id="saveBtn" data-admin-only>💾 저장</button>
@@ -280,6 +376,12 @@
     let connectFrom = null;
     let zoomScale = 1;
     let selectedIds = new Set();   // Shift+클릭으로 다중 선택된 노드 ID 모음
+
+    // ===== 버전 보기 모드 =====
+    //   viewingVersionId !== null 이면 화면이 그 버전의 데이터를 보여주는 중 (편집 불가)
+    //   _workingNodes / _workingEdges 에 편집중이던 데이터를 잠시 보관 → "현재 (편집)" 복귀 시 복원
+    let viewingVersionId = null;
+    let _workingNodes = null, _workingEdges = null, _workingNextId = null;
 
     // ===== 다중 선택 관리 =====
     function toggleSelection(id) {
@@ -367,6 +469,9 @@
         document.getElementById('versionBtn').onclick = openVersionsModal;
       }
       document.getElementById('exportBtn').onclick = exportJson;
+      // 버전 셀렉터 초기화 + 변경 핸들러
+      populateVersionSelect();
+      document.getElementById('versionView').onchange = onVersionSelectChange;
 
       const c = document.getElementById('canvas');
       c.addEventListener('dblclick', (e) => {
@@ -430,6 +535,103 @@
       } catch { nodes = []; edges = []; }
     }
 
+    // 버전 셀렉터 옵션 채우기 (버전 추가/삭제 후에도 호출)
+    function populateVersionSelect() {
+      const sel = document.getElementById('versionView');
+      if (!sel) return;
+      const cur = sel.value;
+      sel.innerHTML = '<option value="">📍 현재 (편집 모드)</option>' +
+        versions.map(v => `<option value="${v.id}">📚 ${escapeHtml(v.version_name)} (${fmtDate(v.created_at)})</option>`).join('');
+      sel.value = cur;
+    }
+
+    // 버전 셀렉터 onchange
+    async function onVersionSelectChange(e) {
+      const val = e.target.value;
+      if (!val) {
+        // "현재 (편집)" 복귀
+        exitVersionView();
+      } else {
+        // 특정 버전 보기 진입
+        await enterVersionView(Number(val));
+      }
+    }
+
+    // 버전 보기 모드 진입 — 현재 편집중 데이터를 _working* 에 보관, 버전 데이터로 화면 갱신
+    async function enterVersionView(versionId) {
+      try {
+        const r = await api.get(`/api/orgchart/version/${versionId}`);
+        const v = r.version;
+        let parsed = { nodes: [], edges: [] };
+        try { parsed = JSON.parse(v.data || '{}'); } catch {}
+
+        // 현재 편집중인 데이터 보관 (이미 보관 중이 아니면)
+        if (viewingVersionId === null) {
+          _workingNodes = JSON.parse(JSON.stringify(nodes));
+          _workingEdges = JSON.parse(JSON.stringify(edges));
+          _workingNextId = nextId;
+        }
+
+        // 버전 데이터를 nodes/edges 에 적용 — 정규화
+        nodes = (parsed.nodes || []).map(n => {
+          const node = { ...n };
+          if (!Array.isArray(node.contents)) node.contents = node.sub ? [node.sub] : [];
+          delete node.sub;
+          return node;
+        });
+        edges = Array.isArray(parsed.edges) ? parsed.edges : [];
+        nextId = (Math.max(0, ...nodes.map(n => Number(n.id) || 0))) + 1;
+        viewingVersionId = versionId;
+
+        // 보기 모드 배지 표시
+        showVersionViewBadge(v.version_name, v.created_at);
+        // 편집 버튼 비활성 표시
+        ['addNodeBtn','saveBtn','importBtn','versionBtn'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) { el.disabled = true; el.style.opacity = '0.45'; el.style.cursor = 'not-allowed'; }
+        });
+        clearSelection();
+        paint();
+        toast(`📚 "${v.version_name}" 버전을 보고 있습니다 (편집 불가)`, 'success');
+      } catch (e) {
+        toast(e.message || '버전을 불러올 수 없습니다.', 'error');
+        document.getElementById('versionView').value = '';
+      }
+    }
+
+    // 버전 보기 모드 해제 — _working* 데이터 복원
+    function exitVersionView() {
+      if (viewingVersionId === null) return;
+      if (_workingNodes) nodes = _workingNodes;
+      if (_workingEdges) edges = _workingEdges;
+      if (typeof _workingNextId === 'number') nextId = _workingNextId;
+      _workingNodes = _workingEdges = _workingNextId = null;
+      viewingVersionId = null;
+      hideVersionViewBadge();
+      ['addNodeBtn','saveBtn','importBtn','versionBtn'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.disabled = false; el.style.opacity = ''; el.style.cursor = ''; }
+      });
+      clearSelection();
+      paint();
+      toast('📍 현재 편집 화면으로 돌아왔습니다.', 'success');
+    }
+
+    function showVersionViewBadge(versionName, createdAt) {
+      hideVersionViewBadge();
+      const wrap = document.getElementById('canvas');
+      const badge = document.createElement('div');
+      badge.className = 'version-view-badge';
+      badge.id = 'versionViewBadge';
+      badge.innerHTML = `📚 ${escapeHtml(versionName)} <span style="opacity:0.85;font-weight:500;">(${escapeHtml(fmtDate(createdAt))})</span> <button onclick="document.getElementById('versionView').value='';onVersionSelectChange({target:{value:''}})">현재로 돌아가기</button>`;
+      wrap.insertBefore(badge, wrap.firstChild);
+    }
+    function hideVersionViewBadge() {
+      const el = document.getElementById('versionViewBadge');
+      if (el) el.remove();
+    }
+    window.onVersionSelectChange = onVersionSelectChange;
+
     function openNodeModal(preset, existing) {
       const n = existing || {};
       const initialContents = Array.isArray(n.contents) ? [...n.contents] : [];
@@ -442,6 +644,10 @@
           <label class="label">내용</label>
           <div id="contentRows"></div>
           <button type="button" class="btn btn-sm" id="addContentRowBtn">+ 내용 추가</button>
+        </div>
+        <div class="field">
+          <label class="label">📝 메모 <span class="text-sm text-muted">(선택)</span></label>
+          <textarea class="input" id="nm_memo" rows="3" placeholder="이 노드에 대한 추가 메모. 마우스를 올리면 풍선으로 표시됩니다.">${escapeHtml(n.memo || '')}</textarea>
         </div>
         <div class="field"><label class="label">배경색</label>
           <div class="flex gap-8 items-center">
@@ -464,11 +670,13 @@
           const title = document.getElementById('nm_t').value.trim();
           if (!title) { toast('제목을 입력하세요.', 'error'); return false; }
           const color = document.getElementById('nm_c').value;
+          const memo = document.getElementById('nm_memo').value;
           const cleanContents = working.map(c => (c || '').trim()).filter(c => c.length > 0);
           if (existing) {
             existing.title = title;
             existing.contents = cleanContents;
             existing.color = color;
+            existing.memo = memo || '';
             delete existing.sub;
           } else {
             // Snap initial position to grid
@@ -480,7 +688,8 @@
               y: sy,
               title,
               contents: cleanContents,
-              color
+              color,
+              memo: memo || ''
             });
           }
           paint();
@@ -529,14 +738,22 @@
         if (n.width) el.style.width = n.width + 'px';
         if (n.height) el.style.height = n.height + 'px';
         el.dataset.nodeId = n.id;
+        // 메모가 있으면 hover 시 풍선 표시 — 표준 title 속성 + 시각적 인디케이터
+        const hasMemo = n.memo && String(n.memo).trim().length > 0;
+        if (hasMemo) {
+          el.title = String(n.memo);    // 브라우저 기본 풍선
+          el.classList.add('has-memo');
+        }
         el.innerHTML = `
+          ${hasMemo ? `<div class="node-memo-indicator" title="${escapeHtml(n.memo)}">📝</div>` : ''}
           <div class="node-title">${escapeHtml(n.title)}</div>
           <div class="node-content">
             ${(n.contents || []).length
               ? n.contents.map(c => `<div class="node-line">${escapeHtml(c)}</div>`).join('')
               : '<div class="node-empty">내용 없음</div>'}
           </div>
-          ${isAdmin ? `
+          ${hasMemo ? `<div class="node-memo-tooltip">${escapeHtml(n.memo)}</div>` : ''}
+          ${isAdmin && !viewingVersionId ? `
             <div class="node-actions">
               <button class="node-act-btn" title="자동 연결 — 클릭 후 다른 노드 클릭" data-act="connect">🔗</button>
               <button class="node-act-btn" title="복사" data-act="copy">📋</button>
@@ -550,7 +767,7 @@
             <div class="node-anchor anchor-left"   data-side="left"   title="왼쪽 연결점"></div>
           ` : ''}
         `;
-        if (isAdmin) {
+        if (isAdmin && !viewingVersionId) {
           el.querySelector('[data-act="connect"]').onclick = (e) => { e.stopPropagation(); startConnect(n.id); };
           el.querySelector('[data-act="copy"]').onclick = (e) => { e.stopPropagation(); copyNode(n.id); };
           el.querySelector('[data-act="edit"]').onclick = (e) => { e.stopPropagation(); openNodeModal(null, n); };
@@ -570,13 +787,13 @@
         el.addEventListener('click', (e) => {
           if (e.target.closest('[data-act]') || e.target.classList.contains('node-resize-handle')) return;
           if (e.target.classList.contains('node-anchor')) return;  // 앵커 클릭은 드래그용
-          // Shift+클릭: 다중 선택 토글
-          if (e.shiftKey && isAdmin) {
+          // Shift+클릭: 다중 선택 토글 (편집 모드만)
+          if (e.shiftKey && isAdmin && !viewingVersionId) {
             e.stopPropagation();
             toggleSelection(n.id);
             return;
           }
-          if (connectFrom !== null && isAdmin) {
+          if (connectFrom !== null && isAdmin && !viewingVersionId) {
             if (connectFrom !== n.id) {
               // 자동 연결 (양쪽 모두 'auto')
               const exists = edges.some(e => e[0]===connectFrom && e[1]===n.id);
@@ -588,7 +805,7 @@
         });
 
         el.addEventListener('mousedown', (e) => {
-          if (!isAdmin) return;
+          if (!isAdmin || viewingVersionId) return;
           if (e.target.closest('[data-act]') || e.target.classList.contains('node-resize-handle')) return;
           if (e.target.classList.contains('node-anchor')) return;  // 앵커 → 드래그 연결
           if (connectFrom !== null) return;
@@ -608,17 +825,21 @@
       const el = document.querySelector(`.node[data-node-id="${id}"]`);
       const w = el?.offsetWidth || n.width || 160;
       const h = el?.offsetHeight || n.height || 80;
-      return { x: n.x, y: n.y, w, h };
+      // 좌표를 정수로 — 직선 정렬 정확도 향상
+      return { x: _r(n.x), y: _r(n.y), w: _r(w), h: _r(h) };
     }
 
-    // 노드 사각형(a)에서 지정된 면(side)의 중앙 좌표를 반환
+    // 좌표를 정수로 반올림 — SVG 의 sub-pixel 안티앨리어싱으로 인한 흐릿함·미세 오차 방지
+    function _r(n) { return Math.round(n); }
+
+    // 노드 사각형(a)에서 지정된 면(side)의 중앙 좌표를 반환 (정수 반올림)
     //   side: 'top' | 'right' | 'bottom' | 'left' | 'auto'
     function anchorPoint(rect, side) {
       switch (side) {
-        case 'top':    return { x: rect.x + rect.w / 2, y: rect.y };
-        case 'right':  return { x: rect.x + rect.w,     y: rect.y + rect.h / 2 };
-        case 'bottom': return { x: rect.x + rect.w / 2, y: rect.y + rect.h };
-        case 'left':   return { x: rect.x,              y: rect.y + rect.h / 2 };
+        case 'top':    return { x: _r(rect.x + rect.w / 2), y: _r(rect.y) };
+        case 'right':  return { x: _r(rect.x + rect.w),     y: _r(rect.y + rect.h / 2) };
+        case 'bottom': return { x: _r(rect.x + rect.w / 2), y: _r(rect.y + rect.h) };
+        case 'left':   return { x: _r(rect.x),              y: _r(rect.y + rect.h / 2) };
         default: return null;  // auto
       }
     }
@@ -635,11 +856,11 @@
         const isHFrom = fromSide === 'left' || fromSide === 'right';
         const isHTo   = toSide   === 'left' || toSide   === 'right';
         if (isHFrom && isHTo) {
-          const mx = (sx + tx) / 2;
+          const mx = _r((sx + tx) / 2);
           return `M ${sx} ${sy} L ${mx} ${sy} L ${mx} ${ty} L ${tx} ${ty}`;
         }
         if (!isHFrom && !isHTo) {
-          const my = (sy + ty) / 2;
+          const my = _r((sy + ty) / 2);
           return `M ${sx} ${sy} L ${sx} ${my} L ${tx} ${my} L ${tx} ${ty}`;
         }
         // 한쪽은 수평, 다른쪽은 수직 → L자 두 번 꺾기
@@ -650,22 +871,20 @@
         }
       }
 
-      // 한쪽만 명시 — 명시된 쪽은 고정, 다른 쪽은 자동 (가까운 면 선택)
-      // (간단화 — 자동 모드로 fallback)
-      // 양쪽 모두 자동 (기존 로직)
+      // 양쪽 모두 자동 (기존 로직) — 모든 좌표 반올림
       const acx = a.x + a.w / 2, acy = a.y + a.h / 2;
       const bcx = b.x + b.w / 2, bcy = b.y + b.h / 2;
       const dx = bcx - acx, dy = bcy - acy;
       let sx, sy, tx, ty, mid;
       if (Math.abs(dy) >= Math.abs(dx)) {
-        if (dy >= 0) { sx = a.x + a.w/2; sy = a.y + a.h; tx = b.x + b.w/2; ty = b.y; }
-        else         { sx = a.x + a.w/2; sy = a.y;       tx = b.x + b.w/2; ty = b.y + b.h; }
-        const my = (sy + ty) / 2;
+        if (dy >= 0) { sx = _r(a.x + a.w/2); sy = _r(a.y + a.h); tx = _r(b.x + b.w/2); ty = _r(b.y); }
+        else         { sx = _r(a.x + a.w/2); sy = _r(a.y);       tx = _r(b.x + b.w/2); ty = _r(b.y + b.h); }
+        const my = _r((sy + ty) / 2);
         mid = `M ${sx} ${sy} L ${sx} ${my} L ${tx} ${my} L ${tx} ${ty}`;
       } else {
-        if (dx >= 0) { sx = a.x + a.w; sy = a.y + a.h/2; tx = b.x;       ty = b.y + b.h/2; }
-        else         { sx = a.x;       sy = a.y + a.h/2; tx = b.x + b.w; ty = b.y + b.h/2; }
-        const mx = (sx + tx) / 2;
+        if (dx >= 0) { sx = _r(a.x + a.w); sy = _r(a.y + a.h/2); tx = _r(b.x);       ty = _r(b.y + b.h/2); }
+        else         { sx = _r(a.x);       sy = _r(a.y + a.h/2); tx = _r(b.x + b.w); ty = _r(b.y + b.h/2); }
+        const mx = _r((sx + tx) / 2);
         mid = `M ${sx} ${sy} L ${mx} ${sy} L ${mx} ${ty} L ${tx} ${ty}`;
       }
       return mid;
@@ -758,6 +977,8 @@
     function paintEdges() {
       const svg = document.getElementById('edges');
       svg.innerHTML = '';
+      // SVG 전체에 crispEdges — 라인이 정수 픽셀에 정확히 정렬되어 흐림 없이 선명
+      svg.setAttribute('shape-rendering', 'crispEdges');
       edges.forEach((edge, idx) => {
         const [a, b, fromSide, toSide] = edge;
         const ra = nodeRect(a), rb = nodeRect(b);
@@ -769,8 +990,9 @@
         path.setAttribute('stroke-width', '2');
         path.setAttribute('fill', 'none');
         path.setAttribute('stroke-linejoin', 'round');
+        path.setAttribute('shape-rendering', 'crispEdges');
         path.style.pointerEvents = 'stroke';
-        if (isAdmin) {
+        if (isAdmin && !viewingVersionId) {
           path.style.cursor = 'pointer';
           path.addEventListener('click', () => {
             confirmDialog('이 연결을 삭제하시겠습니까?', () => { edges.splice(idx, 1); paint(); });
@@ -1033,6 +1255,7 @@
         const data = await api.get(`/api/orgchart/${orgId}`);
         versions = data.versions || [];
         paintVersionList();
+        populateVersionSelect();   // 셀렉터에도 새 버전 반영
       } catch (e) { toast(e.message, 'error'); }
     }
 
@@ -1084,6 +1307,12 @@
           await api.del(`/api/orgchart/version/${id}`);
           versions = versions.filter(v => v.id !== id);
           paintVersionList();
+          populateVersionSelect();   // 셀렉터에서도 제거
+          // 만약 삭제한 버전을 보고 있었다면 편집 모드로 자동 복귀
+          if (viewingVersionId === id) {
+            document.getElementById('versionView').value = '';
+            exitVersionView();
+          }
           toast('삭제되었습니다.', 'success');
         } catch (e) { toast(e.message, 'error'); return false; }
       });
