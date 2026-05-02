@@ -179,13 +179,18 @@
               const end = e.end_date || e.schedule_date;
               // 진행/지남/예정 상태
               const cls = todayStr > end ? 'past' : (todayStr >= start && todayStr <= end) ? 'today' : '';
-              // 다일 일정에서 위치 표시 — 첫날/중간/마지막
+              // 다일 일정 위치 — 첫날엔 제목, 중간/마지막엔 빈 바 (연속된 띠로 표시)
               const isMulti = e.end_date && e.end_date !== e.schedule_date;
               const posCls = isMulti
                 ? (dateStr === start ? ' multi-start' : dateStr === end ? ' multi-end' : ' multi-mid')
                 : '';
-              const titleLabel = isMulti && dateStr !== start ? '··· ' + e.title : e.title;
-              return `<div class="cal-event ${cls}${posCls}" title="${e.title}${isMulti ? ` (${e.schedule_date} ~ ${e.end_date})` : ''}" onclick="event.stopPropagation();openForm(${JSON.stringify(e).replace(/"/g,'&quot;')})">${titleLabel}</div>`;
+              // 첫날: 전체 제목 / 마지막 날: 우측 끝 표시 / 중간: 빈 바
+              let label;
+              if (!isMulti) label = e.title;
+              else if (dateStr === start) label = e.title;
+              else if (dateStr === end) label = '<span style="opacity:0.6;">▸</span>';
+              else label = '&nbsp;';
+              return `<div class="cal-event ${cls}${posCls}" title="${e.title}${isMulti ? ` (${e.schedule_date} ~ ${e.end_date})` : ''}" onclick="event.stopPropagation();openForm(${JSON.stringify(e).replace(/"/g,'&quot;')})">${label}</div>`;
             }).join('')}
           </div>`;
       }

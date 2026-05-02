@@ -165,32 +165,25 @@
       text-align: center;
       font-style: italic;
     }
-    /* 노드 메모 아이콘 — 타이틀 옆 인라인 (호버 시 풍선) */
+    /* 노드 메모 아이콘 — 타이틀 옆 인라인 📝 이모지 (호버 시 풍선) */
     .node-memo-icon {
       display: inline-block;
       vertical-align: middle;
-      margin-left: 6px;
-      width: 14px;
-      height: 16px;
-      background:
-        linear-gradient(135deg, transparent 60%, rgba(0,0,0,0.18) 60%, rgba(0,0,0,0.18) 65%, transparent 65%),
-        linear-gradient(#fde68a, #fbbf24);
-      border: 1px solid #d97706;
-      border-radius: 2px 8px 2px 2px;     /* 우상단 접힌 메모지 모양 */
-      box-shadow: 0 1px 1px rgba(0,0,0,0.12);
+      margin-left: 5px;
+      font-size: 13px;
+      line-height: 1;
       cursor: help;
-      transition: transform 0.12s, box-shadow 0.12s;
-      vertical-align: -3px;
+      opacity: 0.85;
+      transition: opacity 0.15s, transform 0.15s;
+      user-select: none;
+      filter: drop-shadow(0 1px 1px rgba(0,0,0,0.1));
     }
     .node-memo-icon:hover {
-      transform: scale(1.18);
-      box-shadow: 0 2px 4px rgba(217,119,6,0.4);
+      opacity: 1;
+      transform: scale(1.25);
     }
-    /* 글상자 노드 — 메모 아이콘은 텍스트 본문 끝에 인라인 */
-    .node.kind-textbox .node-memo-icon {
-      margin-left: 6px;
-      vertical-align: -2px;
-    }
+    /* 글상자 노드 — 메모 아이콘 동일 */
+    .node.kind-textbox .node-memo-icon { margin-left: 6px; }
     /* 노드 메모 풍선 — body 에 직접 부착해 어떤 overflow 컨테이너에도 클립되지 않음 */
     #node-memo-floating {
       position: fixed;
@@ -965,7 +958,7 @@
         // 메모 처리 — 임베드 모드 외 + 메모가 있으면 타이틀 옆 인라인 아이콘 + 아이콘 hover 시 floating 풍선
         const hasMemo = n.memo && String(n.memo).trim().length > 0 && !document.body.classList.contains('embed');
         if (hasMemo) el.classList.add('has-memo');
-        const memoIconHtml = hasMemo ? `<span class="node-memo-icon" aria-label="메모" title="메모"></span>` : '';
+        const memoIconHtml = hasMemo ? `<span class="node-memo-icon" aria-label="메모">📝</span>` : '';
         // 노드 본문 — kind 에 따라 다르게 렌더 (타이틀은 별도 색상 가능, 메모 아이콘은 타이틀/텍스트 옆)
         const titleBg = n.titleColor || '';
         const bodyHtml = isTextbox

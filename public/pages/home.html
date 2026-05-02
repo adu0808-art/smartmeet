@@ -2062,9 +2062,14 @@
               const posCls = isMulti
                 ? (dateStr === start ? ' multi-start' : dateStr === end ? ' multi-end' : ' multi-mid')
                 : '';
-              const titleLabel = isMulti && dateStr !== start ? '··· ' + escapeHtml(e.title) : escapeHtml(e.title);
+              // 첫날엔 제목, 중간엔 빈 바, 끝엔 ▸ 표시 (시각적으로 연속된 막대)
+              let label;
+              if (!isMulti) label = escapeHtml(e.title);
+              else if (dateStr === start) label = escapeHtml(e.title);
+              else if (dateStr === end) label = '<span style="opacity:0.6;">▸</span>';
+              else label = '&nbsp;';
               const eventClick = `onclick="event.stopPropagation();openScheduleDetail(${e.id});"`;
-              return `<div class="cal-event ${cls}${posCls}" title="${escapeHtml(e.title)}${isMulti ? ` (${e.schedule_date} ~ ${e.end_date})` : ''}" style="cursor:pointer;" ${eventClick}>${titleLabel}</div>`;
+              return `<div class="cal-event ${cls}${posCls}" title="${escapeHtml(e.title)}${isMulti ? ` (${e.schedule_date} ~ ${e.end_date})` : ''}" style="cursor:pointer;" ${eventClick}>${label}</div>`;
             }).join('')}
           </div>`;
       }

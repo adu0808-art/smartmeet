@@ -1438,17 +1438,17 @@ select.input, select.select { cursor: pointer; }
 .cal-cell {
   background: var(--surface);
   min-height: 92px;
-  padding: 6px 8px;
+  padding: 6px 0;             /* 좌우 패딩 제거 — 다일 일정 바가 셀 엣지까지 확장 가능 */
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   cursor: pointer;
   transition: background 0.15s;
 }
 .cal-cell:hover { background: var(--surface-2); }
 .cal-cell.muted { background: var(--surface-2); color: var(--text-soft); }
 .cal-cell.today { background: var(--accent-soft); }
-.cal-day { font-size: 12px; font-weight: 700; }
+.cal-day { font-size: 12px; font-weight: 700; padding: 0 8px; }
 .cal-day.sun { color: var(--danger); }
 .cal-day.sat { color: var(--info); }
 .cal-event {
@@ -1456,21 +1456,61 @@ select.input, select.select { cursor: pointer; }
   color: var(--info);
   border-radius: 4px;
   padding: 2px 6px;
+  margin: 0 4px;              /* 단일 일정은 좌우 여백 */
   font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-height: 18px;
+  box-sizing: border-box;
 }
 .cal-event.past { background: var(--surface-2); color: var(--text-muted); }
 .cal-event.today { background: var(--accent); color: white; }
-/* 다일 일정 — 시작/중간/끝을 시각적으로 구분 (왼쪽 색띠 + 약간 다른 음영) */
-.cal-event.multi-start, .cal-event.multi-mid, .cal-event.multi-end {
-  border-left: 3px solid currentColor;
-  position: relative;
+
+/* ===== 다일 일정 — 셀과 셀을 잇는 연속 바 모양 =====
+ * grid gap=1px + cal-cell padding 0 좌우 → 음의 margin 으로 셀 엣지·gap 까지 확장
+ * 시작 → 중간 → 끝이 시각적으로 하나의 막대처럼 보이도록 처리 */
+.cal-event.multi-start,
+.cal-event.multi-mid,
+.cal-event.multi-end {
+  background: #c7d2fe;        /* 부드러운 보라색 — 단일 일정과 시각 구분 */
+  color: #4338ca;
+  font-weight: 700;
 }
-.cal-event.multi-mid { opacity: 0.85; }
-.cal-event.multi-mid::before { content: ''; }
+.cal-event.multi-start.today,
+.cal-event.multi-mid.today,
+.cal-event.multi-end.today {
+  background: #6366f1;
+  color: #fff;
+}
+.cal-event.multi-start.past,
+.cal-event.multi-mid.past,
+.cal-event.multi-end.past {
+  background: #e5e7eb;
+  color: #6b7280;
+}
+.cal-event.multi-start {
+  border-radius: 4px 0 0 4px;
+  margin-left: 4px;
+  margin-right: -1px;          /* 우측 grid gap 까지 채움 */
+  padding-left: 8px;
+}
+.cal-event.multi-mid {
+  border-radius: 0;
+  margin-left: -1px;
+  margin-right: -1px;          /* 좌우 모두 gap 채움 */
+  text-align: center;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+.cal-event.multi-end {
+  border-radius: 0 4px 4px 0;
+  margin-left: -1px;
+  margin-right: 4px;
+  padding-right: 10px;
+  text-align: right;
+}
 
 /* ========== 조직도 핸들/도구 ========== */
 /* 보기 모드와 동일하게 보이도록 — 호버 시에만 박스 위쪽에 액션 툴바를 띄워 노출 (제목 가리지 않음).
