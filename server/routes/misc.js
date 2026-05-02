@@ -116,18 +116,32 @@ router.post('/schedules/:orgId', requireOrg(req => req.params.orgId, 'write'), (
 });
 
 router.put('/schedules/:id', authRequired, (req, res) => {
-  const orgId = getOrgIdFromSchedule(req.params.id);
-  if (!orgId) return res.status(404).json({ error: '일정 없음' });
-  if (!isAdmin(getOrgRole(req.user, orgId))) return res.status(403).json({ error: '관리자 권한이 필요합니다.' });
+  const sched = db.prepare('SELECT id, organization_id, meeting_id FROM schedules WHERE id = ?').get(req.params.id);
+  if (!sched) return res.status(404).json({ error: '일정 없음' });
+  if (!isAdmin(getOrgRole(req.user, sched.organization_id))) return res.status(403).json({ error: '관리자 권한이 필요합니다.' });
+  // ★ 회의에서 자동 생성된 일정은 직접 수정 차단 (회의 자체를 수정해야 함)
+  if (sched.meeting_id) {
+    return res.status(400).json({
+      error: '이 일정은 회의에서 자동 생성된 항목입니다.\n수정하려면 회의 관리에서 해당 회의를 수정하세요.',
+      meetingId: sched.meeting_id
+    });
+  }
   const { title, schedule_date, description } = req.body || {};
   db.prepare('UPDATE schedules SET title = ?, schedule_date = ?, description = ? WHERE id = ?').run(title, schedule_date, description || '', req.params.id);
   res.json({ ok: true });
 });
 
 router.delete('/schedules/:id', authRequired, (req, res) => {
-  const orgId = getOrgIdFromSchedule(req.params.id);
-  if (!orgId) return res.status(404).json({ error: '일정 없음' });
-  if (!isAdmin(getOrgRole(req.user, orgId))) return res.status(403).json({ error: '관리자 권한이 필요합니다.' });
+  const sched = db.prepare('SELECT id, organization_id, meeting_id FROM schedules WHERE id = ?').get(req.params.id);
+  if (!sched) return res.status(404).json({ error: '일정 없음' });
+  if (!isAdmin(getOrgRole(req.user, sched.organization_id))) return res.status(403).json({ error: '관리자 권한이 필요합니다.' });
+  // ★ 회의 연결 일정은 직접 삭제 불가 — 회의 자체 삭제 시에만 자동 제거됨 (CASCADE)
+  if (sched.meeting_id) {
+    return res.status(400).json({
+      error: '이 일정은 회의에서 자동 생성된 항목입니다.\n삭제하려면 회의 관리에서 해당 회의를 삭제하세요.\n(회의 삭제 시 연결된 일정도 함께 삭제됩니다.)',
+      meetingId: sched.meeting_id
+    });
+  }
   db.prepare('DELETE FROM schedules WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });

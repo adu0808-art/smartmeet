@@ -472,6 +472,24 @@
       gap: 6px;
       flex-shrink: 0;
     }
+    /* 회의에서 자동 등록된 일정 표시 */
+    .sched-row.is-meeting-linked {
+      background: linear-gradient(90deg, rgba(99,102,241,0.06), transparent 50%);
+    }
+    .sched-row.is-meeting-linked:hover {
+      background: linear-gradient(90deg, rgba(99,102,241,0.12), var(--surface-2));
+    }
+    .sched-row-badge {
+      display: inline-block;
+      background: #6366f1;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 999px;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
     @media (max-width: 600px) {
       .sched-row { grid-template-columns: 80px 1fr; gap: 12px; padding: 12px 14px; }
       .sched-row-actions { grid-column: 1 / -1; justify-content: flex-end; }
@@ -1881,21 +1899,23 @@
               const days = Math.round(ms / 86400000);
               dDay = days === 0 ? 'D-DAY' : `D-${days}`;
             }
+            const isMeetingLinked = !!s.meeting_id;
             return `
-              <div class="sched-row${isToday ? ' is-today' : ''}" onclick="openScheduleDetail(${s.id})">
+              <div class="sched-row${isToday ? ' is-today' : ''}${isMeetingLinked ? ' is-meeting-linked' : ''}" onclick="${isMeetingLinked ? `openMeetingDetailInline(${s.meeting_id})` : `openScheduleDetail(${s.id})`}">
                 <div class="sched-row-date">
                   <div class="sched-row-month">${(d.getMonth()+1).toString().padStart(2,'0')}월</div>
                   <div class="sched-row-day">${d.getDate()}</div>
                   <div class="sched-row-dow">${dow}요일</div>
                 </div>
                 <div class="sched-row-body">
-                  <div class="sched-row-title">${escapeHtml(s.title)}</div>
+                  <div class="sched-row-title">${escapeHtml(s.title)}${isMeetingLinked ? ' <span class="sched-row-badge">회의 연동</span>' : ''}</div>
                   <div class="sched-row-meta">
                     <span class="sched-row-fullday">${s.schedule_date.replace(/-/g,'.')}</span>
                     <span class="sched-row-dday${isToday ? ' today' : ''}">${dDay}</span>
+                    ${isMeetingLinked ? '<span class="text-sm text-muted">→ 클릭하면 회의 상세로 이동</span>' : ''}
                   </div>
                 </div>
-                ${isAdmin ? `
+                ${isAdmin && !isMeetingLinked ? `
                   <div class="sched-row-actions" onclick="event.stopPropagation();">
                     <button class="btn btn-sm" onclick="event.stopPropagation();openScheduleEditor(${JSON.stringify(s).replace(/"/g,'&quot;')})">수정</button>
                     <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteSchedule(${s.id})">삭제</button>
@@ -2910,6 +2930,15 @@
     function openScheduleDetail(id) {
       const s = dataSchedules.find(x => x.id === Number(id));
       if (!s) { toast('일정 정보를 찾을 수 없습니다.', 'error'); return; }
+      // 회의에서 자동 생성된 일정이면 바로 회의 상세로 이동
+      if (s.meeting_id) {
+        if (typeof openMeetingDetailInline === 'function') {
+          openMeetingDetailInline(s.meeting_id);
+        } else {
+          location.href = `/meeting?id=${s.meeting_id}`;
+        }
+        return;
+      }
       const dateLabel = s.schedule_date ? s.schedule_date.replace(/-/g, '. ') : '';
       const dow = ['일','월','화','수','목','금','토'];
       let dowLabel = '';

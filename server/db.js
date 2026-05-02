@@ -222,6 +222,31 @@ try { db.exec("ALTER TABLE organizations ADD COLUMN slogan TEXT"); } catch (e) {
 // Posts: category — 'free' (자유게시판) | 'news' (회원소식)
 try { db.exec("ALTER TABLE posts ADD COLUMN category TEXT DEFAULT 'free'"); } catch (e) {}
 
+// Schedules: 회의 연동 — 회의 생성 시 자동 일정 추가, 회의 삭제 시 CASCADE 로 자동 제거
+//   meeting_id 가 설정된 일정은 회의에서 자동 생성된 것 → 직접 수정·삭제 불가 (회의 자체를 수정·삭제해야 함)
+try { db.exec("ALTER TABLE schedules ADD COLUMN meeting_id INTEGER REFERENCES meetings(id) ON DELETE CASCADE"); } catch (e) {}
+
+// 마이그레이션: 기존 회의(meeting_id 가 일정에 없는) → 일정에 자동 등록 (한 번만)
+try {
+  const orphanMeetings = db.prepare(`
+    SELECT m.id, m.organization_id, m.title, m.meeting_date, m.location
+    FROM meetings m
+    LEFT JOIN schedules s ON s.meeting_id = m.id
+    WHERE m.meeting_date IS NOT NULL AND m.meeting_date != ''
+      AND s.id IS NULL
+  `).all();
+  if (orphanMeetings.length) {
+    const ins = db.prepare('INSERT INTO schedules (organization_id, title, schedule_date, description, meeting_id) VALUES (?, ?, ?, ?, ?)');
+    orphanMeetings.forEach(m => {
+      const date = String(m.meeting_date || '').slice(0, 10);
+      if (!date) return;
+      const desc = m.location ? `<p><strong>장소:</strong> ${String(m.location).replace(/</g,'&lt;')}</p>` : '';
+      ins.run(m.organization_id, `📋 ${m.title}`, date, desc, m.id);
+    });
+    console.log(`[DB] 기존 회의 ${orphanMeetings.length}건 → 일정 자동 등록`);
+  }
+} catch (e) { console.warn('[DB] meeting→schedule 마이그레이션 경고:', e.message); }
+
 // Members: 사진 (data URL or external URL)
 try { db.exec("ALTER TABLE members ADD COLUMN photo TEXT"); } catch (e) {}
 
