@@ -6,7 +6,7 @@
 
 let Resend = null;
 try {
-    Resend = require('@resend/node').Resend;
+    Resend = require('resend').Resend;
 } catch (e) {
     console.warn('[email] @resend/node 모듈 로드 실패:', e.message);
 }
