@@ -409,10 +409,27 @@ try {
 } catch (e) { console.warn('[DB] owner-membership migration warning:', e.message); }
 
 // ======================================================================
+// 시스템 관리자 이메일 마이그레이션 (한 번만)
+//   admin@smartmeet.local → admin@smartmeet.co.kr 로 변경
+//   - 충돌 방지: 새 이메일이 이미 있으면 건너뜀
+//   - 멱등: 이미 변경된 경우 (옛 이메일이 없으면) 건너뜀
+// ======================================================================
+try {
+  const oldEmail = 'admin@smartmeet.local';
+  const newEmail = 'admin@smartmeet.co.kr';
+  const oldUser = db.prepare('SELECT id FROM users WHERE email = ?').get(oldEmail);
+  const newUser = db.prepare('SELECT id FROM users WHERE email = ?').get(newEmail);
+  if (oldUser && !newUser) {
+    db.prepare('UPDATE users SET email = ? WHERE id = ?').run(newEmail, oldUser.id);
+    console.log(`[DB] ✅ 시스템 관리자 이메일 변경: ${oldEmail} → ${newEmail}`);
+  }
+} catch (e) { console.warn('[DB] admin email migration warning:', e.message); }
+
+// ======================================================================
 // 시스템 관리자(system_admin) 자동 생성
 //   - 운영(배포) 환경: SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD / SEED_ADMIN_NAME 환경변수로 지정
 //   - 로컬 개발: 환경변수 없으면 기본값(admin@smartmeet.local / admin1234) 사용
-//   - 이미 같은 이메일의 사용자가 있으면 건너뜀 (멱등)
+//   - ★ 이미 다른 시스템 관리자가 있으면 자동 생성 건너뜀 (이메일 변경 등으로 인한 중복 방지)
 // ======================================================================
 const ensureAdmin = () => {
   const bcrypt = require('bcryptjs');
@@ -421,40 +438,37 @@ const ensureAdmin = () => {
   const seedName = process.env.SEED_ADMIN_NAME || '시스템 관리자';
   const isProd = process.env.NODE_ENV === 'production';
 
-  // 운영 환경에서 기본 관리자 자동생성 비활성화 (보안) — 환경변수 필수
-  if (isProd && (!seedEmail || !seedPassword)) {
-    // 기존 admin 이 있으면 OK, 없으면 경고만 출력 (서버는 정상 시작)
-    const anyAdmin = db.prepare("SELECT id FROM users WHERE role = 'admin' LIMIT 1").get();
-    if (!anyAdmin) {
-      console.warn('[DB] ⚠️ 운영 환경인데 시스템 관리자가 없습니다.');
-      console.warn('[DB]    환경변수 SEED_ADMIN_EMAIL 와 SEED_ADMIN_PASSWORD 를 설정하면 자동 생성됩니다.');
-    }
+  // ★ 핵심 안전장치: 이미 시스템 관리자가 있으면 어떤 환경이든 자동 생성 건너뜀
+  //   (이메일이 변경됐거나 수동으로 관리자가 추가된 경우 중복 생성 방지)
+  const anyAdmin = db.prepare("SELECT id, email FROM users WHERE role = 'admin' LIMIT 1").get();
+  if (anyAdmin) {
     return;
   }
 
-  // 환경변수가 지정된 경우: 해당 계정으로 시드 (이미 있으면 건너뜀)
+  // 이하: 시스템 관리자가 전혀 없는 경우에만 실행 (최초 배포 / 신규 환경)
+
+  // 운영 환경에서 기본 관리자 자동생성 비활성화 (보안) — 환경변수 필수
+  if (isProd && (!seedEmail || !seedPassword)) {
+    console.warn('[DB] ⚠️ 운영 환경인데 시스템 관리자가 없습니다.');
+    console.warn('[DB]    환경변수 SEED_ADMIN_EMAIL 와 SEED_ADMIN_PASSWORD 를 설정하면 자동 생성됩니다.');
+    return;
+  }
+
+  // 환경변수가 지정된 경우: 해당 계정으로 시드
   if (seedEmail && seedPassword) {
-    const exists = db.prepare('SELECT id FROM users WHERE email = ?').get(seedEmail);
-    if (!exists) {
-      const hash = bcrypt.hashSync(seedPassword, 10);
-      db.prepare('INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)')
-        .run(seedEmail, hash, seedName, 'admin');
-      console.log('[DB] ✅ 시스템 관리자 시드 생성:', seedEmail);
-      console.log('[DB]    로그인 후 환경변수 SEED_ADMIN_PASSWORD 를 즉시 삭제하세요!');
-    } else {
-      console.log('[DB] 시스템 관리자 이미 존재:', seedEmail);
-    }
+    const hash = bcrypt.hashSync(seedPassword, 10);
+    db.prepare('INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)')
+      .run(seedEmail, hash, seedName, 'admin');
+    console.log('[DB] ✅ 시스템 관리자 시드 생성:', seedEmail);
+    console.log('[DB]    로그인 후 환경변수 SEED_ADMIN_PASSWORD 를 즉시 삭제하세요!');
     return;
   }
 
   // 로컬 개발 환경: 기본 admin 생성
-  const exists = db.prepare('SELECT id FROM users WHERE email = ?').get('admin@smartmeet.local');
-  if (!exists) {
-    const hash = bcrypt.hashSync('admin1234', 10);
-    db.prepare('INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)')
-      .run('admin@smartmeet.local', hash, '시스템 관리자', 'admin');
-    console.log('[DB] 로컬 개발용 기본 관리자 생성: admin@smartmeet.local / admin1234');
-  }
+  const hash = bcrypt.hashSync('admin1234', 10);
+  db.prepare('INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)')
+    .run('admin@smartmeet.co.kr', hash, '시스템 관리자', 'admin');
+  console.log('[DB] 로컬 개발용 기본 관리자 생성: admin@smartmeet.co.kr / admin1234');
 };
 ensureAdmin();
 
