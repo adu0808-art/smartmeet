@@ -354,9 +354,12 @@
             <div class="page-sub">제목과 여러 줄의 내용을 가진 노드로 조직 구조를 그리세요. 노드 우하단을 드래그해 크기를 조절할 수 있습니다.</div>
           </div>
           <div class="topbar-actions" style="flex-wrap:wrap;align-items:center;">
-            <select class="version-select" id="versionView" title="조직도 버전 보기">
-              <option value="">📍 현재 (편집 모드)</option>
+            <select class="version-select" id="chartSelect" title="조직도 선택">
             </select>
+            <button class="btn" id="newChartBtn" data-admin-only title="새 조직도 만들기">+ 새 조직도</button>
+            <button class="btn" id="renameChartBtn" data-admin-only title="현재 조직도 이름 수정">✏️ 이름</button>
+            <button class="btn btn-danger" id="deleteChartBtn" data-admin-only title="현재 조직도 삭제">🗑 삭제</button>
+            <span style="width:1px;height:22px;background:var(--border);"></span>
             <button class="btn" id="addNodeBtn" data-admin-only title="노드 추가">+ 노드</button>
             <button class="btn" id="addTextboxBtn" data-admin-only title="자유 텍스트 글상자 추가">T 글상자</button>
             <button class="btn" id="undoBtn" data-admin-only title="되돌리기 (Ctrl+Z)" disabled>↶ 되돌리기</button>
@@ -403,19 +406,16 @@
   <script>
     const orgId = qs('org');
     let organization, role, isAdmin = false;
-    let nodes = [], edges = [], versions = [];
+    // 다중 조직도 — charts: [{id, name, updated_at}], currentChartId: 현재 편집 중인 조직도 ID
+    let charts = [];
+    let currentChartId = null;
+    let nodes = [], edges = [];
     let nextId = 1;
     let connectFrom = null;
     let zoomScale = 1;
     let selectedIds = new Set();   // Shift+클릭으로 다중 선택된 노드 ID 모음
 
-    // ===== 버전 보기 모드 =====
-    //   viewingVersionId !== null 이면 화면이 그 버전의 데이터를 보여주는 중 (편집 불가)
-    //   _workingNodes / _workingEdges 에 편집중이던 데이터를 잠시 보관 → "현재 (편집)" 복귀 시 복원
-    let viewingVersionId = null;
-    let _workingNodes = null, _workingEdges = null, _workingNextId = null;
-
-    // ===== 되돌리기 / 다시하기 (10단계) =====
+    // ===== 되돌리기 / 다시하기 (10단계, 조직도별 독립) =====
     const HISTORY_MAX = 10;
     let undoStack = [];   // 이전 상태들
     let redoStack = [];   // 되돌린 후 다시할 수 있는 상태들
@@ -423,8 +423,6 @@
 
     // ===== 자동 저장 =====
     let _autosaveTimer = null;
-    let _autoVersionTimer = null;        // 첫 변경 시 한 번만 버전 자동 생성
-    let _initialChartCreated = false;     // 처음 만들기 시점 추적
 
     // ===== 다중 선택 관리 =====
     function toggleSelection(id) {
@@ -513,9 +511,13 @@
         document.getElementById('importBtn').onclick = importJson;
         document.getElementById('undoBtn').onclick = undo;
         document.getElementById('redoBtn').onclick = redo;
+        // 다중 조직도 CRUD 버튼
+        document.getElementById('newChartBtn').onclick = createNewChart;
+        document.getElementById('renameChartBtn').onclick = renameCurrentChart;
+        document.getElementById('deleteChartBtn').onclick = deleteCurrentChart;
         // 키보드 단축키 — Ctrl+Z (undo), Ctrl+Shift+Z 또는 Ctrl+Y (redo)
         window.addEventListener('keydown', (e) => {
-          if (!isAdmin || viewingVersionId) return;
+          if (!isAdmin) return;
           // 입력 필드 포커스 중엔 단축키 무시
           const tag = (e.target && e.target.tagName || '').toLowerCase();
           if (tag === 'input' || tag === 'textarea' || e.target?.isContentEditable) return;
@@ -527,14 +529,16 @@
         });
       }
       document.getElementById('exportBtn').onclick = exportJson;
-      // 버전 셀렉터 초기화 + 변경 핸들러
-      populateVersionSelect();
-      document.getElementById('versionView').onchange = onVersionSelectChange;
+      // 차트 셀렉터 초기화 + 변경 핸들러
+      populateChartSelect();
+      document.getElementById('chartSelect').onchange = onChartSelectChange;
       updateUndoRedoButtons();
       // 페이지 닫기 전 미저장 변경사항 강제 저장
       window.addEventListener('beforeunload', () => {
         if (_autosaveTimer) { clearTimeout(_autosaveTimer); doAutosave(); }
       });
+      // 빈 상태 안내 — 차트가 없을 때 가운데에 "+ 첫 조직도 만들기"
+      maybeShowEmptyState();
 
       const c = document.getElementById('canvas');
       c.addEventListener('dblclick', (e) => {
@@ -581,61 +585,27 @@
       paint();
     })();
 
+    // ===== 다중 조직도 (CRUD) =====
+    //   loadAll: 차트 목록 + 첫(또는 지정된) 차트 데이터 로드
+    //   loadChart: 단일 차트 데이터 적용 (nodes/edges 갱신, undo 스택 리셋)
     async function loadAll() {
       const data = await api.get(`/api/orgchart/${orgId}`);
-      versions = data.versions || [];
+      charts = data.charts || [];
+      // ?chart=ID 쿼리로 특정 차트 강제 지정 가능 (embed 또는 공유용)
+      const requestedId = Number(qs('chart')) || 0;
+      let initialId = null;
+      if (requestedId && charts.find(c => c.id === requestedId)) initialId = requestedId;
+      else if (charts.length) initialId = charts[0].id;     // 가장 최근 수정된 차트
+      if (initialId) await loadChart(initialId);
+      else { nodes = []; edges = []; nextId = 1; currentChartId = null; }
+    }
+
+    async function loadChart(id) {
       try {
-        const parsed = JSON.parse(data.orgchart.data || '{}');
-        nodes = (parsed.nodes || []).map(n => {
-          if (!Array.isArray(n.contents)) {
-            n.contents = n.sub ? [n.sub] : [];
-          }
-          delete n.sub;
-          return n;
-        });
-        edges = parsed.edges || [];
-        nextId = (Math.max(0, ...nodes.map(n => n.id || 0))) + 1;
-      } catch { nodes = []; edges = []; }
-    }
-
-    // 버전 셀렉터 옵션 채우기 (버전 추가/삭제 후에도 호출)
-    function populateVersionSelect() {
-      const sel = document.getElementById('versionView');
-      if (!sel) return;
-      const cur = sel.value;
-      sel.innerHTML = '<option value="">📍 현재 (편집 모드)</option>' +
-        versions.map(v => `<option value="${v.id}">📚 ${escapeHtml(v.version_name)} (${fmtDate(v.created_at)})</option>`).join('');
-      sel.value = cur;
-    }
-
-    // 버전 셀렉터 onchange
-    async function onVersionSelectChange(e) {
-      const val = e.target.value;
-      if (!val) {
-        // "현재 (편집)" 복귀
-        exitVersionView();
-      } else {
-        // 특정 버전 보기 진입
-        await enterVersionView(Number(val));
-      }
-    }
-
-    // 버전 보기 모드 진입 — 현재 편집중 데이터를 _working* 에 보관, 버전 데이터로 화면 갱신
-    async function enterVersionView(versionId) {
-      try {
-        const r = await api.get(`/api/orgchart/version/${versionId}`);
-        const v = r.version;
+        const r = await api.get(`/api/orgchart/chart/${id}`);
+        const c = r.chart;
         let parsed = { nodes: [], edges: [] };
-        try { parsed = JSON.parse(v.data || '{}'); } catch {}
-
-        // 현재 편집중인 데이터 보관 (이미 보관 중이 아니면)
-        if (viewingVersionId === null) {
-          _workingNodes = JSON.parse(JSON.stringify(nodes));
-          _workingEdges = JSON.parse(JSON.stringify(edges));
-          _workingNextId = nextId;
-        }
-
-        // 버전 데이터를 nodes/edges 에 적용 — 정규화
+        try { parsed = JSON.parse(c.data || '{}'); } catch {}
         nodes = (parsed.nodes || []).map(n => {
           const node = { ...n };
           if (!Array.isArray(node.contents)) node.contents = node.sub ? [node.sub] : [];
@@ -644,62 +614,139 @@
         });
         edges = Array.isArray(parsed.edges) ? parsed.edges : [];
         nextId = (Math.max(0, ...nodes.map(n => Number(n.id) || 0))) + 1;
-        viewingVersionId = versionId;
-
-        // 보기 모드 배지 표시
-        showVersionViewBadge(v.version_name, v.created_at);
-        // 편집 버튼 비활성 표시
-        ['addNodeBtn','addTextboxBtn','undoBtn','redoBtn','importBtn'].forEach(id => {
-          const el = document.getElementById(id);
-          if (el) { el.disabled = true; el.style.opacity = '0.45'; el.style.cursor = 'not-allowed'; }
-        });
+        currentChartId = c.id;
+        // 차트 전환 시 undo/redo 스택 리셋
+        undoStack = []; redoStack = [];
+        updateUndoRedoButtons();
         clearSelection();
-        paint();
-        toast(`📚 "${v.version_name}" 버전을 보고 있습니다 (편집 불가)`, 'success');
       } catch (e) {
-        toast(e.message || '버전을 불러올 수 없습니다.', 'error');
-        document.getElementById('versionView').value = '';
+        toast('조직도를 불러오지 못했습니다: ' + (e.message || ''), 'error');
+        nodes = []; edges = []; currentChartId = null;
       }
     }
 
-    // 버전 보기 모드 해제 — _working* 데이터 복원
-    function exitVersionView() {
-      if (viewingVersionId === null) return;
-      if (_workingNodes) nodes = _workingNodes;
-      if (_workingEdges) edges = _workingEdges;
-      if (typeof _workingNextId === 'number') nextId = _workingNextId;
-      _workingNodes = _workingEdges = _workingNextId = null;
-      viewingVersionId = null;
-      hideVersionViewBadge();
-      ['addNodeBtn','addTextboxBtn','importBtn'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) { el.disabled = false; el.style.opacity = ''; el.style.cursor = ''; }
-      });
-      // undo/redo 는 스택 상태에 따라 다시 결정
-      ['undoBtn','redoBtn'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) { el.style.opacity = ''; el.style.cursor = ''; }
-      });
-      updateUndoRedoButtons();
-      clearSelection();
-      paint();
-      toast('📍 현재 편집 화면으로 돌아왔습니다.', 'success');
+    // 차트 셀렉터 채우기
+    function populateChartSelect() {
+      const sel = document.getElementById('chartSelect');
+      if (!sel) return;
+      if (!charts.length) {
+        sel.innerHTML = '<option value="">조직도가 없습니다</option>';
+        sel.disabled = true;
+        return;
+      }
+      sel.disabled = false;
+      sel.innerHTML = charts.map(c => `<option value="${c.id}">${escapeHtml(c.name || '제목없음')}</option>`).join('');
+      if (currentChartId) sel.value = String(currentChartId);
     }
 
-    function showVersionViewBadge(versionName, createdAt) {
-      hideVersionViewBadge();
-      const wrap = document.getElementById('canvas');
-      const badge = document.createElement('div');
-      badge.className = 'version-view-badge';
-      badge.id = 'versionViewBadge';
-      badge.innerHTML = `📚 ${escapeHtml(versionName)} <span style="opacity:0.85;font-weight:500;">(${escapeHtml(fmtDate(createdAt))})</span> <button onclick="document.getElementById('versionView').value='';onVersionSelectChange({target:{value:''}})">현재로 돌아가기</button>`;
-      wrap.insertBefore(badge, wrap.firstChild);
+    // 셀렉터 변경 → 다른 차트로 전환
+    async function onChartSelectChange(e) {
+      const id = Number(e.target.value);
+      if (!id || id === currentChartId) return;
+      // 현재 보류된 자동 저장이 있으면 즉시 처리 후 전환
+      if (_autosaveTimer) { clearTimeout(_autosaveTimer); _autosaveTimer = null; await doAutosave(); }
+      await loadChart(id);
+      paint();
+      toast(`📂 "${charts.find(c => c.id === id)?.name || ''}" 로 전환`, 'success');
     }
-    function hideVersionViewBadge() {
-      const el = document.getElementById('versionViewBadge');
-      if (el) el.remove();
+    window.onChartSelectChange = onChartSelectChange;
+
+    // 새 조직도 생성
+    async function createNewChart() {
+      modal({
+        title: '+ 새 조직도',
+        body: `
+          <div class="field">
+            <label class="label">조직도 이름 *</label>
+            <input class="input" id="ncName" value="새 조직도" placeholder="예: 2026년 조직도">
+          </div>
+          <div class="text-sm text-muted">새 빈 조직도가 만들어집니다. 이전 조직도는 그대로 유지됩니다.</div>
+        `,
+        confirmText: '만들기',
+        onConfirm: async () => {
+          const name = document.getElementById('ncName').value.trim() || '새 조직도';
+          // 보류 중인 자동 저장 처리
+          if (_autosaveTimer) { clearTimeout(_autosaveTimer); _autosaveTimer = null; await doAutosave(); }
+          try {
+            const r = await api.post(`/api/orgchart/${orgId}`, { name, data: JSON.stringify({ nodes: [], edges: [] }) });
+            charts.unshift({ id: r.chart.id, name: r.chart.name, updated_at: r.chart.updated_at });
+            populateChartSelect();
+            await loadChart(r.chart.id);
+            document.getElementById('chartSelect').value = String(r.chart.id);
+            paint();
+            toast('✅ 새 조직도가 만들어졌습니다.', 'success');
+          } catch (e) {
+            toast('생성 실패: ' + (e.message || ''), 'error');
+            return false;
+          }
+        }
+      });
     }
-    window.onVersionSelectChange = onVersionSelectChange;
+    window.createNewChart = createNewChart;
+
+    // 현재 조직도 이름 수정
+    async function renameCurrentChart() {
+      if (!currentChartId) return;
+      const cur = charts.find(c => c.id === currentChartId);
+      modal({
+        title: '✏️ 조직도 이름 수정',
+        body: `
+          <div class="field">
+            <label class="label">새 이름 *</label>
+            <input class="input" id="rcName" value="${escapeHtml(cur?.name || '')}" placeholder="조직도 이름">
+          </div>
+        `,
+        confirmText: '저장',
+        onConfirm: async () => {
+          const name = document.getElementById('rcName').value.trim();
+          if (!name) { toast('이름을 입력하세요.', 'error'); return false; }
+          try {
+            await api.put(`/api/orgchart/chart/${currentChartId}`, { name });
+            const c = charts.find(c => c.id === currentChartId);
+            if (c) c.name = name;
+            populateChartSelect();
+            toast('✅ 이름이 수정되었습니다.', 'success');
+          } catch (e) {
+            toast('수정 실패: ' + (e.message || ''), 'error');
+            return false;
+          }
+        }
+      });
+    }
+    window.renameCurrentChart = renameCurrentChart;
+
+    // 현재 조직도 삭제
+    async function deleteCurrentChart() {
+      if (!currentChartId) return;
+      const cur = charts.find(c => c.id === currentChartId);
+      const name = cur?.name || '이 조직도';
+      confirmDialog(
+        `<b>"${escapeHtml(name)}"</b> 조직도를 삭제하시겠습니까?<br>이 조직도의 모든 노드·연결이 영구적으로 사라집니다.`,
+        async () => {
+          // 보류 중인 자동 저장 취소 (이미 삭제할 거니까)
+          if (_autosaveTimer) { clearTimeout(_autosaveTimer); _autosaveTimer = null; }
+          try {
+            await api.del(`/api/orgchart/chart/${currentChartId}`);
+            charts = charts.filter(c => c.id !== currentChartId);
+            populateChartSelect();
+            // 다른 차트로 전환 (남은 첫 번째)
+            if (charts.length) {
+              await loadChart(charts[0].id);
+              document.getElementById('chartSelect').value = String(charts[0].id);
+            } else {
+              currentChartId = null;
+              nodes = []; edges = [];
+            }
+            paint();
+            toast('🗑 삭제되었습니다.', 'success');
+          } catch (e) {
+            toast('삭제 실패: ' + (e.message || ''), 'error');
+            return false;
+          }
+        }
+      );
+    }
+    window.deleteCurrentChart = deleteCurrentChart;
 
     function openNodeModal(preset, existing) {
       const n = existing || {};
@@ -924,7 +971,7 @@
         el.innerHTML = `
           ${hasMemo ? `<div class="node-memo-indicator" aria-hidden="true"></div>` : ''}
           ${bodyHtml}
-          ${isAdmin && !viewingVersionId ? `
+          ${isAdmin ? `
             <div class="node-actions">
               <button class="node-act-btn" title="자동 연결 — 클릭 후 다른 노드 클릭" data-act="connect">🔗</button>
               <button class="node-act-btn" title="복사" data-act="copy">📋</button>
@@ -938,7 +985,7 @@
             <div class="node-anchor anchor-left"   data-side="left"   title="왼쪽 연결점"></div>
           ` : ''}
         `;
-        if (isAdmin && !viewingVersionId) {
+        if (isAdmin) {
           el.querySelector('[data-act="connect"]').onclick = (e) => { e.stopPropagation(); startConnect(n.id); };
           el.querySelector('[data-act="copy"]').onclick = (e) => { e.stopPropagation(); copyNode(n.id); };
           el.querySelector('[data-act="edit"]').onclick = (e) => { e.stopPropagation(); n.kind === 'textbox' ? openTextboxModal(null, n) : openNodeModal(null, n); };
@@ -959,12 +1006,12 @@
           if (e.target.closest('[data-act]') || e.target.classList.contains('node-resize-handle')) return;
           if (e.target.classList.contains('node-anchor')) return;  // 앵커 클릭은 드래그용
           // Shift+클릭: 다중 선택 토글 (편집 모드만)
-          if (e.shiftKey && isAdmin && !viewingVersionId) {
+          if (e.shiftKey && isAdmin) {
             e.stopPropagation();
             toggleSelection(n.id);
             return;
           }
-          if (connectFrom !== null && isAdmin && !viewingVersionId) {
+          if (connectFrom !== null && isAdmin) {
             if (connectFrom !== n.id) {
               // 자동 연결 (양쪽 모두 'auto')
               const exists = edges.some(e => e[0]===connectFrom && e[1]===n.id);
@@ -976,7 +1023,7 @@
         });
 
         el.addEventListener('mousedown', (e) => {
-          if (!isAdmin || viewingVersionId) return;
+          if (!isAdmin) return;
           if (e.target.closest('[data-act]') || e.target.classList.contains('node-resize-handle')) return;
           if (e.target.classList.contains('node-anchor')) return;  // 앵커 → 드래그 연결
           if (connectFrom !== null) return;
@@ -1211,7 +1258,7 @@
         path.setAttribute('stroke-linejoin', 'round');
         path.setAttribute('shape-rendering', 'crispEdges');
         path.style.pointerEvents = 'stroke';
-        if (isAdmin && !viewingVersionId) {
+        if (isAdmin) {
           path.style.cursor = 'pointer';
           path.addEventListener('click', () => {
             confirmDialog('이 연결을 삭제하시겠습니까?', () => { pushHistory(); edges.splice(idx, 1); paint(); scheduleAutosave(); });
@@ -1429,16 +1476,21 @@
 
     // 변경 직후 호출 — 디바운스 후 실제 저장
     function scheduleAutosave() {
-      if (viewingVersionId) return;       // 보기 모드에선 저장 안 함
       if (!isAdmin) return;
+      // 차트가 아직 없으면 (첫 추가 시) 자동으로 "기본 조직도" 생성
+      if (!currentChartId) {
+        ensureCurrentChart();
+        return;
+      }
       setAutosaveStatus('saving', '⏳ 저장 중...');
       if (_autosaveTimer) clearTimeout(_autosaveTimer);
       _autosaveTimer = setTimeout(() => doAutosave(), 1500);
     }
 
     async function doAutosave() {
+      if (!currentChartId) return;
       try {
-        // 실제 렌더된 사이즈를 nodes 에 반영 (보기 모드와 일치)
+        // 실제 렌더된 사이즈를 nodes 에 반영
         nodes.forEach(n => {
           const el = document.querySelector(`.node[data-node-id="${n.id}"]`);
           if (el) {
@@ -1446,44 +1498,65 @@
             n.height = el.offsetHeight;
           }
         });
-        await api.post(`/api/orgchart/${orgId}`, { data: JSON.stringify({ nodes, edges }) });
+        const r = await api.put(`/api/orgchart/chart/${currentChartId}`, { data: JSON.stringify({ nodes, edges }) });
         setAutosaveStatus('saved', '✓ 저장됨');
-        // 첫 저장 시 (이 조직도가 처음 만들어진 경우) 버전 스냅샷도 자동 생성
-        ensureInitialVersion();
+        // updated_at 갱신 반영
+        const c = charts.find(c => c.id === currentChartId);
+        if (c && r.chart) c.updated_at = r.chart.updated_at;
       } catch (e) {
         console.error('[orgchart autosave]', e);
         setAutosaveStatus('error', '⚠ 저장 실패');
       }
     }
 
-    // 처음 조직도를 만들 때 (versions 가 비어 있고 노드가 1개 이상) → 자동으로 첫 버전 생성
-    let _initialVersionEnsured = false;
-    async function ensureInitialVersion() {
-      if (_initialVersionEnsured) return;
-      if (!isAdmin) return;
-      if (versions.length > 0) { _initialVersionEnsured = true; return; }
-      if (!nodes.length) return;       // 빈 조직도면 버전 생성 안 함
+    // 차트가 없을 때 첫 변경 시 자동으로 기본 차트 생성
+    let _ensuringChart = false;
+    async function ensureCurrentChart() {
+      if (_ensuringChart) return;
+      _ensuringChart = true;
       try {
-        const now = new Date();
-        const stamp = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-        await api.post(`/api/orgchart/${orgId}/version`, {
-          version_name: `최초 작성 ${stamp}`,
-          data: JSON.stringify({ nodes, edges })
-        });
-        const data = await api.get(`/api/orgchart/${orgId}`);
-        versions = data.versions || [];
-        populateVersionSelect();
-        _initialVersionEnsured = true;
+        const r = await api.post(`/api/orgchart/${orgId}`, { name: '기본 조직도', data: JSON.stringify({ nodes, edges }) });
+        charts.unshift({ id: r.chart.id, name: r.chart.name, updated_at: r.chart.updated_at });
+        currentChartId = r.chart.id;
+        populateChartSelect();
+        document.getElementById('chartSelect').value = String(currentChartId);
+        hideEmptyState();
+        setAutosaveStatus('saved', '✓ 저장됨');
       } catch (e) {
-        console.warn('[orgchart auto-version]', e.message);
+        console.error('[orgchart ensure-chart]', e);
+        setAutosaveStatus('error', '⚠ 저장 실패');
+      } finally {
+        _ensuringChart = false;
       }
     }
+
+    // 빈 상태 안내 — 차트가 0개일 때 캔버스에 큰 안내 박스 표시
+    function maybeShowEmptyState() {
+      const wrap = document.getElementById('canvas');
+      hideEmptyState();
+      if (charts.length === 0 && isAdmin) {
+        const empty = document.createElement('div');
+        empty.id = 'orgchartEmpty';
+        empty.style.cssText = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;z-index:5;padding:30px;background:rgba(255,255,255,0.95);border:2px dashed var(--border-strong);border-radius:14px;max-width:380px;';
+        empty.innerHTML = `
+          <div style="font-size:48px;margin-bottom:8px;">🏛️</div>
+          <div style="font-size:16px;font-weight:700;margin-bottom:6px;">아직 조직도가 없습니다</div>
+          <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px;line-height:1.6;">+ 첫 조직도를 만들거나, 빈 캔버스를 더블클릭해 노드를 추가해보세요.</div>
+          <button class="btn btn-primary" onclick="createNewChart()">+ 첫 조직도 만들기</button>
+        `;
+        wrap.appendChild(empty);
+      }
+    }
+    function hideEmptyState() {
+      const e = document.getElementById('orgchartEmpty');
+      if (e) e.remove();
+    }
+    window.maybeShowEmptyState = maybeShowEmptyState;
 
     // ===== 되돌리기 / 다시하기 =====
     //   변경 직전 호출 → 현재 상태를 undoStack 에 저장 (최대 10단계). redoStack 은 비움.
     function pushHistory() {
       if (_suspendHistory) return;
-      if (viewingVersionId) return;
       const snap = JSON.stringify({ nodes, edges, nextId });
       undoStack.push(snap);
       if (undoStack.length > HISTORY_MAX) undoStack.shift();
@@ -1501,7 +1574,7 @@
     }
 
     function undo() {
-      if (!undoStack.length || viewingVersionId) return;
+      if (!undoStack.length) return;
       const cur = JSON.stringify({ nodes, edges, nextId });
       const prev = undoStack.pop();
       redoStack.push(cur);
@@ -1515,7 +1588,7 @@
     }
 
     function redo() {
-      if (!redoStack.length || viewingVersionId) return;
+      if (!redoStack.length) return;
       const cur = JSON.stringify({ nodes, edges, nextId });
       const next = redoStack.pop();
       undoStack.push(cur);
@@ -1531,125 +1604,12 @@
     function updateUndoRedoButtons() {
       const u = document.getElementById('undoBtn');
       const r = document.getElementById('redoBtn');
-      if (u) u.disabled = !undoStack.length || !!viewingVersionId;
-      if (r) r.disabled = !redoStack.length || !!viewingVersionId;
+      if (u) u.disabled = !undoStack.length;
+      if (r) r.disabled = !redoStack.length;
     }
     window.undo = undo; window.redo = redo;
 
-    // ===== 버전 히스토리 =====
-    //   ※ 복원 기능은 제거됨 — 버전은 시점별 히스토리 조회 전용
-    //   각 버전을 [보기] 클릭 시 별도 모달에서 노드 목록을 읽기전용으로 표시
-    function openVersionsModal() {
-      modal({
-        title: '조직도 버전 히스토리',
-        size: 'lg',
-        hideFoot: true,
-        body: `
-          <div class="text-sm text-muted mb-12">현재 작업 중인 조직도를 시점별 버전으로 저장하고, 각 버전의 내용을 확인할 수 있습니다. (※ 복원 기능 없음 — 보기 전용)</div>
-          <div class="flex gap-8 mb-16">
-            <input class="input" id="vname" placeholder="새 버전 이름 (예: 2025년 개정)" style="flex:1;">
-            <button class="btn btn-primary" id="saveVerBtn">현재 상태를 버전으로 저장</button>
-          </div>
-          <div id="versionList"></div>
-        `
-      });
-      paintVersionList();
-      document.getElementById('saveVerBtn').onclick = saveVersion;
-    }
-
-    function paintVersionList() {
-      const root = document.getElementById('versionList');
-      if (!root) return;
-      root.innerHTML = `
-        <div class="card-title" style="font-size:13px;margin-bottom:8px;">버전 이력 (${versions.length}건)</div>
-        ${versions.length ? versions.map(v => `
-          <div class="flex items-center justify-between" style="padding:10px 0;border-bottom:1px solid var(--border);">
-            <div>
-              <div class="fw-700 text-sm">${escapeHtml(v.version_name)}</div>
-              <div class="text-sm text-muted">${fmtDate(v.created_at)}</div>
-            </div>
-            <div class="flex gap-8">
-              <button class="btn btn-sm" onclick="viewVersion(${v.id})">📖 보기</button>
-              ${isAdmin ? `<button class="btn btn-sm btn-danger" onclick="deleteVersion(${v.id})">🗑</button>` : ''}
-            </div>
-          </div>
-        `).join('') : '<div class="text-sm text-muted text-center" style="padding:20px;">저장된 버전이 없습니다.</div>'}
-      `;
-    }
-
-    async function saveVersion() {
-      const name = document.getElementById('vname').value.trim();
-      if (!name) { toast('버전명을 입력하세요.', 'error'); return; }
-      try {
-        await api.post(`/api/orgchart/${orgId}/version`, { version_name: name, data: JSON.stringify({ nodes, edges }) });
-        toast('✅ 버전이 저장되었습니다.', 'success');
-        document.getElementById('vname').value = '';
-        const data = await api.get(`/api/orgchart/${orgId}`);
-        versions = data.versions || [];
-        paintVersionList();
-        populateVersionSelect();   // 셀렉터에도 새 버전 반영
-      } catch (e) { toast(e.message, 'error'); }
-    }
-
-    // 버전 상세 보기 — 읽기 전용 (현재 편집 화면에 영향 없음)
-    async function viewVersion(id) {
-      try {
-        const r = await api.get(`/api/orgchart/version/${id}`);
-        const v = r.version;
-        let parsed = { nodes: [], edges: [] };
-        try { parsed = JSON.parse(v.data || '{}'); } catch {}
-        const vNodes = (parsed.nodes || []).map(n => {
-          const node = { ...n };
-          if (!Array.isArray(node.contents)) node.contents = node.sub ? [node.sub] : [];
-          return node;
-        });
-        const vEdges = parsed.edges || [];
-
-        // 노드 목록 (제목·내용 요약)
-        const nodeListHtml = vNodes.length ? vNodes.map((n, idx) => `
-          <div style="padding:10px 12px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;background:${n.color || '#fff'};">
-            <div style="font-weight:700;font-size:13px;">${escapeHtml(n.title || '(제목없음)')}</div>
-            ${(n.contents || []).length ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px;line-height:1.6;">${(n.contents || []).map(c => escapeHtml(c)).join(' · ')}</div>` : ''}
-          </div>
-        `).join('') : '<div class="text-sm text-muted">노드가 없습니다.</div>';
-
-        modal({
-          title: `📖 ${v.version_name}`,
-          size: 'lg',
-          hideFoot: true,
-          body: `
-            <div class="text-sm text-muted mb-12">저장 시각: ${fmtDate(v.created_at)} · 노드 ${vNodes.length}개 · 연결 ${vEdges.length}개</div>
-            <div style="max-height:60vh;overflow-y:auto;padding:4px;">
-              ${nodeListHtml}
-            </div>
-            <div style="margin-top:14px;padding:10px 12px;background:var(--surface-2);border-radius:6px;font-size:12px;color:var(--text-muted);line-height:1.6;">
-              💡 이 버전은 보기 전용입니다. 현재 편집 화면에 영향을 주지 않습니다.
-            </div>
-          `
-        });
-      } catch (e) {
-        toast(e.message || '버전을 불러올 수 없습니다.', 'error');
-      }
-    }
-    window.viewVersion = viewVersion;
-
-    async function deleteVersion(id) {
-      confirmDialog('이 버전을 삭제하시겠습니까?', async () => {
-        try {
-          await api.del(`/api/orgchart/version/${id}`);
-          versions = versions.filter(v => v.id !== id);
-          paintVersionList();
-          populateVersionSelect();   // 셀렉터에서도 제거
-          // 만약 삭제한 버전을 보고 있었다면 편집 모드로 자동 복귀
-          if (viewingVersionId === id) {
-            document.getElementById('versionView').value = '';
-            exitVersionView();
-          }
-          toast('삭제되었습니다.', 'success');
-        } catch (e) { toast(e.message, 'error'); return false; }
-      });
-    }
-    window.deleteVersion = deleteVersion;
+    // (구) 버전 히스토리 모달 — 다중 차트 시스템으로 대체되어 제거됨
 
     // 조직도 JSON 내보내기 — 다운로드
     //   브라우저 호환을 위해 anchor 를 DOM 에 잠시 추가했다가 제거 (Firefox/Safari 일부 버전 대응)

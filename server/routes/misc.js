@@ -1,7 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const { authRequired } = require('../auth-mw');
-const { requireOrg, getOrgIdFromCharterVersion, getOrgIdFromOrgChartVersion, getOrgIdFromSchedule, getOrgRole, isAdmin } = require('../permissions');
+const { requireOrg, getOrgIdFromCharterVersion, getOrgIdFromOrgChartVersion, getOrgIdFromOrgChart, getOrgIdFromSchedule, getOrgRole, isAdmin } = require('../permissions');
 
 const router = express.Router();
 router.use(authRequired);
@@ -53,61 +53,67 @@ router.delete('/charter/version/:id', authRequired, (req, res) => {
   res.json({ ok: true });
 });
 
-// ===== 조직도 =====
+// ===== 조직도 (다중 차트 CRUD) =====
+//   각 기관에 여러 개의 조직도 저장 가능. 각각 독립적으로 추가/수정/삭제.
+//   응답 포맷:
+//     GET  /orgchart/:orgId          → { charts: [{id, name, updated_at}, ...] } (최근 수정순)
+//     GET  /orgchart/chart/:id       → { chart: {id, organization_id, name, data, updated_at} }
+//     POST /orgchart/:orgId          → body { name?, data? } → { chart }
+//     PUT  /orgchart/chart/:id       → body { name?, data? } → { chart }
+//     DELETE /orgchart/chart/:id     → { ok: true }
+
+// 목록 — 한 기관의 모든 조직도 (data 제외하고 가벼움)
 router.get('/orgchart/:orgId', requireOrg(req => req.params.orgId, 'read'), (req, res) => {
-  const row = db.prepare('SELECT * FROM org_charts WHERE organization_id = ?').get(req.params.orgId);
-  const versions = db.prepare('SELECT id, version_name, created_at FROM org_chart_versions WHERE organization_id = ? ORDER BY created_at DESC').all(req.params.orgId);
-  res.json({ orgchart: row || { data: '' }, versions });
+  const charts = db.prepare(
+    'SELECT id, organization_id, name, updated_at FROM org_charts WHERE organization_id = ? ORDER BY updated_at DESC, id DESC'
+  ).all(req.params.orgId);
+  res.json({ charts });
 });
 
-router.post('/orgchart/:orgId', requireOrg(req => req.params.orgId, 'write'), (req, res) => {
-  const { data } = req.body || {};
-  const existing = db.prepare('SELECT id FROM org_charts WHERE organization_id = ?').get(req.params.orgId);
-  const now = new Date().toLocaleString('sv-SE');
-  if (existing) {
-    db.prepare('UPDATE org_charts SET data = ?, updated_at = ? WHERE id = ?').run(data || '', now, existing.id);
-  } else {
-    db.prepare('INSERT INTO org_charts (organization_id, data, updated_at) VALUES (?, ?, ?)').run(req.params.orgId, data || '', now);
-  }
-  res.json({ ok: true });
-});
-
-router.post('/orgchart/:orgId/version', requireOrg(req => req.params.orgId, 'write'), (req, res) => {
-  const { version_name, data } = req.body || {};
-  if (!version_name) return res.status(400).json({ error: '버전명 필요' });
-  db.prepare('INSERT INTO org_chart_versions (organization_id, version_name, data) VALUES (?, ?, ?)').run(req.params.orgId, version_name, data || '');
-  res.json({ ok: true });
-});
-
-router.post('/orgchart/:orgId/restore/:versionId', requireOrg(req => req.params.orgId, 'write'), (req, res) => {
-  const v = db.prepare('SELECT * FROM org_chart_versions WHERE id = ?').get(req.params.versionId);
-  if (!v) return res.status(404).json({ error: '버전 없음' });
-  const existing = db.prepare('SELECT id FROM org_charts WHERE organization_id = ?').get(req.params.orgId);
-  const now = new Date().toLocaleString('sv-SE');
-  if (existing) {
-    db.prepare('UPDATE org_charts SET data = ?, updated_at = ? WHERE id = ?').run(v.data, now, existing.id);
-  } else {
-    db.prepare('INSERT INTO org_charts (organization_id, data, updated_at) VALUES (?, ?, ?)').run(req.params.orgId, v.data, now);
-  }
-  res.json({ ok: true, data: v.data });
-});
-
-router.delete('/orgchart/version/:id', authRequired, (req, res) => {
-  const orgId = getOrgIdFromOrgChartVersion(req.params.id);
-  if (!orgId) return res.status(404).json({ error: '버전 없음' });
-  if (!isAdmin(getOrgRole(req.user, orgId))) return res.status(403).json({ error: '관리자 권한이 필요합니다.' });
-  db.prepare('DELETE FROM org_chart_versions WHERE id = ?').run(req.params.id);
-  res.json({ ok: true });
-});
-
-// 단일 버전 조회 — 히스토리 보기용 (data 까지 함께 반환)
-router.get('/orgchart/version/:id', authRequired, (req, res) => {
-  const orgId = getOrgIdFromOrgChartVersion(req.params.id);
-  if (!orgId) return res.status(404).json({ error: '버전 없음' });
+// 단일 조직도 조회 (data 포함)
+router.get('/orgchart/chart/:id', authRequired, (req, res) => {
+  const orgId = getOrgIdFromOrgChart(req.params.id);
+  if (!orgId) return res.status(404).json({ error: '조직도 없음' });
   if (!getOrgRole(req.user, orgId)) return res.status(403).json({ error: '접근 권한이 없습니다.' });
-  const v = db.prepare('SELECT id, organization_id, version_name, data, created_at FROM org_chart_versions WHERE id = ?').get(req.params.id);
-  if (!v) return res.status(404).json({ error: '버전 없음' });
-  res.json({ version: v });
+  const chart = db.prepare('SELECT * FROM org_charts WHERE id = ?').get(req.params.id);
+  if (!chart) return res.status(404).json({ error: '조직도 없음' });
+  res.json({ chart });
+});
+
+// 신규 조직도 생성
+router.post('/orgchart/:orgId', requireOrg(req => req.params.orgId, 'write'), (req, res) => {
+  const { name, data } = req.body || {};
+  const finalName = String(name || '').trim() || '새 조직도';
+  const now = new Date().toLocaleString('sv-SE');
+  const result = db.prepare(
+    'INSERT INTO org_charts (organization_id, name, data, updated_at) VALUES (?, ?, ?, ?)'
+  ).run(req.params.orgId, finalName, data || '', now);
+  const chart = db.prepare('SELECT * FROM org_charts WHERE id = ?').get(result.lastInsertRowid);
+  res.json({ chart });
+});
+
+// 조직도 수정 (이름 또는 데이터)
+router.put('/orgchart/chart/:id', authRequired, (req, res) => {
+  const orgId = getOrgIdFromOrgChart(req.params.id);
+  if (!orgId) return res.status(404).json({ error: '조직도 없음' });
+  if (!isAdmin(getOrgRole(req.user, orgId))) return res.status(403).json({ error: '관리자 권한이 필요합니다.' });
+  const { name, data } = req.body || {};
+  const now = new Date().toLocaleString('sv-SE');
+  // COALESCE 로 누락 필드는 유지
+  db.prepare(
+    'UPDATE org_charts SET name = COALESCE(?, name), data = COALESCE(?, data), updated_at = ? WHERE id = ?'
+  ).run(name != null ? String(name).trim() || null : null, data != null ? data : null, now, req.params.id);
+  const chart = db.prepare('SELECT * FROM org_charts WHERE id = ?').get(req.params.id);
+  res.json({ chart });
+});
+
+// 조직도 삭제
+router.delete('/orgchart/chart/:id', authRequired, (req, res) => {
+  const orgId = getOrgIdFromOrgChart(req.params.id);
+  if (!orgId) return res.status(404).json({ error: '조직도 없음' });
+  if (!isAdmin(getOrgRole(req.user, orgId))) return res.status(403).json({ error: '관리자 권한이 필요합니다.' });
+  db.prepare('DELETE FROM org_charts WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
 });
 
 // ===== 일정 =====

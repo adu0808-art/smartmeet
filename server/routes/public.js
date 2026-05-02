@@ -44,8 +44,9 @@ router.get('/home/:orgId', (req, res) => {
     'SELECT content FROM charters WHERE organization_id = ?'
   ).get(orgId) || { content: '' };
 
+  // 다중 조직도 중 가장 최근 수정된 것 (홈페이지 미리보기용)
   const orgchart = db.prepare(
-    'SELECT data FROM org_charts WHERE organization_id = ?'
+    'SELECT data FROM org_charts WHERE organization_id = ? ORDER BY updated_at DESC, id DESC LIMIT 1'
   ).get(orgId) || { data: '' };
 
   res.json({ organization: org, notices, posts, schedules, members, charter, orgchart });

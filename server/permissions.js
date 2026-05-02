@@ -50,6 +50,10 @@ function getOrgIdFromOrgChartVersion(id) {
   const r = db.prepare('SELECT organization_id FROM org_chart_versions WHERE id = ?').get(id);
   return r ? r.organization_id : null;
 }
+function getOrgIdFromOrgChart(id) {
+  const r = db.prepare('SELECT organization_id FROM org_charts WHERE id = ?').get(id);
+  return r ? r.organization_id : null;
+}
 function getOrgIdFromProxy(id) {
   const r = db.prepare('SELECT meeting_id FROM proxies WHERE id = ?').get(id);
   return r ? getOrgIdFromMeeting(r.meeting_id) : null;
@@ -92,7 +96,7 @@ module.exports = {
   getOrgRole, isAdmin, requireOrg,
   getOrgIdFromMeeting, getOrgIdFromAgenda, getOrgIdFromTocItem,
   getOrgIdFromMember, getOrgIdFromSchedule, getOrgIdFromCharterVersion,
-  getOrgIdFromOrgChartVersion,
+  getOrgIdFromOrgChartVersion, getOrgIdFromOrgChart,
   getOrgIdFromProxy, getOrgIdFromNotice, getOrgIdFromPost,
   getOrgIdFromComment, getOrgIdFromInvitation
 };

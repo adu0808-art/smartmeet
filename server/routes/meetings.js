@@ -11,17 +11,35 @@ router.get('/', requireOrg(req => req.query.organization_id, 'read'), (req, res)
   res.json({ meetings: rows });
 });
 
-// 회의 정보를 일정 항목으로 변환 (제목·날짜·설명)
+// 이벤트 정보를 일정 항목으로 변환 (제목·날짜·설명)
+//   meeting_type 별 아이콘 + 시작/종료 시각 + 장소 포함
 function meetingToScheduleFields(meeting) {
   const escape = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const date = String(meeting.meeting_date || '').slice(0, 10);  // YYYY-MM-DD
-  const title = `📋 ${meeting.title}`;
+  const typeIcon = { board: '📋', general: '📋', regular: '📋', event: '🎉' };
+  const typeLabel = { board: '이사회', general: '총회', regular: '일반', event: '행사' };
+  const icon = typeIcon[meeting.meeting_type] || '📋';
+  const tlabel = typeLabel[meeting.meeting_type] || '';
+  const title = `${icon} ${meeting.title}`;
   const parts = [];
-  // 회의 시간 (datetime-local 형식이면 시간 추출)
-  const timeMatch = String(meeting.meeting_date || '').match(/T(\d{2}:\d{2})/);
-  if (timeMatch) parts.push(`<p><strong>시간:</strong> ${timeMatch[1]}</p>`);
+  if (tlabel) parts.push(`<p><strong>구분:</strong> ${tlabel}</p>`);
+  // 시작 시간 (datetime-local 형식이면 시간 추출)
+  const startMatch = String(meeting.meeting_date || '').match(/T(\d{2}:\d{2})/);
+  if (startMatch) parts.push(`<p><strong>시작:</strong> ${startMatch[1]}</p>`);
+  // 종료 일시 (있을 때)
+  if (meeting.end_date) {
+    const endDate = String(meeting.end_date).slice(0, 10);
+    const endMatch = String(meeting.end_date).match(/T(\d{2}:\d{2})/);
+    if (endDate === date) {
+      // 같은 날짜면 시간만
+      if (endMatch) parts.push(`<p><strong>종료:</strong> ${endMatch[1]}</p>`);
+    } else {
+      // 다른 날짜면 날짜 + 시간
+      parts.push(`<p><strong>종료:</strong> ${endDate}${endMatch ? ' ' + endMatch[1] : ''}</p>`);
+    }
+  }
   if (meeting.location) parts.push(`<p><strong>장소:</strong> ${escape(meeting.location)}</p>`);
-  parts.push(`<p style="color:#64748b;font-size:13px;margin-top:8px;">※ 이 일정은 회의 등록 시 자동 생성되었습니다. 수정·삭제는 회의 관리에서 진행해주세요.</p>`);
+  parts.push(`<p style="color:#64748b;font-size:13px;margin-top:8px;">※ 이 일정은 이벤트 등록 시 자동 생성되었습니다. 수정·삭제는 이벤트 관리에서 진행해주세요.</p>`);
   return { title, date, description: parts.join('') };
 }
 

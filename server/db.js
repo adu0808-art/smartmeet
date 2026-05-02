@@ -229,6 +229,17 @@ try { db.exec("ALTER TABLE organizations ADD COLUMN slogan TEXT"); } catch (e) {
 // Posts: category — 'free' (자유게시판) | 'news' (회원소식)
 try { db.exec("ALTER TABLE posts ADD COLUMN category TEXT DEFAULT 'free'"); } catch (e) {}
 
+// org_charts: 이름 추가 — 한 기관에 여러 조직도를 보관 (각각 추가/수정/삭제 가능)
+//   기존 단일 행은 '기본 조직도' 로 마이그레이션
+try {
+  db.exec("ALTER TABLE org_charts ADD COLUMN name TEXT");
+  db.prepare("UPDATE org_charts SET name = '기본 조직도' WHERE name IS NULL OR name = ''").run();
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) console.warn('[DB] org_charts.name add:', e.message);
+  // 컬럼이 이미 있어도 빈 이름 row 는 정리
+  try { db.prepare("UPDATE org_charts SET name = '기본 조직도' WHERE name IS NULL OR name = ''").run(); } catch {}
+}
+
 // meeting_members: 이메일 발송 이력 — 위임장 / 초대장
 try { db.exec("ALTER TABLE meeting_members ADD COLUMN invitation_sent_at TEXT"); } catch (e) {}
 try { db.exec("ALTER TABLE meeting_members ADD COLUMN proxy_sent_at TEXT"); } catch (e) {}
