@@ -932,8 +932,8 @@
               <a id="adm_dashboard"><span class="icon">📊</span> 관리 대시보드</a>
               <a id="adm_editOrg"><span class="icon">🏛</span> 기관 정보 수정</a>
               <div class="menu-divider"></div>
-              <div class="menu-section-title">회의</div>
-              <a id="adm_meetings"><span class="icon">📋</span> 회의 관리</a>
+              <div class="menu-section-title">이벤트</div>
+              <a id="adm_meetings"><span class="icon">📋</span> 이벤트 관리</a>
               <div class="menu-divider"></div>
               <div class="menu-section-title">회원</div>
               <a id="adm_members"><span class="icon">👥</span> 구성원 관리</a>
@@ -1287,10 +1287,10 @@
           <div class="page-section">
             <div class="section-head">
               <div>
-                <div class="section-title">회의 관리</div>
-                <div class="section-sub">회의 등록·수정·삭제 (관리자 전용)</div>
+                <div class="section-title">이벤트 관리</div>
+                <div class="section-sub">이벤트 등록·수정·삭제 (관리자 전용)</div>
               </div>
-              <button class="btn btn-primary" id="addMeetingBtn">+ 새 회의</button>
+              <button class="btn btn-primary" id="addMeetingBtn">+ 새 이벤트</button>
             </div>
             <div id="admMeetingsList"></div>
           </div>
@@ -1301,7 +1301,7 @@
           <div class="page-section meeting-detail-host">
             <div class="section-head">
               <div>
-                <button class="btn btn-sm" id="meetingDetailBackBtn">← 회의 관리로 돌아가기</button>
+                <button class="btn btn-sm" id="meetingDetailBackBtn">← 이벤트 관리로 돌아가기</button>
               </div>
               <div class="topbar-actions">
                 <a class="btn btn-sm" id="meetingDetailNewWin" target="_blank">↗ 새 창에서 열기</a>
@@ -3040,7 +3040,7 @@
       const host = document.getElementById('admMeetingsList');
       if (!host) return;
       if (!admMeetingsData.length) {
-        host.innerHTML = '<div class="list-empty">등록된 회의가 없습니다. "+ 새 회의"로 추가하세요.</div>';
+        host.innerHTML = '<div class="list-empty">등록된 이벤트가 없습니다. "+ 새 이벤트"로 추가하세요.</div>';
         return;
       }
       host.innerHTML = `
@@ -3088,13 +3088,13 @@
     function openMeetingEditor(meetingId) {
       const existing = meetingId ? admMeetingsData.find(x => x.id === meetingId) : null;
       modal({
-        title: existing ? '회의 수정' : '새 회의 등록',
+        title: existing ? '이벤트 수정' : '새 이벤트 등록',
         size: 'lg',
         body: meetingFormHtml(existing || {}),
         confirmText: '저장',
         onConfirm: async () => {
           const payload = readMeetingFormPayload();
-          if (!payload.title) { toast('회의 제목을 입력하세요.', 'error'); return false; }
+          if (!payload.title) { toast('이벤트 제목을 입력하세요.', 'error'); return false; }
           payload.organization_id = Number(orgId);
           try {
             if (existing) await api.put(`/api/meetings/${existing.id}`, payload);

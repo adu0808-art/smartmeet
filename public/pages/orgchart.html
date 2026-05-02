@@ -181,43 +181,45 @@
       pointer-events: none;               /* 마우스 비반응 */
       z-index: 3;
     }
-    /* 노드 메모 — 노드 hover 시 풍선 (노드 아래에 표시 — 위쪽 액션 버튼들과 겹치지 않음) */
-    .node-memo-tooltip {
-      position: absolute;
-      top: calc(100% + 10px);
-      left: 50%;
-      transform: translateX(-50%);
+    /* 노드 메모 풍선 — body 에 직접 부착해 어떤 overflow 컨테이너에도 클립되지 않음 */
+    #node-memo-floating {
+      position: fixed;
       background: #1f2937;
       color: #fff;
-      padding: 8px 12px;
+      padding: 9px 13px;
       border-radius: 8px;
-      font-size: 12px;
+      font-size: 12.5px;
       line-height: 1.6;
       white-space: pre-wrap;
-      max-width: 260px;
+      max-width: 280px;
       width: max-content;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.28);
       pointer-events: none;
       opacity: 0;
       visibility: hidden;
-      transition: opacity 0.15s, visibility 0.15s;
-      z-index: 30;
+      transition: opacity 0.12s, visibility 0.12s;
+      z-index: 99999;
       text-align: left;
     }
-    .node-memo-tooltip::after {
+    #node-memo-floating::after {
       content: '';
       position: absolute;
-      bottom: 100%;
+      top: 100%;
       left: 50%;
       transform: translateX(-50%);
       border: 6px solid transparent;
+      border-top-color: #1f2937;
+    }
+    #node-memo-floating.arrow-up::after {
+      top: auto;
+      bottom: 100%;
+      border-top-color: transparent;
       border-bottom-color: #1f2937;
     }
-    .node:hover .node-memo-tooltip { opacity: 1; visibility: visible; }
+    #node-memo-floating.show { opacity: 1; visibility: visible; }
     .node.has-memo { box-shadow: var(--shadow), inset 0 0 0 1px rgba(251,191,36,0.5); }
-    /* 임베드 모드 (홈페이지 iframe) 에서는 메모 인디케이터·풍선 숨김 — 조직도 메뉴에서만 표시 */
-    body.embed .node-memo-indicator,
-    body.embed .node-memo-tooltip { display: none !important; }
+    /* 임베드 모드 (홈페이지 iframe) 에서는 메모 인디케이터 숨김 — 조직도 메뉴에서만 표시 */
+    body.embed .node-memo-indicator { display: none !important; }
 
     /* 글상자 노드 — 제목/내용 구조 없이 자유 텍스트만 */
     .node.kind-textbox { padding: 12px 14px; min-width: 120px; min-height: 44px; }
@@ -716,12 +718,23 @@
           <label class="label">📝 메모 <span class="text-sm text-muted">(선택)</span></label>
           <textarea class="input" id="nm_memo" rows="3" placeholder="이 노드에 대한 추가 메모. 마우스를 올리면 풍선으로 표시됩니다.">${escapeHtml(n.memo || '')}</textarea>
         </div>
-        <div class="field"><label class="label">배경색</label>
+        <div class="field"><label class="label">제목 배경색 <span class="text-sm text-muted">(선택, 비우면 자동)</span></label>
+          <div class="flex gap-8 items-center">
+            <input type="color" id="nm_tc" value="${n.titleColor || '#f1f5f9'}" style="width:60px;height:38px;border:1px solid var(--border);border-radius:6px;">
+            <button type="button" class="btn btn-sm" id="nm_tc_clear" title="제목 색상 비우기 (자동 사용)">자동</button>
+            <div class="flex gap-8" style="flex-wrap:wrap;">
+              ${['#f1f5f9','#fef3c7','#dbeafe','#dcfce7','#fce7f3','#ede9fe','#fee2e2','#fde68a','#bfdbfe'].map(c => `
+                <button type="button" class="btn-icon" style="width:24px;height:24px;border-radius:50%;background:${c};border:2px solid var(--border);" data-tcolor="${c}"></button>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+        <div class="field"><label class="label">내용 배경색</label>
           <div class="flex gap-8 items-center">
             <input type="color" id="nm_c" value="${n.color || '#ffffff'}" style="width:60px;height:38px;border:1px solid var(--border);border-radius:6px;">
             <div class="flex gap-8" style="flex-wrap:wrap;">
               ${['#ffffff','#fef3c7','#dbeafe','#dcfce7','#fce7f3','#ede9fe','#fee2e2'].map(c => `
-                <button type="button" class="btn-icon" style="width:28px;height:28px;border-radius:50%;background:${c};border:2px solid var(--border);" data-color="${c}"></button>
+                <button type="button" class="btn-icon" style="width:24px;height:24px;border-radius:50%;background:${c};border:2px solid var(--border);" data-color="${c}"></button>
               `).join('')}
             </div>
           </div>
@@ -737,6 +750,9 @@
           const title = document.getElementById('nm_t').value.trim();
           if (!title) { toast('제목을 입력하세요.', 'error'); return false; }
           const color = document.getElementById('nm_c').value;
+          // 제목 색은 비울 수 있음 (자동) — 입력 비활성 상태이거나 빈값이면 ''
+          const tcInput = document.getElementById('nm_tc');
+          const titleColor = tcInput.disabled ? '' : (tcInput.value || '');
           const memo = document.getElementById('nm_memo').value;
           const cleanContents = working.map(c => (c || '').trim()).filter(c => c.length > 0);
           pushHistory();
@@ -744,6 +760,7 @@
             existing.title = title;
             existing.contents = cleanContents;
             existing.color = color;
+            existing.titleColor = titleColor;
             existing.memo = memo || '';
             delete existing.sub;
           } else {
@@ -757,6 +774,7 @@
               title,
               contents: cleanContents,
               color,
+              titleColor,
               memo: memo || '',
               kind: 'node'
             });
@@ -784,6 +802,24 @@
       paintRows();
       document.getElementById('addContentRowBtn').onclick = () => { working.push(''); paintRows(); };
       document.querySelectorAll('[data-color]').forEach(b => b.onclick = () => { document.getElementById('nm_c').value = b.dataset.color; });
+      // 제목 색상 — 프리셋 클릭 + "자동" 버튼 (제목 색을 비워서 기본 사용)
+      document.querySelectorAll('[data-tcolor]').forEach(b => b.onclick = () => {
+        const inp = document.getElementById('nm_tc');
+        inp.value = b.dataset.tcolor;
+        inp.disabled = false;
+        inp.style.opacity = '';
+      });
+      const tcInputInit = document.getElementById('nm_tc');
+      // 기존 노드의 titleColor 가 비어있으면 "자동" 상태로 시작
+      if (existing && !existing.titleColor) {
+        tcInputInit.disabled = true;
+        tcInputInit.style.opacity = '0.4';
+      }
+      document.getElementById('nm_tc_clear').onclick = () => {
+        const inp = document.getElementById('nm_tc');
+        inp.disabled = !inp.disabled;
+        inp.style.opacity = inp.disabled ? '0.4' : '';
+      };
     }
 
     // 글상자(textbox) 노드 — 자유 텍스트 노드
@@ -869,13 +905,17 @@
         if (n.width) el.style.width = n.width + 'px';
         if (n.height) el.style.height = n.height + 'px';
         el.dataset.nodeId = n.id;
-        // 메모가 있으면 hover 시 풍선 표시 — 임베드 모드에서는 CSS 로 자동 숨김
-        const hasMemo = n.memo && String(n.memo).trim().length > 0;
-        if (hasMemo) el.classList.add('has-memo');
-        // 노드 본문 — kind 에 따라 다르게 렌더
+        // 메모 처리 — 임베드 모드 외 + 메모가 있으면 인디케이터 표시 + JS hover 로 floating 풍선
+        const hasMemo = n.memo && String(n.memo).trim().length > 0 && !document.body.classList.contains('embed');
+        if (hasMemo) {
+          el.classList.add('has-memo');
+          el.title = String(n.memo);    // 브라우저 기본 툴팁 (fallback)
+        }
+        // 노드 본문 — kind 에 따라 다르게 렌더 (타이틀은 별도 색상 가능)
+        const titleBg = n.titleColor || '';
         const bodyHtml = isTextbox
           ? `<div class="node-textbox-body">${escapeHtml(n.text || '')}</div>`
-          : `<div class="node-title">${escapeHtml(n.title)}</div>
+          : `<div class="node-title"${titleBg ? ` style="background:${titleBg};"` : ''}>${escapeHtml(n.title)}</div>
              <div class="node-content">
                ${(n.contents || []).length
                   ? n.contents.map(c => `<div class="node-line">${escapeHtml(c)}</div>`).join('')
@@ -884,7 +924,6 @@
         el.innerHTML = `
           ${hasMemo ? `<div class="node-memo-indicator" aria-hidden="true"></div>` : ''}
           ${bodyHtml}
-          ${hasMemo ? `<div class="node-memo-tooltip">${escapeHtml(n.memo)}</div>` : ''}
           ${isAdmin && !viewingVersionId ? `
             <div class="node-actions">
               <button class="node-act-btn" title="자동 연결 — 클릭 후 다른 노드 클릭" data-act="connect">🔗</button>
@@ -945,11 +984,57 @@
           startDrag(e, n, el);
         });
 
+        // 메모 풍선 — JS 로 body 에 부착 (overflow:hidden 컨테이너에 클립되지 않음)
+        if (hasMemo) {
+          el.addEventListener('mouseenter', () => showMemoTooltip(el, n.memo));
+          el.addEventListener('mouseleave', () => hideMemoTooltip());
+        }
+
         layer.appendChild(el);
       });
       // 새 paint 호출 시 선택 상태 시각 표시 갱신
       paintSelection();
       requestAnimationFrame(() => paintEdges());
+    }
+
+    // ===== 메모 풍선 (JS 로 body 에 부착해 어떤 컨테이너에도 클립되지 않음) =====
+    let _memoTooltipEl = null;
+    function _ensureMemoTooltip() {
+      if (_memoTooltipEl) return _memoTooltipEl;
+      _memoTooltipEl = document.createElement('div');
+      _memoTooltipEl.id = 'node-memo-floating';
+      document.body.appendChild(_memoTooltipEl);
+      return _memoTooltipEl;
+    }
+    function showMemoTooltip(nodeEl, memo) {
+      const t = _ensureMemoTooltip();
+      t.textContent = String(memo || '');
+      // 일단 표시해서 크기 측정
+      t.classList.add('show');
+      const rect = nodeEl.getBoundingClientRect();
+      // 노드 위쪽 액션 버튼 영역 (~32px) 보다 더 위에 표시 → 액션 버튼과 겹침 방지
+      const actionGap = 44;
+      const tooltipH = t.offsetHeight;
+      const tooltipW = t.offsetWidth;
+      let top = rect.top - tooltipH - actionGap;
+      let left = rect.left + rect.width/2 - tooltipW/2;
+      // 화면 위로 벗어나면 노드 아래쪽에 표시 (액션 버튼은 위에만 있어 충돌 없음)
+      if (top < 8) {
+        top = rect.bottom + 12;
+        // 화살표 방향을 위로 변경 (CSS 기본은 아래 화살표)
+        t.classList.add('arrow-up');
+      } else {
+        t.classList.remove('arrow-up');
+      }
+      // 좌우 화면 안에 들어오도록 클램프
+      const margin = 8;
+      if (left < margin) left = margin;
+      if (left + tooltipW > window.innerWidth - margin) left = window.innerWidth - tooltipW - margin;
+      t.style.left = left + 'px';
+      t.style.top = top + 'px';
+    }
+    function hideMemoTooltip() {
+      if (_memoTooltipEl) _memoTooltipEl.classList.remove('show');
     }
 
     function nodeRect(id) {

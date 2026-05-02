@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>행사 신청 · SmartMeet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    .reg-card {
+      max-width: 520px;
+      margin: 24px auto;
+      padding: 26px;
+      background: var(--surface);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+      border: 1px solid var(--border);
+    }
+    .reg-hero {
+      background: linear-gradient(135deg, #6366f1, #4f46e5);
+      color: #fff;
+      padding: 24px 20px;
+      border-radius: 12px;
+      text-align: center;
+      margin-bottom: 22px;
+    }
+    .reg-tag { font-size: 13px; color: #fde68a; letter-spacing: 1.5px; font-weight: 700; }
+    .reg-title { font-size: 22px; font-weight: 800; margin: 8px 0; line-height: 1.4; }
+    .reg-meta { font-size: 13.5px; color: #e0e7ff; margin-top: 8px; line-height: 1.7; }
+    .reg-meta b { color: #fff; }
+    .reg-msg-box {
+      background: #f9fafb;
+      border-left: 3px solid #fbbf24;
+      padding: 12px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      line-height: 1.7;
+      color: var(--text-muted);
+      margin: 12px 0 18px;
+    }
+    .reg-form .field { margin-bottom: 16px; }
+    .reg-form .label {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      display: block;
+      margin-bottom: 6px;
+    }
+    .reg-form .input {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1.5px solid var(--border);
+      font-size: 14px;
+      box-sizing: border-box;
+      background: #fff;
+    }
+    .reg-form .input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+    .reg-submit {
+      width: 100%;
+      padding: 15px;
+      background: linear-gradient(135deg, #6366f1, #4f46e5);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 15.5px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(79,70,229,0.3);
+    }
+    .reg-submit:hover { transform: translateY(-1px); }
+    .reg-submit:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+    .reg-success {
+      text-align: center;
+      padding: 30px 0;
+    }
+    .reg-success-icon { font-size: 70px; margin-bottom: 8px; }
+    .reg-success-title { font-size: 22px; font-weight: 800; color: #10b981; margin: 6px 0; }
+    .reg-success-msg { font-size: 14px; color: var(--text-muted); line-height: 1.7; }
+  </style>
+</head>
+<body>
+  <div class="reg-card" id="root">
+    <div style="text-align:center;padding:40px 0;color:var(--text-muted);">불러오는 중...</div>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script>
+    const token = qs('token');
+    let payload = null;
+
+    (async function init() {
+      if (!token) return showError('잘못된 링크입니다. (토큰 누락)');
+      try {
+        const r = await fetch(`/api/public-register/by-token/${token}`);
+        const data = await r.json();
+        if (!r.ok) return showError(data.error || '신청 페이지를 불러올 수 없습니다.');
+        payload = data;
+        renderForm();
+      } catch (e) {
+        showError('네트워크 오류가 발생했습니다.');
+      }
+    })();
+
+    function showError(msg) {
+      document.getElementById('root').innerHTML = `
+        <div style="text-align:center;padding:40px 0;">
+          <div style="font-size:64px;">⚠️</div>
+          <div style="font-weight:700;font-size:17px;margin:14px 0 4px;">오류</div>
+          <div style="color:var(--text-muted);">${escapeHtml(msg)}</div>
+        </div>`;
+    }
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function fmtDateTime(s) {
+      if (!s) return '';
+      const d = new Date(s);
+      if (isNaN(d.getTime())) return s;
+      const pad = n => String(n).padStart(2, '0');
+      const days = ['일','월','화','수','목','금','토'];
+      return `${d.getFullYear()}년 ${pad(d.getMonth()+1)}월 ${pad(d.getDate())}일 (${days[d.getDay()]}) ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+
+    function periodHtml() {
+      const { meeting } = payload;
+      if (!meeting.meeting_date) return '';
+      const start = fmtDateTime(meeting.meeting_date);
+      const end = meeting.end_date ? fmtDateTime(meeting.end_date) : '';
+      return `📅 ${escapeHtml(start)}${end ? `<br>↳ ${escapeHtml(end)} 까지` : ''}`;
+    }
+
+    function renderForm() {
+      const { meeting, organization, closed } = payload;
+      const hero = `
+        <div class="reg-hero">
+          <div class="reg-tag">🎉 EVENT REGISTRATION</div>
+          <div class="reg-title">${escapeHtml(meeting.title || '')}</div>
+          <div class="reg-meta">
+            ${escapeHtml(organization?.name || '')}
+            ${meeting.meeting_date ? `<br>${periodHtml()}` : ''}
+            ${meeting.location ? `<br>📍 ${escapeHtml(meeting.location)}` : ''}
+          </div>
+        </div>`;
+
+      if (closed) {
+        document.getElementById('root').innerHTML = `
+          ${hero}
+          <div style="text-align:center;padding:24px 0;">
+            <div style="font-size:48px;">⌛</div>
+            <div style="font-weight:700;font-size:16px;margin:10px 0 6px;">신청이 마감되었습니다</div>
+            <div style="color:var(--text-muted);font-size:14px;">행사 종료 시각이 지났습니다.</div>
+          </div>`;
+        return;
+      }
+
+      const customMsg = (meeting.invitation_message || '').trim();
+      document.getElementById('root').innerHTML = `
+        ${hero}
+        ${customMsg ? `<div class="reg-msg-box">${escapeHtml(customMsg).replace(/\n/g,'<br>')}</div>` : ''}
+        <div class="reg-form">
+          <div class="field">
+            <label class="label">이름 <span style="color:#ef4444;">*</span></label>
+            <input class="input" id="rg_name" placeholder="홍길동" autocomplete="name" required>
+          </div>
+          <div class="field">
+            <label class="label">소속</label>
+            <input class="input" id="rg_workplace" placeholder="(주)○○ / ○○대학교" autocomplete="organization">
+          </div>
+          <div class="field">
+            <label class="label">전화번호 <span style="color:#ef4444;">*</span></label>
+            <input class="input" id="rg_phone" placeholder="010-1234-5678" type="tel" autocomplete="tel" required>
+          </div>
+          <button class="reg-submit" id="rg_submit">📝 신청하기</button>
+          <div style="font-size:11.5px;color:var(--text-muted);text-align:center;margin-top:12px;line-height:1.6;">
+            ※ 이름 + 전화번호로 중복 신청은 차단됩니다.<br>
+            제출 후엔 자동으로 출석부에 등록됩니다.
+          </div>
+        </div>
+      `;
+      document.getElementById('rg_submit').onclick = submit;
+      // Enter 키로 제출
+      ['rg_name','rg_workplace','rg_phone'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+      });
+    }
+
+    let submitting = false;
+    async function submit() {
+      if (submitting) return;
+      const name = document.getElementById('rg_name').value.trim();
+      const workplace = document.getElementById('rg_workplace').value.trim();
+      const phone = document.getElementById('rg_phone').value.trim();
+      if (!name) { (window.toast||alert)('이름을 입력해주세요.', 'error'); return; }
+      if (!phone || !/\d/.test(phone)) { (window.toast||alert)('전화번호를 입력해주세요.', 'error'); return; }
+
+      submitting = true;
+      const btn = document.getElementById('rg_submit');
+      if (btn) { btn.disabled = true; btn.textContent = '신청 중...'; }
+      try {
+        const r = await fetch(`/api/public-register/submit/${token}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, workplace, phone })
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || '신청에 실패했습니다.');
+        showSuccess(name);
+      } catch (e) {
+        (window.toast||alert)(e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = '📝 신청하기'; }
+        submitting = false;
+      }
+    }
+
+    function showSuccess(name) {
+      const { meeting, organization } = payload;
+      document.getElementById('root').innerHTML = `
+        <div class="reg-hero">
+          <div class="reg-tag">🎉 EVENT REGISTRATION</div>
+          <div class="reg-title">${escapeHtml(meeting.title || '')}</div>
+          <div class="reg-meta">${escapeHtml(organization?.name || '')}</div>
+        </div>
+        <div class="reg-success">
+          <div class="reg-success-icon">✅</div>
+          <div class="reg-success-title">신청이 완료되었습니다</div>
+          <div class="reg-success-msg">
+            <b>${escapeHtml(name)}</b> 님,<br>
+            행사 출석부에 정상 등록되었습니다.<br>
+            ${meeting.location ? `📍 ${escapeHtml(meeting.location)} 에서 만나요!` : '행사에서 만나요!'}
+          </div>
+        </div>
+      `;
+    }
+  </script>
+</body>
+</html>

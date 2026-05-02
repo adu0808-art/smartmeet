@@ -26,15 +26,23 @@ function meetingToScheduleFields(meeting) {
 }
 
 router.post('/', requireOrg(req => req.body.organization_id, 'write'), (req, res) => {
-  const { title, meeting_type, meeting_date, location, total_members, quorum_ratio, pass_ratio } = req.body || {};
+  const { title, meeting_type, meeting_date, end_date, location, total_members, quorum_ratio, pass_ratio } = req.body || {};
   if (!title) return res.status(400).json({ error: '제목 누락' });
   const memberCount = db.prepare('SELECT COUNT(*) AS c FROM members WHERE organization_id = ?').get(req.orgId).c;
   const total = total_members || memberCount;
   const result = db.prepare(`
-    INSERT INTO meetings (organization_id, title, meeting_type, meeting_date, location, total_members, quorum_ratio, pass_ratio, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'preparing')
-  `).run(req.orgId, title, meeting_type || 'board', meeting_date || '', location || '', total, quorum_ratio || 0.5, pass_ratio || 0.5);
+    INSERT INTO meetings (organization_id, title, meeting_type, meeting_date, end_date, location, total_members, quorum_ratio, pass_ratio, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'preparing')
+  `).run(req.orgId, title, meeting_type || 'board', meeting_date || '', end_date || '', location || '', total, quorum_ratio || 0.5, pass_ratio || 0.5);
   const meeting = db.prepare('SELECT * FROM meetings WHERE id = ?').get(result.lastInsertRowid);
+
+  // 행사(event) 타입이면 자유신청용 공개 토큰 자동 발급
+  if (meeting.meeting_type === 'event' && !meeting.public_register_token) {
+    const { v4: uuidv4 } = require('uuid');
+    const token = uuidv4();
+    db.prepare('UPDATE meetings SET public_register_token = ? WHERE id = ?').run(token, meeting.id);
+    meeting.public_register_token = token;
+  }
 
   // ★ 회의 등록 → 일정 자동 등록 (날짜가 있을 때만)
   if (meeting.meeting_date) {
@@ -62,12 +70,13 @@ router.get('/:id', requireOrg(req => getOrgIdFromMeeting(req.params.id), 'read')
 });
 
 router.put('/:id', requireOrg(req => getOrgIdFromMeeting(req.params.id), 'write'), (req, res) => {
-  const { title, meeting_type, meeting_date, location, total_members, quorum_ratio, pass_ratio, status, invitation_message } = req.body || {};
+  const { title, meeting_type, meeting_date, end_date, location, total_members, quorum_ratio, pass_ratio, status, invitation_message } = req.body || {};
   db.prepare(`
     UPDATE meetings SET
       title = COALESCE(?, title),
       meeting_type = COALESCE(?, meeting_type),
       meeting_date = COALESCE(?, meeting_date),
+      end_date = COALESCE(?, end_date),
       location = COALESCE(?, location),
       total_members = COALESCE(?, total_members),
       quorum_ratio = COALESCE(?, quorum_ratio),
@@ -75,8 +84,16 @@ router.put('/:id', requireOrg(req => getOrgIdFromMeeting(req.params.id), 'write'
       status = COALESCE(?, status),
       invitation_message = COALESCE(?, invitation_message)
     WHERE id = ?
-  `).run(title, meeting_type, meeting_date, location, total_members, quorum_ratio, pass_ratio, status, invitation_message, req.params.id);
+  `).run(title, meeting_type, meeting_date, end_date, location, total_members, quorum_ratio, pass_ratio, status, invitation_message, req.params.id);
   const meeting = db.prepare('SELECT * FROM meetings WHERE id = ?').get(req.params.id);
+
+  // 행사 타입으로 변경되면 공개 토큰 발급 (없으면)
+  if (meeting.meeting_type === 'event' && !meeting.public_register_token) {
+    const { v4: uuidv4 } = require('uuid');
+    const token = uuidv4();
+    db.prepare('UPDATE meetings SET public_register_token = ? WHERE id = ?').run(token, meeting.id);
+    meeting.public_register_token = token;
+  }
 
   // ★ 연결된 일정 동기화 (제목·날짜·장소 변경 시 일정도 갱신)
   try {

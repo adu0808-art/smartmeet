@@ -205,6 +205,13 @@ try { db.exec("ALTER TABLE meetings ADD COLUMN pass_ratio REAL DEFAULT 0.5"); } 
 try { db.exec("ALTER TABLE meetings ADD COLUMN invitation_message TEXT"); } catch (e) {}
 try { db.exec("ALTER TABLE agendas ADD COLUMN vote_summary TEXT"); } catch (e) {}
 try { db.exec("ALTER TABLE toc_items ADD COLUMN agenda_id INTEGER REFERENCES agendas(id) ON DELETE SET NULL"); } catch (e) {}
+// 이벤트 종료 일시 (선택) — 행사 등 시작과 종료가 다른 이벤트
+try { db.exec("ALTER TABLE meetings ADD COLUMN end_date TEXT"); } catch (e) {}
+// 행사(event) 타입 자유 신청용 공개 토큰 (행사일 때만 사용)
+try { db.exec("ALTER TABLE meetings ADD COLUMN public_register_token TEXT"); } catch (e) {}
+try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_meeting_public_register_token ON meetings(public_register_token) WHERE public_register_token IS NOT NULL"); } catch (e) {
+  console.warn('[DB] public_register_token unique index:', e.message);
+}
 
 // Organization: 3 logo variants — symbol(logo), text-only, logo+text combined
 try { db.exec("ALTER TABLE organizations ADD COLUMN logo_text_url TEXT"); } catch (e) {}

@@ -157,10 +157,11 @@ function fmtDateOnly(s) {
 }
 
 // ========== Status helpers ==========
-const meetingTypeLabel = { board: '이사회', general: '총회', regular: '일반' };
+const meetingTypeLabel = { board: '이사회', general: '총회', regular: '일반', event: '행사' };
 const isFormalMeeting = (t) => t === 'board' || t === 'general';
+const isPublicEvent = (t) => t === 'event';   // 자유 신청 가능한 행사
 
-// Shared meeting create/edit form
+// Shared event(meeting) create/edit form
 function meetingFormHtml(m = {}) {
   const isEdit = !!m.id;
   let dateValue = (m.meeting_date || '').slice(0, 16);
@@ -169,20 +170,22 @@ function meetingFormHtml(m = {}) {
     const pad = n => String(n).padStart(2, '0');
     dateValue = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T17:00`;
   }
+  let endValue = (m.end_date || '').slice(0, 16);
   const ratio = m.quorum_ratio != null ? m.quorum_ratio : 0.5;
   const passRatio = m.pass_ratio != null ? m.pass_ratio : 0.5;
   const total = m.total_members || 0;
   const present = m.present_count || 0;
   const type = m.meeting_type || 'board';
   return `
-    <div class="text-sm text-muted mb-16">이사회·총회는 정족수 설정이 필요하며, ‘일반’ 회의는 자유 형식으로 운영됩니다.</div>
-    <div class="field"><label class="label">회의명 *</label><input class="input" id="mf_title" value="${(m.title||'').replace(/"/g,'&quot;')}" placeholder="예: 2026년 정기 이사회 및 총회"></div>
+    <div class="text-sm text-muted mb-16">이사회·총회는 정족수 설정이 필요하며, ‘일반/행사’는 자유 형식으로 운영됩니다.<br>‘행사’는 공개 신청 링크를 통해 외부 참가자가 출석부에 자동 등록됩니다.</div>
+    <div class="field"><label class="label">이벤트명 *</label><input class="input" id="mf_title" value="${(m.title||'').replace(/"/g,'&quot;')}" placeholder="예: 2026년 정기 이사회 및 총회"></div>
     <div class="flex gap-12">
-      <div class="field flex-1"><label class="label">회의 구분</label>
+      <div class="field flex-1"><label class="label">이벤트 구분</label>
         <select class="select" id="mf_type">
           <option value="board" ${type==='board'?'selected':''}>이사회</option>
           <option value="general" ${type==='general'?'selected':''}>총회</option>
           <option value="regular" ${type==='regular'?'selected':''}>일반</option>
+          <option value="event" ${type==='event'?'selected':''}>행사</option>
         </select>
       </div>
       <div class="field flex-1"${isEdit?'':' style="display:none"'}><label class="label">진행 상태</label>
@@ -194,9 +197,10 @@ function meetingFormHtml(m = {}) {
       </div>
     </div>
     <div class="flex gap-12">
-      <div class="field flex-1"><label class="label">회의 일시</label><input class="input" id="mf_date" type="datetime-local" value="${dateValue}" step="600"></div>
-      <div class="field flex-1"><label class="label">장소</label><input class="input" id="mf_loc" value="${(m.location||'').replace(/"/g,'&quot;')}" placeholder="회의 장소"></div>
+      <div class="field flex-1"><label class="label">시작 일시</label><input class="input" id="mf_date" type="datetime-local" value="${dateValue}" step="600"></div>
+      <div class="field flex-1"><label class="label">종료 일시 <span class="text-sm text-muted">(선택)</span></label><input class="input" id="mf_end" type="datetime-local" value="${endValue}" step="600"></div>
     </div>
+    <div class="field"><label class="label">장소</label><input class="input" id="mf_loc" value="${(m.location||'').replace(/"/g,'&quot;')}" placeholder="개최 장소"></div>
 
     <div id="mf_quorumBox" class="card mt-12" style="background:var(--surface-2);">
       <div class="card-title mb-12" style="margin:0;font-size:14px;">정족수 설정</div>
@@ -245,6 +249,7 @@ function readMeetingFormPayload() {
     meeting_type: document.getElementById('mf_type').value,
     status: document.getElementById('mf_status')?.value,
     meeting_date: document.getElementById('mf_date').value,
+    end_date: document.getElementById('mf_end')?.value || '',
     location: document.getElementById('mf_loc').value.trim(),
     quorum_ratio: Number(document.getElementById('mf_quorum').value) || 0.5,
     pass_ratio: Number(document.getElementById('mf_pass').value) || 0.5

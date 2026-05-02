@@ -160,6 +160,7 @@ app.use('/api/members', require('./routes/members'));
 app.use('/api/meeting-members', require('./routes/meeting-members'));
 app.use('/api/proxies', require('./routes/proxies'));
 app.use('/api/rsvp', require('./routes/rsvp'));
+app.use('/api/public-register', require('./routes/public-register'));
 app.use('/api/toc-items', require('./routes/toc'));
 app.use('/api/invitations', require('./routes/invitations'));
 app.use('/api/notices', require('./routes/notices'));
@@ -265,6 +266,7 @@ const pages = {
   '/presentation': 'pages/presentation.html',
   '/proxy': 'pages/proxy-submit.html',
   '/rsvp': 'pages/rsvp-respond.html',
+  '/event-register': 'pages/event-register.html',
   '/minutes': 'pages/minutes.html',
   '/charter': 'pages/charter.html',
   '/orgchart': 'pages/orgchart.html',

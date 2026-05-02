@@ -24,7 +24,7 @@ function renderOrgSidebar(org, currentKey, opts = {}) {
     { key: 'home', label: '기관 홈', icon: '🏠', href: `/home?org=${orgId}` },
     { key: 'notices', label: '공지사항', icon: '📣', href: `/notices?org=${orgId}` },
     { key: 'board', label: '게시판', icon: '💬', href: `/board?org=${orgId}` },
-    { key: 'meetings-list', label: '회의 리스트', icon: '📋', href: `/meetings?org=${orgId}` },
+    { key: 'meetings-list', label: '이벤트 리스트', icon: '📋', href: `/meetings?org=${orgId}` },
     { key: 'schedule', label: '주요 일정', icon: '🗓️', href: `/schedule?org=${orgId}` },
     { key: 'executives', label: '임원 명단', icon: '👥', href: `/executives?org=${orgId}` },
     { key: 'presidents', label: '역대 회장', icon: '👑', href: `/presidents?org=${orgId}` },
@@ -40,7 +40,7 @@ function renderOrgSidebar(org, currentKey, opts = {}) {
   ] : [];
 
   const meetingItems = meetingId ? [
-    { key: 'meeting', label: '회의 메인', icon: '📋', href: `/meeting?id=${meetingId}` },
+    { key: 'meeting', label: '이벤트 메인', icon: '📋', href: `/meeting?id=${meetingId}` },
     { key: 'minutes', label: '회의록 출력', icon: '🖨️', href: `/minutes?id=${meetingId}` },
     { key: 'presentation', label: '프레젠테이션', icon: '📺', href: `/presentation?id=${meetingId}` },
   ] : [];
@@ -67,7 +67,7 @@ function renderOrgSidebar(org, currentKey, opts = {}) {
       ${adminItems.map(it => `<a href="${it.href}" class="nav-item ${currentKey === it.key ? 'active' : ''}"><span class="icon">${it.icon}</span> ${it.label}</a>`).join('')}
     ` : ''}
     ${meetingItems.length ? `
-      <div class="nav-section-title">현재 회의</div>
+      <div class="nav-section-title">현재 이벤트</div>
       ${meetingItems.map(it => `<a href="${it.href}" class="nav-item ${currentKey === it.key ? 'active' : ''}"><span class="icon">${it.icon}</span> ${it.label}</a>`).join('')}
     ` : ''}
   `;

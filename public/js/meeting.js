@@ -681,6 +681,22 @@ async function loadMembers() {
 
 let _memberSelected = new Set();
 
+// 행사 자유신청 링크 복사
+function copyEventRegLink() {
+  const inp = document.getElementById('eventRegUrl');
+  if (!inp) return;
+  inp.select();
+  try {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(inp.value).then(() => toast('🔗 링크가 복사되었습니다.', 'success'));
+    } else {
+      document.execCommand('copy');
+      toast('🔗 링크가 복사되었습니다.', 'success');
+    }
+  } catch (e) { toast('복사 실패 — 직접 선택해 복사해주세요.', 'error'); }
+}
+window.copyEventRegLink = copyEventRegLink;
+
 // 출석부 컬럼 헤더 클릭 → 정렬 토글 (asc ↔ desc)
 function sortMembers(key) {
   if (memberSort.key === key) {
@@ -738,7 +754,28 @@ function renderMembers() {
   const selN = _memberSelected.size;
   const formal = isFormalMeeting(meeting.meeting_type);
 
-  // 참석 현황 요약 — 모든 회의 유형에서 표시 (일반 회의도 참석 현황 확인 가능)
+  // 행사(event) 자유 신청 링크 — 행사 타입일 때만 관리자에게 공유용 카드 표시
+  const isEvent = meeting.meeting_type === 'event';
+  const isAdminUser = myRole === 'system_admin' || myRole === 'admin';
+  let eventLinkBar = '';
+  if (isEvent && isAdminUser && meeting.public_register_token) {
+    const baseUrl = `${location.protocol}//${location.host}`;
+    const regUrl = `${baseUrl}/event-register?token=${meeting.public_register_token}`;
+    eventLinkBar = `
+      <div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:12px 14px;margin-bottom:12px;">
+        <div style="font-size:13px;font-weight:700;color:#3730a3;margin-bottom:6px;">🎉 행사 자유 신청 링크</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input class="input" id="eventRegUrl" value="${regUrl}" readonly style="flex:1;min-width:240px;font-size:12px;font-family:monospace;background:#fff;">
+          <button class="btn btn-sm" onclick="copyEventRegLink()">📋 복사</button>
+          <a class="btn btn-sm" href="${regUrl}" target="_blank">↗ 미리보기</a>
+        </div>
+        <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px;line-height:1.5;">
+          이 링크를 공유하면 외부 참가자가 이름·소속·전화번호를 입력해 출석부에 자동 등록됩니다.
+        </div>
+      </div>`;
+  }
+
+  // 참석 현황 요약 — 모든 이벤트 유형에서 표시
   //   집계는 정렬·검색·필터와 무관하게 전체(members) 기준
   const all = members;
   const totalN   = all.length;
@@ -770,7 +807,7 @@ function renderMembers() {
     </div>`;
 
   if (!list.length) {
-    root.innerHTML = summaryBar + bulkBar + `<div class="empty"><div class="empty-title">표시할 의원이 없습니다</div><div class="empty-sub">검색·필터를 확인하거나 의원을 추가하세요.</div></div>`;
+    root.innerHTML = eventLinkBar + summaryBar + bulkBar + `<div class="empty"><div class="empty-title">표시할 의원이 없습니다</div><div class="empty-sub">${isEvent ? '위 신청 링크를 공유하거나 직접 추가해주세요.' : '검색·필터를 확인하거나 의원을 추가하세요.'}</div></div>`;
     return;
   }
   const allSelected = list.length && list.every(m => _memberSelected.has(m.id));
@@ -792,7 +829,7 @@ function renderMembers() {
     return `<span style="color:#94a3b8;font-size:11.5px;">⏳ 미응답</span>`;
   };
 
-  root.innerHTML = summaryBar + bulkBar + `
+  root.innerHTML = eventLinkBar + summaryBar + bulkBar + `
     <table class="table">
       <thead><tr>
         <th style="width:36px;text-align:center;"><input type="checkbox" class="check" id="memCheckAll" ${allSelected?'checked':''} title="선택"></th>

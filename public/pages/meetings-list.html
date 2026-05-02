@@ -18,10 +18,10 @@
       <div class="content">
         <div class="page-header">
           <div>
-            <h1 class="page-title">📋 회의 리스트</h1>
-            <div class="page-sub" id="cnt">등록된 모든 회의를 확인합니다.</div>
+            <h1 class="page-title">📋 이벤트 리스트</h1>
+            <div class="page-sub" id="cnt">등록된 모든 이벤트를 확인합니다.</div>
           </div>
-          <button class="btn btn-primary" id="newMeetingBtn" data-admin-only>+ 새 회의 등록</button>
+          <button class="btn btn-primary" id="newMeetingBtn" data-admin-only>+ 새 이벤트 등록</button>
         </div>
 
         <div class="filter-row mb-16">
@@ -71,7 +71,7 @@
       const root = document.getElementById('list');
       const isAdmin = role === 'system_admin' || role === 'admin';
       if (!list.length) {
-        root.innerHTML = `<div class="empty"><div class="empty-title">표시할 회의가 없습니다</div><div class="empty-sub">${isAdmin ? '‘+ 새 회의 등록’ 버튼으로 시작하세요.' : '관리자가 회의를 등록하면 여기에 표시됩니다.'}</div></div>`;
+        root.innerHTML = `<div class="empty"><div class="empty-title">표시할 이벤트가 없습니다</div><div class="empty-sub">${isAdmin ? '‘+ 새 이벤트 등록’ 버튼으로 시작하세요.' : '관리자가 이벤트를 등록하면 여기에 표시됩니다.'}</div></div>`;
         return;
       }
       root.innerHTML = list.map(m => `
@@ -96,7 +96,7 @@
     }
 
     function delMeeting(id) {
-      confirmDialog('이 회의를 삭제하시겠습니까? 의안·출석·위임장 등 모든 데이터가 함께 삭제됩니다.', async () => {
+      confirmDialog('이 이벤트를 삭제하시겠습니까? 의안·출석·위임장 등 모든 데이터가 함께 삭제됩니다.', async () => {
         try { await api.del(`/api/meetings/${id}`); toast('삭제되었습니다.', 'success'); load(); }
         catch (e) { toast(e.message, 'error'); return false; }
       });
@@ -104,17 +104,17 @@
 
     function openNewMeeting() {
       modal({
-        title: '새 회의 등록',
+        title: '새 이벤트 등록',
         size: 'lg',
         body: meetingFormHtml({}),
         confirmText: '등록',
         onConfirm: async () => {
           const payload = readMeetingFormPayload();
-          if (!payload.title) { toast('회의 제목을 입력하세요.', 'error'); return false; }
+          if (!payload.title) { toast('이벤트 제목을 입력하세요.', 'error'); return false; }
           payload.organization_id = Number(orgId);
           try {
             const data = await api.post('/api/meetings', payload);
-            toast('회의가 등록되었습니다.', 'success');
+            toast('이벤트가 등록되었습니다.', 'success');
             location.href = `/meeting?id=${data.meeting.id}`;
           } catch (e) { toast(e.message, 'error'); return false; }
         }
