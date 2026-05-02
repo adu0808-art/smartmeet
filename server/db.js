@@ -225,6 +225,16 @@ try { db.exec("ALTER TABLE posts ADD COLUMN category TEXT DEFAULT 'free'"); } ca
 // meeting_members: 이메일 발송 이력 — 위임장 / 초대장
 try { db.exec("ALTER TABLE meeting_members ADD COLUMN invitation_sent_at TEXT"); } catch (e) {}
 try { db.exec("ALTER TABLE meeting_members ADD COLUMN proxy_sent_at TEXT"); } catch (e) {}
+// meeting_members: 초대장 RSVP — 의원이 참석/불참 응답 시 토큰 기반 공개 페이지에서 기록
+//   invitation_token: 메일에 포함되는 고유 링크 토큰 (uuidv4)
+//   rsvp_status: 'attending' | 'declined' | NULL (미응답)
+//   rsvp_at: 응답 시각
+try { db.exec("ALTER TABLE meeting_members ADD COLUMN invitation_token TEXT"); } catch (e) {}
+try { db.exec("ALTER TABLE meeting_members ADD COLUMN rsvp_status TEXT"); } catch (e) {}
+try { db.exec("ALTER TABLE meeting_members ADD COLUMN rsvp_at TEXT"); } catch (e) {}
+try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_mm_invitation_token ON meeting_members(invitation_token) WHERE invitation_token IS NOT NULL"); } catch (e) {
+  console.warn('[DB] invitation_token unique index:', e.message);
+}
 
 // Password reset tokens — 이메일로 비밀번호 재설정 링크 발송용
 try {

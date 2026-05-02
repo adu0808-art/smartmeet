@@ -1,6 +1,7 @@
 // 회의 의원 (meeting_members) — 임원명단(members)과 독립된 테이블
 //   각 회의별로 별도의 의원 명단을 유지. 임원 정보 변경/삭제와 무관하게 독립적으로 보존.
 const express = require('express');
+const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
 const { authRequired } = require('../auth-mw');
 const { requireOrg, getOrgIdFromMeeting, getOrgRole, isAdmin } = require('../permissions');
@@ -71,6 +72,7 @@ router.get('/', authRequired, (req, res) => {
       const k = `${(m.name || '').trim()}|${normalizePhone(m.phone)}`;
       if (proxyByPhone.has(k)) s = 'proxy';
     }
+    // invitation_token / rsvp_status / rsvp_at 도 함께 반환 (출석부 화면용)
     return { ...m, attendance_status: s };
   });
 
@@ -276,25 +278,38 @@ router.post('/send-invitations', authRequired, async (req, res) => {
   if (!meeting) return res.status(404).json({ error: '회의를 찾을 수 없습니다.' });
   const org = db.prepare('SELECT * FROM organizations WHERE id = ?').get(meeting.organization_id);
 
-  // 대상 의원
+  // 대상 의원 — invitation_token 도 함께 조회 (없으면 발송 직전 생성)
   let members;
   if (Array.isArray(meeting_member_ids) && meeting_member_ids.length) {
     const placeholders = meeting_member_ids.map(() => '?').join(',');
     members = db.prepare(
-      `SELECT id, name, email FROM meeting_members WHERE meeting_id = ? AND id IN (${placeholders})`
+      `SELECT id, name, email, invitation_token FROM meeting_members WHERE meeting_id = ? AND id IN (${placeholders})`
     ).all(meeting_id, ...meeting_member_ids);
   } else {
     members = db.prepare(
-      'SELECT id, name, email FROM meeting_members WHERE meeting_id = ?'
+      'SELECT id, name, email, invitation_token FROM meeting_members WHERE meeting_id = ?'
     ).all(meeting_id);
   }
   if (!members.length) return res.status(400).json({ error: '대상 의원이 없습니다.' });
 
+  // 토큰이 없는 의원에게 신규 토큰 발급
+  const issueToken = db.prepare('UPDATE meeting_members SET invitation_token = ? WHERE id = ?');
+  members.forEach(m => {
+    if (!m.invitation_token) {
+      m.invitation_token = uuidv4();
+      issueToken.run(m.invitation_token, m.id);
+    }
+  });
+
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+  const host = req.get('host') || 'localhost';
+  const baseUrl = `${protocol}://${host}`;
   const dateStr = meeting.meeting_date ? String(meeting.meeting_date).replace('T', ' ').slice(0, 16) : '';
   const customMessage = (meeting.invitation_message || '').replace(/</g,'&lt;').replace(/\n/g, '<br>');
   const escape = (s) => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
   const makeMessage = (m) => {
+    const rsvpUrl = `${baseUrl}/rsvp?token=${m.invitation_token}`;
     const subject = `[${org?.name || 'SmartMeet'}] ${meeting.title} 초대 안내`;
     const html = `
       <div style="font-family:'Pretendard','Malgun Gothic',sans-serif;max-width:560px;margin:auto;padding:24px;color:#1a202c;">
@@ -310,6 +325,19 @@ router.post('/send-invitations', authRequired, async (req, res) => {
             ${dateStr ? `<tr><td style="padding:6px 10px;color:#64748b;">일시</td><td style="padding:6px 10px;font-weight:600;">${dateStr}</td></tr>` : ''}
             ${meeting.location ? `<tr><td style="padding:6px 10px;color:#64748b;">장소</td><td style="padding:6px 10px;font-weight:600;">${escape(meeting.location || '')}</td></tr>` : ''}
           </table>
+          <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:18px;margin:18px 0;text-align:center;">
+            <p style="font-size:14px;color:#1e3a8a;font-weight:600;margin:0 0 14px;">
+              ✋ 참석 여부를 알려주세요
+            </p>
+            <a href="${rsvpUrl}"
+               style="background:#10b981;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block;margin:4px 6px;">
+              ✅ 참석 / 불참 응답
+            </a>
+            <p style="font-size:11px;color:#64748b;margin:12px 0 0;">
+              버튼이 동작하지 않으면 다음 링크를 브라우저에 붙여넣으세요:<br>
+              <a href="${rsvpUrl}" style="color:#3b82f6;word-break:break-all;">${rsvpUrl}</a>
+            </p>
+          </div>
           <p style="font-size:14px;color:#374151;line-height:1.7;">
             많은 참석 부탁드립니다.
           </p>
@@ -319,7 +347,7 @@ router.post('/send-invitations', authRequired, async (req, res) => {
         </div>
       </div>
     `;
-    const text = `[${org?.name || ''}] ${meeting.title}\n\n${m.name} 님,\n\n일시: ${dateStr}\n장소: ${meeting.location || ''}\n\n많은 참석 부탁드립니다.`;
+    const text = `[${org?.name || ''}] ${meeting.title}\n\n${m.name} 님,\n\n일시: ${dateStr}\n장소: ${meeting.location || ''}\n\n참석 여부를 다음 링크에서 응답해 주세요:\n${rsvpUrl}\n\n많은 참석 부탁드립니다.`;
     return { subject, html, text };
   };
 
@@ -333,7 +361,7 @@ router.post('/send-invitations', authRequired, async (req, res) => {
   const stream = req.query.stream === '1' || req.query.stream === 'true';
   const { sendBulk } = require('../bulk-email');
   await sendBulk({
-    targets: members.map(m => ({ id: m.id, name: m.name, email: m.email })),
+    targets: members.map(m => ({ id: m.id, name: m.name, email: m.email, invitation_token: m.invitation_token })),
     makeMessage,
     onSent,
     res,

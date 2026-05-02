@@ -22,8 +22,15 @@ let myRole;
   refreshAll();
   applyRoleGates();
   applyTypeGates();
-  // periodic refresh (only meaningful for formal meetings)
-  if (isFormalMeeting(meeting.meeting_type)) setInterval(refreshQuorum, 5000);
+  // periodic refresh — formal: 정족수 + 의원목록 (refreshQuorum 내에서 proxy 변화시 loadMembers)
+  //                    general: 출석부 (RSVP 응답 들어오면 화면 갱신)
+  if (isFormalMeeting(meeting.meeting_type)) {
+    setInterval(refreshQuorum, 5000);
+    // RSVP 응답이 들어오면 출석부도 갱신되어야 함 — 좀 더 긴 간격으로 별도 폴링
+    setInterval(() => loadMembers(), 15000);
+  } else {
+    setInterval(() => loadMembers(), 10000);
+  }
 })();
 
 function applyRoleGates() {
@@ -701,6 +708,11 @@ function _memberCmp(a, b) {
     // 발송 컬럼: 빈값(미발송)은 빈 문자열 → asc 시 미발송 먼저 / desc 시 발송 먼저
     av = a[k] || '';
     bv = b[k] || '';
+  } else if (k === 'rsvp') {
+    // RSVP: 참석(0) → 불참(1) → 미응답(2)
+    const order = { attending: 0, declined: 1 };
+    av = a.rsvp_status in order ? order[a.rsvp_status] : 2;
+    bv = b.rsvp_status in order ? order[b.rsvp_status] : 2;
   } else {
     av = (a[k] || '').toString();
     bv = (b[k] || '').toString();
@@ -725,6 +737,27 @@ function renderMembers() {
   // Bulk action bar
   const selN = _memberSelected.size;
   const formal = isFormalMeeting(meeting.meeting_type);
+
+  // 참석 현황 요약 — 모든 회의 유형에서 표시 (일반 회의도 참석 현황 확인 가능)
+  //   집계는 정렬·검색·필터와 무관하게 전체(members) 기준
+  const all = members;
+  const totalN   = all.length;
+  const presentN = all.filter(m => m.attendance_status === 'present').length;
+  const proxyN   = all.filter(m => m.attendance_status === 'proxy').length;
+  const rsvpYes  = all.filter(m => m.rsvp_status === 'attending').length;
+  const rsvpNo   = all.filter(m => m.rsvp_status === 'declined').length;
+  const noResp   = all.filter(m => !m.rsvp_status).length;
+  const summaryBar = `
+    <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:12px;display:flex;flex-wrap:wrap;gap:14px;align-items:center;font-size:13px;">
+      <div><span style="color:var(--text-muted);">총 의원</span> <b style="font-size:15px;">${totalN}</b>명</div>
+      <span style="width:1px;height:18px;background:var(--border);"></span>
+      <div style="color:#10b981;"><b>✅ 참석 응답 ${rsvpYes}</b>명</div>
+      <div style="color:#ef4444;"><b>❌ 불참 응답 ${rsvpNo}</b>명</div>
+      <div style="color:#94a3b8;">⏳ 미응답 ${noResp}명</div>
+      <span style="width:1px;height:18px;background:var(--border);"></span>
+      <div><span style="color:var(--text-muted);">현장 출석</span> <b>${presentN}</b>명${formal ? ` <span style="color:var(--text-muted);">/ 위임장</span> <b>${proxyN}</b>명` : ''}</div>
+    </div>`;
+
   const bulkBar = `
     <div class="flex items-center gap-8 mb-12" style="flex-wrap:wrap;">
       <span class="text-sm text-muted">선택 ${selN}명</span>
@@ -737,7 +770,7 @@ function renderMembers() {
     </div>`;
 
   if (!list.length) {
-    root.innerHTML = bulkBar + `<div class="empty"><div class="empty-title">표시할 의원이 없습니다</div><div class="empty-sub">검색·필터를 확인하거나 의원을 추가하세요.</div></div>`;
+    root.innerHTML = summaryBar + bulkBar + `<div class="empty"><div class="empty-title">표시할 의원이 없습니다</div><div class="empty-sub">검색·필터를 확인하거나 의원을 추가하세요.</div></div>`;
     return;
   }
   const allSelected = list.length && list.every(m => _memberSelected.has(m.id));
@@ -752,7 +785,14 @@ function renderMembers() {
   // 드래그 reorder 는 순번 오름차순일 때만 활성 (다른 정렬 상태에서 드래그하면 seq 가 뒤섞임)
   const dndEnabled = memberSort.key === 'seq' && memberSort.dir === 'asc';
 
-  root.innerHTML = bulkBar + `
+  // RSVP 상태 칩
+  const rsvpChip = (s) => {
+    if (s === 'attending') return `<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#ecfdf5;color:#065f46;font-size:11.5px;font-weight:700;border:1px solid #a7f3d0;">✅ 참석</span>`;
+    if (s === 'declined')  return `<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#fef2f2;color:#991b1b;font-size:11.5px;font-weight:700;border:1px solid #fecaca;">❌ 불참</span>`;
+    return `<span style="color:#94a3b8;font-size:11.5px;">⏳ 미응답</span>`;
+  };
+
+  root.innerHTML = summaryBar + bulkBar + `
     <table class="table">
       <thead><tr>
         <th style="width:36px;text-align:center;"><input type="checkbox" class="check" id="memCheckAll" ${allSelected?'checked':''} title="선택"></th>
@@ -763,6 +803,7 @@ function renderMembers() {
         <th style="cursor:pointer;user-select:none;" onclick="sortMembers('phone')" title="전화번호 정렬">전화번호${sortIcon('phone')}</th>
         <th style="width:110px;cursor:pointer;user-select:none;" onclick="sortMembers('status')" title="상태 정렬">상태${sortIcon('status')}</th>
         <th style="width:60px;text-align:center;cursor:pointer;user-select:none;" onclick="sortMembers('attend')" title="출석 정렬">출석${sortIcon('attend')}</th>
+        <th style="width:90px;text-align:center;cursor:pointer;user-select:none;" onclick="sortMembers('rsvp')" title="참석 응답 정렬">✋ 응답${sortIcon('rsvp')}</th>
         <th style="width:90px;text-align:center;cursor:pointer;user-select:none;" onclick="sortMembers('invitation_sent_at')" title="초대장 발송 여부 정렬">📩 초대장${sortIcon('invitation_sent_at')}</th>
         ${formal ? `<th style="width:90px;text-align:center;cursor:pointer;user-select:none;" onclick="sortMembers('proxy_sent_at')" title="위임장 발송 여부 정렬">📋 위임장${sortIcon('proxy_sent_at')}</th>` : ''}
         <th style="width:120px;text-align:right;">작업</th>
@@ -784,6 +825,7 @@ function renderMembers() {
                 onchange="toggleAttend(${m.id}, this.checked)"
                 title="${m.attendance_status === 'proxy' ? '⚠️ 위임장 제출됨 — 위임장 탭에서 삭제 후 출석 체크 가능' : '출석 체크'}">
             </td>
+            <td style="text-align:center;" title="${m.rsvp_at ? '응답: ' + m.rsvp_at : '미응답'}">${rsvpChip(m.rsvp_status)}</td>
             <td style="text-align:center;font-size:13px;">${sentIcon(m.invitation_sent_at, '초대장')}</td>
             ${formal ? `<td style="text-align:center;font-size:13px;">${sentIcon(m.proxy_sent_at, '위임장')}</td>` : ''}
             <td style="text-align:right;">
