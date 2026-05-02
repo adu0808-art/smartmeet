@@ -165,26 +165,26 @@
       text-align: center;
       font-style: italic;
     }
-    /* 노드 메모 — 우측 상단의 작은 아이콘 (시각적 인디케이터) */
+    /* 노드 메모 — 우측 상단의 작은 메모지 모양 인디케이터 (마우스 비반응) */
     .node-memo-indicator {
       position: absolute;
-      top: 4px;
-      right: 6px;
-      width: 18px;
-      height: 18px;
-      font-size: 11px;
-      line-height: 18px;
-      text-align: center;
-      background: rgba(251, 191, 36, 0.95);
-      border-radius: 50%;
-      cursor: help;
+      top: 5px;
+      right: 5px;
+      width: 14px;
+      height: 16px;
+      background:
+        linear-gradient(135deg, transparent 60%, rgba(0,0,0,0.18) 60%, rgba(0,0,0,0.18) 65%, transparent 65%),
+        linear-gradient(#fde68a, #fbbf24);
+      border: 1px solid #d97706;
+      border-radius: 2px 8px 2px 2px;     /* 우상단 접힌 메모지 모양 */
+      box-shadow: 0 1px 1px rgba(0,0,0,0.12);
+      pointer-events: none;               /* 마우스 비반응 */
       z-index: 3;
-      box-shadow: 0 1px 2px rgba(0,0,0,0.15);
     }
-    /* 노드 메모 — 마우스 hover 시 풍선 (CSS 툴팁) */
+    /* 노드 메모 — 노드 hover 시 풍선 (노드 아래에 표시 — 위쪽 액션 버튼들과 겹치지 않음) */
     .node-memo-tooltip {
       position: absolute;
-      bottom: calc(100% + 8px);
+      top: calc(100% + 10px);
       left: 50%;
       transform: translateX(-50%);
       background: #1f2937;
@@ -207,14 +207,42 @@
     .node-memo-tooltip::after {
       content: '';
       position: absolute;
-      top: 100%;
+      bottom: 100%;
       left: 50%;
       transform: translateX(-50%);
       border: 6px solid transparent;
-      border-top-color: #1f2937;
+      border-bottom-color: #1f2937;
     }
     .node:hover .node-memo-tooltip { opacity: 1; visibility: visible; }
     .node.has-memo { box-shadow: var(--shadow), inset 0 0 0 1px rgba(251,191,36,0.5); }
+    /* 임베드 모드 (홈페이지 iframe) 에서는 메모 인디케이터·풍선 숨김 — 조직도 메뉴에서만 표시 */
+    body.embed .node-memo-indicator,
+    body.embed .node-memo-tooltip { display: none !important; }
+
+    /* 글상자 노드 — 제목/내용 구조 없이 자유 텍스트만 */
+    .node.kind-textbox { padding: 12px 14px; min-width: 120px; min-height: 44px; }
+    .node.kind-textbox .node-title { display: none; }
+    .node.kind-textbox .node-content { padding: 0; }
+    .node.kind-textbox .node-textbox-body {
+      font-size: 13px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      color: var(--text);
+      text-align: left;
+    }
+
+    /* 자동 저장 상태 표시 */
+    .autosave-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text-muted);
+      padding: 0 8px;
+    }
+    .autosave-status.saving { color: #f59e0b; }
+    .autosave-status.saved  { color: #10b981; }
+    .autosave-status.error  { color: #ef4444; }
 
     /* 버전 보기 모드 배지 — 캔버스 좌상단 표시 */
     .version-view-badge {
@@ -323,15 +351,17 @@
             <h1 class="page-title">조직도 설계</h1>
             <div class="page-sub">제목과 여러 줄의 내용을 가진 노드로 조직 구조를 그리세요. 노드 우하단을 드래그해 크기를 조절할 수 있습니다.</div>
           </div>
-          <div class="topbar-actions" style="flex-wrap:wrap;">
+          <div class="topbar-actions" style="flex-wrap:wrap;align-items:center;">
             <select class="version-select" id="versionView" title="조직도 버전 보기">
               <option value="">📍 현재 (편집 모드)</option>
             </select>
-            <button class="btn" id="addNodeBtn" data-admin-only>+ 노드 추가</button>
-            <button class="btn" id="versionBtn" data-admin-only>📚 버전 관리</button>
+            <button class="btn" id="addNodeBtn" data-admin-only title="노드 추가">+ 노드</button>
+            <button class="btn" id="addTextboxBtn" data-admin-only title="자유 텍스트 글상자 추가">T 글상자</button>
+            <button class="btn" id="undoBtn" data-admin-only title="되돌리기 (Ctrl+Z)" disabled>↶ 되돌리기</button>
+            <button class="btn" id="redoBtn" data-admin-only title="다시하기 (Ctrl+Shift+Z)" disabled>↷ 다시하기</button>
             <button class="btn" id="exportBtn">📥 내보내기</button>
             <button class="btn" id="importBtn" data-admin-only>📤 가져오기</button>
-            <button class="btn btn-primary" id="saveBtn" data-admin-only>💾 저장</button>
+            <span class="autosave-status" id="autosaveStatus" data-admin-only></span>
           </div>
         </div>
         <div class="canvas-wrap" id="canvas">
@@ -383,6 +413,17 @@
     let viewingVersionId = null;
     let _workingNodes = null, _workingEdges = null, _workingNextId = null;
 
+    // ===== 되돌리기 / 다시하기 (10단계) =====
+    const HISTORY_MAX = 10;
+    let undoStack = [];   // 이전 상태들
+    let redoStack = [];   // 되돌린 후 다시할 수 있는 상태들
+    let _suspendHistory = false;   // 되돌리기/다시하기 자체가 트리거하는 paint 동안 history 저장 방지
+
+    // ===== 자동 저장 =====
+    let _autosaveTimer = null;
+    let _autoVersionTimer = null;        // 첫 변경 시 한 번만 버전 자동 생성
+    let _initialChartCreated = false;     // 처음 만들기 시점 추적
+
     // ===== 다중 선택 관리 =====
     function toggleSelection(id) {
       if (selectedIds.has(id)) selectedIds.delete(id);
@@ -408,11 +449,13 @@
     function deleteSelectedNodes() {
       if (!selectedIds.size || !isAdmin) return;
       confirmDialog(`선택한 ${selectedIds.size}개 노드를 삭제하시겠습니까? 연결된 라인도 함께 삭제됩니다.`, () => {
+        pushHistory();
         const ids = new Set(selectedIds);
         nodes = nodes.filter(n => !ids.has(n.id));
         edges = edges.filter(e => !ids.has(e[0]) && !ids.has(e[1]));
         selectedIds.clear();
         paint();
+        scheduleAutosave();
       });
     }
 
@@ -464,14 +507,32 @@
 
       if (isAdmin) {
         document.getElementById('addNodeBtn').onclick = () => openNodeModal({});
-        document.getElementById('saveBtn').onclick = save;
+        document.getElementById('addTextboxBtn').onclick = () => openTextboxModal({});
         document.getElementById('importBtn').onclick = importJson;
-        document.getElementById('versionBtn').onclick = openVersionsModal;
+        document.getElementById('undoBtn').onclick = undo;
+        document.getElementById('redoBtn').onclick = redo;
+        // 키보드 단축키 — Ctrl+Z (undo), Ctrl+Shift+Z 또는 Ctrl+Y (redo)
+        window.addEventListener('keydown', (e) => {
+          if (!isAdmin || viewingVersionId) return;
+          // 입력 필드 포커스 중엔 단축키 무시
+          const tag = (e.target && e.target.tagName || '').toLowerCase();
+          if (tag === 'input' || tag === 'textarea' || e.target?.isContentEditable) return;
+          if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+            e.preventDefault(); undo();
+          } else if ((e.ctrlKey || e.metaKey) && ((e.shiftKey && (e.key === 'z' || e.key === 'Z')) || (e.key === 'y' || e.key === 'Y'))) {
+            e.preventDefault(); redo();
+          }
+        });
       }
       document.getElementById('exportBtn').onclick = exportJson;
       // 버전 셀렉터 초기화 + 변경 핸들러
       populateVersionSelect();
       document.getElementById('versionView').onchange = onVersionSelectChange;
+      updateUndoRedoButtons();
+      // 페이지 닫기 전 미저장 변경사항 강제 저장
+      window.addEventListener('beforeunload', () => {
+        if (_autosaveTimer) { clearTimeout(_autosaveTimer); doAutosave(); }
+      });
 
       const c = document.getElementById('canvas');
       c.addEventListener('dblclick', (e) => {
@@ -586,7 +647,7 @@
         // 보기 모드 배지 표시
         showVersionViewBadge(v.version_name, v.created_at);
         // 편집 버튼 비활성 표시
-        ['addNodeBtn','saveBtn','importBtn','versionBtn'].forEach(id => {
+        ['addNodeBtn','addTextboxBtn','undoBtn','redoBtn','importBtn'].forEach(id => {
           const el = document.getElementById(id);
           if (el) { el.disabled = true; el.style.opacity = '0.45'; el.style.cursor = 'not-allowed'; }
         });
@@ -608,10 +669,16 @@
       _workingNodes = _workingEdges = _workingNextId = null;
       viewingVersionId = null;
       hideVersionViewBadge();
-      ['addNodeBtn','saveBtn','importBtn','versionBtn'].forEach(id => {
+      ['addNodeBtn','addTextboxBtn','importBtn'].forEach(id => {
         const el = document.getElementById(id);
         if (el) { el.disabled = false; el.style.opacity = ''; el.style.cursor = ''; }
       });
+      // undo/redo 는 스택 상태에 따라 다시 결정
+      ['undoBtn','redoBtn'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.style.opacity = ''; el.style.cursor = ''; }
+      });
+      updateUndoRedoButtons();
       clearSelection();
       paint();
       toast('📍 현재 편집 화면으로 돌아왔습니다.', 'success');
@@ -672,6 +739,7 @@
           const color = document.getElementById('nm_c').value;
           const memo = document.getElementById('nm_memo').value;
           const cleanContents = working.map(c => (c || '').trim()).filter(c => c.length > 0);
+          pushHistory();
           if (existing) {
             existing.title = title;
             existing.contents = cleanContents;
@@ -689,10 +757,12 @@
               title,
               contents: cleanContents,
               color,
-              memo: memo || ''
+              memo: memo || '',
+              kind: 'node'
             });
           }
           paint();
+          scheduleAutosave();
         }
       });
 
@@ -716,6 +786,66 @@
       document.querySelectorAll('[data-color]').forEach(b => b.onclick = () => { document.getElementById('nm_c').value = b.dataset.color; });
     }
 
+    // 글상자(textbox) 노드 — 자유 텍스트 노드
+    function openTextboxModal(preset, existing) {
+      const n = existing || {};
+      const editorBody = document.createElement('div');
+      editorBody.innerHTML = `
+        <div class="field">
+          <label class="label">텍스트 *</label>
+          <textarea class="input" id="tb_text" rows="5" placeholder="자유 텍스트를 입력하세요. 줄바꿈도 그대로 표시됩니다.">${escapeHtml(n.text || '')}</textarea>
+        </div>
+        <div class="field">
+          <label class="label">📝 메모 <span class="text-sm text-muted">(선택)</span></label>
+          <textarea class="input" id="tb_memo" rows="2" placeholder="이 글상자에 대한 추가 메모">${escapeHtml(n.memo || '')}</textarea>
+        </div>
+        <div class="field"><label class="label">배경색</label>
+          <div class="flex gap-8 items-center">
+            <input type="color" id="tb_c" value="${n.color || '#fef3c7'}" style="width:60px;height:38px;border:1px solid var(--border);border-radius:6px;">
+            <div class="flex gap-8" style="flex-wrap:wrap;">
+              ${['#ffffff','#fef3c7','#dbeafe','#dcfce7','#fce7f3','#ede9fe','#fee2e2','#fde68a'].map(c => `
+                <button type="button" class="btn-icon" style="width:28px;height:28px;border-radius:50%;background:${c};border:2px solid var(--border);" data-tbcolor="${c}"></button>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      `;
+      modal({
+        title: existing ? '글상자 편집' : '글상자 추가',
+        body: editorBody,
+        size: 'lg',
+        confirmText: '저장',
+        onConfirm: () => {
+          const text = document.getElementById('tb_text').value;
+          if (!text.trim()) { toast('텍스트를 입력하세요.', 'error'); return false; }
+          const color = document.getElementById('tb_c').value;
+          const memo = document.getElementById('tb_memo').value;
+          pushHistory();
+          if (existing) {
+            existing.text = text;
+            existing.color = color;
+            existing.memo = memo || '';
+          } else {
+            const sx = Math.round((preset.x ?? 60) / GRID_SIZE) * GRID_SIZE;
+            const sy = Math.round((preset.y ?? 60) / GRID_SIZE) * GRID_SIZE;
+            nodes.push({
+              id: nextId++,
+              x: sx,
+              y: sy,
+              kind: 'textbox',
+              text,
+              color: color || '#fef3c7',
+              memo: memo || ''
+            });
+          }
+          paint();
+          scheduleAutosave();
+        }
+      });
+      document.querySelectorAll('[data-tbcolor]').forEach(b => b.onclick = () => { document.getElementById('tb_c').value = b.dataset.tbcolor; });
+    }
+    window.openTextboxModal = openTextboxModal;
+
     function paint() {
       const wrap = document.getElementById('canvas');
       const layer = document.getElementById('zoomLayer');
@@ -731,27 +861,29 @@
 
       nodes.forEach(n => {
         const el = document.createElement('div');
-        el.className = 'node' + (connectFrom !== null && connectFrom !== n.id ? ' connect-target' : '');
+        const isTextbox = n.kind === 'textbox';
+        el.className = 'node' + (isTextbox ? ' kind-textbox' : '') + (connectFrom !== null && connectFrom !== n.id ? ' connect-target' : '');
         el.style.left = n.x + 'px';
         el.style.top = n.y + 'px';
-        el.style.background = n.color || '#fff';
+        el.style.background = n.color || (isTextbox ? '#fef3c7' : '#fff');
         if (n.width) el.style.width = n.width + 'px';
         if (n.height) el.style.height = n.height + 'px';
         el.dataset.nodeId = n.id;
-        // 메모가 있으면 hover 시 풍선 표시 — 표준 title 속성 + 시각적 인디케이터
+        // 메모가 있으면 hover 시 풍선 표시 — 임베드 모드에서는 CSS 로 자동 숨김
         const hasMemo = n.memo && String(n.memo).trim().length > 0;
-        if (hasMemo) {
-          el.title = String(n.memo);    // 브라우저 기본 풍선
-          el.classList.add('has-memo');
-        }
+        if (hasMemo) el.classList.add('has-memo');
+        // 노드 본문 — kind 에 따라 다르게 렌더
+        const bodyHtml = isTextbox
+          ? `<div class="node-textbox-body">${escapeHtml(n.text || '')}</div>`
+          : `<div class="node-title">${escapeHtml(n.title)}</div>
+             <div class="node-content">
+               ${(n.contents || []).length
+                  ? n.contents.map(c => `<div class="node-line">${escapeHtml(c)}</div>`).join('')
+                  : '<div class="node-empty">내용 없음</div>'}
+             </div>`;
         el.innerHTML = `
-          ${hasMemo ? `<div class="node-memo-indicator" title="${escapeHtml(n.memo)}">📝</div>` : ''}
-          <div class="node-title">${escapeHtml(n.title)}</div>
-          <div class="node-content">
-            ${(n.contents || []).length
-              ? n.contents.map(c => `<div class="node-line">${escapeHtml(c)}</div>`).join('')
-              : '<div class="node-empty">내용 없음</div>'}
-          </div>
+          ${hasMemo ? `<div class="node-memo-indicator" aria-hidden="true"></div>` : ''}
+          ${bodyHtml}
           ${hasMemo ? `<div class="node-memo-tooltip">${escapeHtml(n.memo)}</div>` : ''}
           ${isAdmin && !viewingVersionId ? `
             <div class="node-actions">
@@ -770,7 +902,7 @@
         if (isAdmin && !viewingVersionId) {
           el.querySelector('[data-act="connect"]').onclick = (e) => { e.stopPropagation(); startConnect(n.id); };
           el.querySelector('[data-act="copy"]').onclick = (e) => { e.stopPropagation(); copyNode(n.id); };
-          el.querySelector('[data-act="edit"]').onclick = (e) => { e.stopPropagation(); openNodeModal(null, n); };
+          el.querySelector('[data-act="edit"]').onclick = (e) => { e.stopPropagation(); n.kind === 'textbox' ? openTextboxModal(null, n) : openNodeModal(null, n); };
           el.querySelector('[data-act="del"]').onclick = (e) => { e.stopPropagation(); deleteNode(n.id); };
           el.querySelector('.node-resize-handle').addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); startResize(e, n, el); });
 
@@ -797,7 +929,7 @@
             if (connectFrom !== n.id) {
               // 자동 연결 (양쪽 모두 'auto')
               const exists = edges.some(e => e[0]===connectFrom && e[1]===n.id);
-              if (!exists) edges.push([connectFrom, n.id]);
+              if (!exists) { pushHistory(); edges.push([connectFrom, n.id]); scheduleAutosave(); }
               connectFrom = null;
               paint();
             }
@@ -965,7 +1097,9 @@
             (e[2] || 'auto') === fromSide && (e[3] || 'auto') === hoverTarget.side
           );
           if (!dup) {
+            pushHistory();
             edges.push([fromNode.id, hoverTarget.nodeId, fromSide, hoverTarget.side]);
+            scheduleAutosave();
           }
           paint();
         }
@@ -995,7 +1129,7 @@
         if (isAdmin && !viewingVersionId) {
           path.style.cursor = 'pointer';
           path.addEventListener('click', () => {
-            confirmDialog('이 연결을 삭제하시겠습니까?', () => { edges.splice(idx, 1); paint(); });
+            confirmDialog('이 연결을 삭제하시겠습니까?', () => { pushHistory(); edges.splice(idx, 1); paint(); scheduleAutosave(); });
           });
           path.addEventListener('mouseenter', () => path.setAttribute('stroke', '#ef4444'));
           path.addEventListener('mouseleave', () => path.setAttribute('stroke', '#94a3b8'));
@@ -1025,6 +1159,7 @@
 
     function startDrag(e, n, el) {
       e.preventDefault();
+      let _dragHistorySaved = false;   // 첫 실제 이동 시점에 한 번만 pushHistory
       const sx = e.clientX, sy = e.clientY;
       const ox = n.x, oy = n.y;
       const w = el.offsetWidth, h = el.offsetHeight;
@@ -1053,6 +1188,7 @@
       });
 
       const move = (e) => {
+        if (!_dragHistorySaved) { pushHistory(); _dragHistorySaved = true; }
         let nx = Math.max(0, ox + (e.clientX - sx) / zoomScale);
         let ny = Math.max(0, oy + (e.clientY - sy) / zoomScale);
 
@@ -1130,15 +1266,18 @@
         document.querySelectorAll('.node.aligned-with-target').forEach(x => x.classList.remove('aligned-with-target'));
         document.removeEventListener('mousemove', move);
         document.removeEventListener('mouseup', up);
+        if (_dragHistorySaved) scheduleAutosave();   // 실제 이동된 경우만 저장
       };
       document.addEventListener('mousemove', move);
       document.addEventListener('mouseup', up);
     }
 
     function startResize(e, n, el) {
+      let _resizeHistorySaved = false;
       const sx = e.clientX, sy = e.clientY;
       const ow = el.offsetWidth, oh = el.offsetHeight;
       const move = (e) => {
+        if (!_resizeHistorySaved) { pushHistory(); _resizeHistorySaved = true; }
         let w = Math.max(140, ow + (e.clientX - sx) / zoomScale);
         let h = Math.max(60, oh + (e.clientY - sy) / zoomScale);
         // Snap to grid
@@ -1151,6 +1290,7 @@
       const up = () => {
         document.removeEventListener('mousemove', move);
         document.removeEventListener('mouseup', up);
+        if (_resizeHistorySaved) scheduleAutosave();
       };
       document.addEventListener('mousemove', move);
       document.addEventListener('mouseup', up);
@@ -1163,18 +1303,19 @@
       const el = document.querySelector(`.node[data-node-id="${id}"]`);
       const w = el?.offsetWidth || orig.width || 160;
       const h = el?.offsetHeight || orig.height || 80;
+      pushHistory();
       const newNode = {
+        ...orig,
         id: nextId++,
         x: snap((orig.x || 0) + 24),
         y: snap((orig.y || 0) + 24),
-        title: orig.title,
         contents: Array.isArray(orig.contents) ? [...orig.contents] : [],
-        color: orig.color,
         width: w,
         height: h
       };
       nodes.push(newNode);
       paint();
+      scheduleAutosave();
       toast('노드가 복사되었습니다.', 'success');
     }
 
@@ -1183,15 +1324,36 @@
 
     function deleteNode(id) {
       confirmDialog('이 노드를 삭제하시겠습니까? 연결된 라인도 함께 삭제됩니다.', () => {
+        pushHistory();
         nodes = nodes.filter(n => n.id !== id);
         edges = edges.filter(e => e[0] !== id && e[1] !== id);
         paint();
+        scheduleAutosave();
       });
     }
 
-    async function save() {
+    // ===== 자동 저장 =====
+    //   변경 발생 시 1.5초 디바운스 후 서버에 자동 저장. 사용자는 클릭 없이 작업.
+    function setAutosaveStatus(state, msg) {
+      const el = document.getElementById('autosaveStatus');
+      if (!el) return;
+      el.classList.remove('saving','saved','error');
+      if (state) el.classList.add(state);
+      el.textContent = msg || '';
+    }
+
+    // 변경 직후 호출 — 디바운스 후 실제 저장
+    function scheduleAutosave() {
+      if (viewingVersionId) return;       // 보기 모드에선 저장 안 함
+      if (!isAdmin) return;
+      setAutosaveStatus('saving', '⏳ 저장 중...');
+      if (_autosaveTimer) clearTimeout(_autosaveTimer);
+      _autosaveTimer = setTimeout(() => doAutosave(), 1500);
+    }
+
+    async function doAutosave() {
       try {
-        // Capture actual rendered dimensions so display matches the editor exactly
+        // 실제 렌더된 사이즈를 nodes 에 반영 (보기 모드와 일치)
         nodes.forEach(n => {
           const el = document.querySelector(`.node[data-node-id="${n.id}"]`);
           if (el) {
@@ -1200,9 +1362,94 @@
           }
         });
         await api.post(`/api/orgchart/${orgId}`, { data: JSON.stringify({ nodes, edges }) });
-        toast('저장되었습니다.', 'success');
-      } catch (e) { toast(e.message, 'error'); }
+        setAutosaveStatus('saved', '✓ 저장됨');
+        // 첫 저장 시 (이 조직도가 처음 만들어진 경우) 버전 스냅샷도 자동 생성
+        ensureInitialVersion();
+      } catch (e) {
+        console.error('[orgchart autosave]', e);
+        setAutosaveStatus('error', '⚠ 저장 실패');
+      }
     }
+
+    // 처음 조직도를 만들 때 (versions 가 비어 있고 노드가 1개 이상) → 자동으로 첫 버전 생성
+    let _initialVersionEnsured = false;
+    async function ensureInitialVersion() {
+      if (_initialVersionEnsured) return;
+      if (!isAdmin) return;
+      if (versions.length > 0) { _initialVersionEnsured = true; return; }
+      if (!nodes.length) return;       // 빈 조직도면 버전 생성 안 함
+      try {
+        const now = new Date();
+        const stamp = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+        await api.post(`/api/orgchart/${orgId}/version`, {
+          version_name: `최초 작성 ${stamp}`,
+          data: JSON.stringify({ nodes, edges })
+        });
+        const data = await api.get(`/api/orgchart/${orgId}`);
+        versions = data.versions || [];
+        populateVersionSelect();
+        _initialVersionEnsured = true;
+      } catch (e) {
+        console.warn('[orgchart auto-version]', e.message);
+      }
+    }
+
+    // ===== 되돌리기 / 다시하기 =====
+    //   변경 직전 호출 → 현재 상태를 undoStack 에 저장 (최대 10단계). redoStack 은 비움.
+    function pushHistory() {
+      if (_suspendHistory) return;
+      if (viewingVersionId) return;
+      const snap = JSON.stringify({ nodes, edges, nextId });
+      undoStack.push(snap);
+      if (undoStack.length > HISTORY_MAX) undoStack.shift();
+      redoStack = [];
+      updateUndoRedoButtons();
+    }
+
+    function applySnapshot(snap) {
+      try {
+        const s = JSON.parse(snap);
+        nodes = s.nodes || [];
+        edges = s.edges || [];
+        nextId = s.nextId || 1;
+      } catch (e) { console.error('[history apply]', e); }
+    }
+
+    function undo() {
+      if (!undoStack.length || viewingVersionId) return;
+      const cur = JSON.stringify({ nodes, edges, nextId });
+      const prev = undoStack.pop();
+      redoStack.push(cur);
+      if (redoStack.length > HISTORY_MAX) redoStack.shift();
+      _suspendHistory = true;
+      applySnapshot(prev);
+      paint();
+      _suspendHistory = false;
+      updateUndoRedoButtons();
+      scheduleAutosave();
+    }
+
+    function redo() {
+      if (!redoStack.length || viewingVersionId) return;
+      const cur = JSON.stringify({ nodes, edges, nextId });
+      const next = redoStack.pop();
+      undoStack.push(cur);
+      if (undoStack.length > HISTORY_MAX) undoStack.shift();
+      _suspendHistory = true;
+      applySnapshot(next);
+      paint();
+      _suspendHistory = false;
+      updateUndoRedoButtons();
+      scheduleAutosave();
+    }
+
+    function updateUndoRedoButtons() {
+      const u = document.getElementById('undoBtn');
+      const r = document.getElementById('redoBtn');
+      if (u) u.disabled = !undoStack.length || !!viewingVersionId;
+      if (r) r.disabled = !redoStack.length || !!viewingVersionId;
+    }
+    window.undo = undo; window.redo = redo;
 
     // ===== 버전 히스토리 =====
     //   ※ 복원 기능은 제거됨 — 버전은 시점별 히스토리 조회 전용
@@ -1421,6 +1668,7 @@
             confirmText: '가져오기',
             onConfirm: () => {
               try {
+                pushHistory();
                 nodes = importedNodes;
                 edges = importedEdges;
                 nextId = (Math.max(0, ...nodes.map(n => Number(n.id) || 0))) + 1;
@@ -1429,7 +1677,8 @@
                   try {
                     paint();
                     console.log('[orgchart import] applied — nodes in DOM:', document.querySelectorAll('.node').length);
-                    toast(`✅ ${nodes.length}개 노드 가져옴 — 💾 저장 버튼을 눌러 서버에 반영하세요.`, 'success');
+                    scheduleAutosave();
+                    toast(`✅ ${nodes.length}개 노드 가져옴 — 자동으로 저장됩니다.`, 'success');
                   } catch (err) {
                     console.error('[orgchart import] paint error:', err);
                     toast('렌더링 실패: ' + (err.message || ''), 'error');
