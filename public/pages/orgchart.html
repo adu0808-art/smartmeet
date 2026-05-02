@@ -1058,35 +1058,92 @@
       });
     }
 
+    // 조직도 JSON 내보내기 — 다운로드
+    //   브라우저 호환을 위해 anchor 를 DOM 에 잠시 추가했다가 제거 (Firefox/Safari 일부 버전 대응)
+    //   파일명에서 경로 위험 문자 치환, 날짜 포함
     function exportJson() {
-      const blob = new Blob([JSON.stringify({ nodes, edges }, null, 2)], { type: 'application/json' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `${organization.name}_조직도.json`;
-      a.click();
+      try {
+        const orgName = String(organization?.name || '조직도').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim() || '조직도';
+        const today = new Date().toISOString().slice(0, 10);
+        const filename = `${orgName}_조직도_${today}.json`;
+        const payload = JSON.stringify({
+          nodes: nodes || [],
+          edges: edges || [],
+          exported_at: new Date().toISOString(),
+          organization_name: organization?.name || ''
+        }, null, 2);
+        const blob = new Blob([payload], { type: 'application/json;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.rel = 'noopener';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          try { document.body.removeChild(a); } catch {}
+          URL.revokeObjectURL(url);
+        }, 200);
+        toast(`✅ ${filename} 다운로드 시작`, 'success');
+      } catch (e) {
+        console.error('[orgchart export]', e);
+        toast('내보내기 실패: ' + (e.message || '알 수 없는 오류'), 'error');
+      }
     }
 
+    // 조직도 JSON 가져오기 — 파일 선택 + 미리보기 후 적용
+    //   import 후엔 화면만 갱신되므로 사용자에게 "💾 저장" 누르라고 안내
     function importJson() {
       const inp = document.createElement('input');
-      inp.type = 'file'; inp.accept = '.json';
+      inp.type = 'file';
+      inp.accept = '.json,application/json';
+      inp.style.display = 'none';
+      document.body.appendChild(inp);
       inp.onchange = (e) => {
-        const f = e.target.files[0]; if (!f) return;
+        const f = e.target.files && e.target.files[0];
+        try { document.body.removeChild(inp); } catch {}
+        if (!f) return;
+        if (f.size > 10 * 1024 * 1024) { toast('파일이 너무 큽니다 (10MB 제한)', 'error'); return; }
         const r = new FileReader();
+        r.onerror = () => toast('파일 읽기 실패', 'error');
         r.onload = () => {
+          let d;
           try {
-            const d = JSON.parse(r.result);
-            nodes = (d.nodes || []).map(n => {
-              if (!Array.isArray(n.contents)) n.contents = n.sub ? [n.sub] : [];
-              delete n.sub;
-              return n;
-            });
-            edges = d.edges || [];
-            nextId = (Math.max(0, ...nodes.map(n => n.id || 0))) + 1;
-            paint();
-            toast('가져왔습니다.', 'success');
-          } catch (e) { toast('파일 파싱 실패', 'error'); }
+            d = JSON.parse(r.result);
+          } catch (err) {
+            console.error('[orgchart import] parse error:', err);
+            toast('JSON 파일 형식이 올바르지 않습니다.', 'error');
+            return;
+          }
+          if (!d || typeof d !== 'object') { toast('잘못된 파일입니다.', 'error'); return; }
+          if (!Array.isArray(d.nodes)) { toast('노드 데이터가 없습니다 (nodes 배열 누락).', 'error'); return; }
+
+          // 가져올 데이터 정규화 — 옛 sub 필드 → contents 배열
+          const importedNodes = d.nodes.map(n => {
+            const node = { ...n };
+            if (!Array.isArray(node.contents)) node.contents = node.sub ? [node.sub] : [];
+            delete node.sub;
+            return node;
+          });
+          const importedEdges = Array.isArray(d.edges) ? d.edges : [];
+
+          // 사용자에게 확인 (현재 작업 덮어쓰기 경고)
+          confirmDialog(
+            `이 파일에서 <b>노드 ${importedNodes.length}개</b>, <b>연결 ${importedEdges.length}개</b>를 가져옵니다.<br><br>` +
+            `현재 화면의 조직도가 가져온 내용으로 교체됩니다.<br>` +
+            `<b style="color:#ef4444;">"💾 저장" 버튼을 눌러야 서버에 반영됩니다.</b><br><br>` +
+            `계속하시겠습니까?`,
+            () => {
+              nodes = importedNodes;
+              edges = importedEdges;
+              nextId = (Math.max(0, ...nodes.map(n => Number(n.id) || 0))) + 1;
+              try { paint(); } catch (e) { console.error('[orgchart import] paint error:', e); }
+              toast(`✅ ${nodes.length}개 노드 가져옴 — 💾 저장 버튼을 눌러 서버에 반영하세요.`, 'success');
+            }
+          );
         };
-        r.readAsText(f);
+        r.readAsText(f, 'utf-8');
       };
       inp.click();
     }
