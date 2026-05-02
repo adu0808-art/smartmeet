@@ -289,6 +289,8 @@ try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_org_custom_domain ON organi
 // Schedules: 회의 연동 — 회의 생성 시 자동 일정 추가, 회의 삭제 시 CASCADE 로 자동 제거
 //   meeting_id 가 설정된 일정은 회의에서 자동 생성된 것 → 직접 수정·삭제 불가 (회의 자체를 수정·삭제해야 함)
 try { db.exec("ALTER TABLE schedules ADD COLUMN meeting_id INTEGER REFERENCES meetings(id) ON DELETE CASCADE"); } catch (e) {}
+// Schedules: 종료 일자 (선택) — 여러 날 걸치는 일정 표시용
+try { db.exec("ALTER TABLE schedules ADD COLUMN end_date TEXT"); } catch (e) {}
 
 // 마이그레이션: 기존 회의(meeting_id 가 일정에 없는) → 일정에 자동 등록 (한 번만)
 try {

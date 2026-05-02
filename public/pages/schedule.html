@@ -86,6 +86,15 @@
       if (view === 'calendar') renderCalendar();
     }
 
+    // 일정의 상태 계산 — 다일 일정은 [start, end] 사이에 오늘이 들어오면 '오늘 진행 중'
+    function statusOf(s, todayStr) {
+      const start = s.schedule_date;
+      const end = s.end_date || s.schedule_date;
+      if (todayStr > end) return 'past';
+      if (todayStr < start) return 'future';
+      return 'today';
+    }
+
     function renderList() {
       const list = document.getElementById('listView');
       if (!schedules.length) {
@@ -94,18 +103,26 @@
       }
       const todayStr = new Date().toISOString().slice(0, 10);
       list.innerHTML = schedules.map(s => {
-        const stat = s.schedule_date < todayStr ? 'past' : s.schedule_date === todayStr ? 'today' : 'future';
+        const stat = statusOf(s, todayStr);
         const tag = stat === 'past' ? '<span class="tag tag-status-done">지난 일정</span>'
-                  : stat === 'today' ? '<span class="tag tag-status-progress">오늘</span>'
+                  : stat === 'today' ? '<span class="tag tag-status-progress">오늘 진행 중</span>'
                   : '<span class="tag tag-status-prep">예정</span>';
+        // 날짜 표시 — 단일이면 1줄, 다일이면 시작 ~ 종료
+        const startShort = s.schedule_date.slice(5).replace('-','/');
+        const endShort = s.end_date ? s.end_date.slice(5).replace('-','/') : '';
+        const dateNum = s.end_date && s.end_date !== s.schedule_date
+          ? `<div class="num" style="font-size:11px;line-height:1.4;">${startShort}<br>~<br>${endShort}</div>`
+          : `<div class="num" style="font-size:13px;">${startShort}</div>`;
+        const dateLabel = s.end_date && s.end_date !== s.schedule_date
+          ? `<span style="font-size:11.5px;color:var(--text-muted);margin-left:6px;">📅 ${s.schedule_date} ~ ${s.end_date}</span>` : '';
         return `
           <div class="agenda-item">
             <div class="agenda-no">
               <div class="small">DATE</div>
-              <div class="num" style="font-size:13px;">${s.schedule_date.slice(5).replace('-','/')}</div>
+              ${dateNum}
             </div>
             <div class="agenda-body">
-              <div class="agenda-title">${tag} ${s.title}</div>
+              <div class="agenda-title">${tag} ${s.title}${dateLabel}</div>
               <div class="agenda-summary">${s.description || ''}</div>
             </div>
             <div class="agenda-actions">
@@ -148,13 +165,27 @@
         const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
         const dow = i % 7;
         const isToday = dateStr === todayStr;
-        const events = schedules.filter(s => s.schedule_date === dateStr);
+        // 이 날짜에 걸치는 모든 이벤트 — schedule_date <= dateStr <= (end_date || schedule_date)
+        const events = schedules.filter(s => {
+          const start = s.schedule_date;
+          const end = s.end_date || s.schedule_date;
+          return start <= dateStr && dateStr <= end;
+        });
         html += `
           <div class="cal-cell ${muted?'muted':''} ${isToday?'today':''}" onclick="onCellClick('${dateStr}')">
             <div class="cal-day ${dow===0?'sun':''}${dow===6?'sat':''}">${day}</div>
             ${events.map(e => {
-              const cls = e.schedule_date < todayStr ? 'past' : e.schedule_date === todayStr ? 'today' : '';
-              return `<div class="cal-event ${cls}" title="${e.title}" onclick="event.stopPropagation();openForm(${JSON.stringify(e).replace(/"/g,'&quot;')})">${e.title}</div>`;
+              const start = e.schedule_date;
+              const end = e.end_date || e.schedule_date;
+              // 진행/지남/예정 상태
+              const cls = todayStr > end ? 'past' : (todayStr >= start && todayStr <= end) ? 'today' : '';
+              // 다일 일정에서 위치 표시 — 첫날/중간/마지막
+              const isMulti = e.end_date && e.end_date !== e.schedule_date;
+              const posCls = isMulti
+                ? (dateStr === start ? ' multi-start' : dateStr === end ? ' multi-end' : ' multi-mid')
+                : '';
+              const titleLabel = isMulti && dateStr !== start ? '··· ' + e.title : e.title;
+              return `<div class="cal-event ${cls}${posCls}" title="${e.title}${isMulti ? ` (${e.schedule_date} ~ ${e.end_date})` : ''}" onclick="event.stopPropagation();openForm(${JSON.stringify(e).replace(/"/g,'&quot;')})">${titleLabel}</div>`;
             }).join('')}
           </div>`;
       }
@@ -168,13 +199,24 @@
       modal({
         title: s.id ? '일정 수정' : '일정 추가',
         body: `
-          <div class="field"><label class="label">일정명 *</label><input class="input" id="sd_t" value="${s.title||''}"></div>
-          <div class="field"><label class="label">날짜 *</label><input class="input" id="sd_d" type="date" value="${s.schedule_date||''}"></div>
+          <div class="field"><label class="label">일정명 *</label><input class="input" id="sd_t" value="${(s.title||'').replace(/"/g,'&quot;')}"></div>
+          <div class="flex gap-12">
+            <div class="field flex-1"><label class="label">시작일 *</label><input class="input" id="sd_d" type="date" value="${s.schedule_date||''}"></div>
+            <div class="field flex-1"><label class="label">종료일 <span class="text-sm text-muted">(여러 날인 경우)</span></label><input class="input" id="sd_e" type="date" value="${s.end_date||''}"></div>
+          </div>
           <div class="field"><label class="label">설명</label><textarea class="textarea" id="sd_desc">${s.description||''}</textarea></div>
+          <div class="text-sm text-muted" style="background:var(--surface-2);padding:8px 10px;border-radius:6px;line-height:1.6;">
+            💡 시작일과 다른 날짜의 종료일을 입력하면 달력에 여러 날에 걸쳐 표시됩니다.
+          </div>
         `,
         confirmText: '저장',
         onConfirm: async () => {
-          const payload = { title: document.getElementById('sd_t').value.trim(), schedule_date: document.getElementById('sd_d').value, description: document.getElementById('sd_desc').value };
+          const payload = {
+            title: document.getElementById('sd_t').value.trim(),
+            schedule_date: document.getElementById('sd_d').value,
+            end_date: document.getElementById('sd_e').value || '',
+            description: document.getElementById('sd_desc').value
+          };
           if (!payload.title || !payload.schedule_date) { toast('필수값을 입력하세요.', 'error'); return false; }
           try { if (s.id) await api.put(`/api/schedules/${s.id}`, payload); else await api.post(`/api/schedules/${orgId}`, payload); toast('저장되었습니다.', 'success'); load(); }
           catch (e) { toast(e.message, 'error'); return false; }

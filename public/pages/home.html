@@ -1761,10 +1761,14 @@
         </div>`;
     }
     function scheduleCard(s) {
+      const isMulti = s.end_date && s.end_date !== s.schedule_date;
+      const dateLabel = isMulti
+        ? `${s.schedule_date.replace(/-/g,'.')} ~ ${s.end_date.replace(/-/g,'.')}`
+        : s.schedule_date.replace(/-/g, '.');
       return `
         <div class="schedule-card" onclick="openScheduleDetail(${s.id})" style="cursor:pointer;">
           <div class="icon">📅</div>
-          <div class="date">${s.schedule_date.replace(/-/g, '.')}</div>
+          <div class="date">${dateLabel}</div>
           <div class="title">${escapeHtml(s.title)}</div>
         </div>`;
     }
@@ -1933,9 +1937,9 @@
                   <div class="sched-row-dow">${dow}요일</div>
                 </div>
                 <div class="sched-row-body">
-                  <div class="sched-row-title">${escapeHtml(s.title)}${isMeetingLinked ? ' <span class="sched-row-badge">회의 연동</span>' : ''}</div>
+                  <div class="sched-row-title">${escapeHtml(s.title)}${isMeetingLinked ? ' <span class="sched-row-badge">이벤트 연동</span>' : ''}</div>
                   <div class="sched-row-meta">
-                    <span class="sched-row-fullday">${s.schedule_date.replace(/-/g,'.')}</span>
+                    <span class="sched-row-fullday">${s.schedule_date.replace(/-/g,'.')}${s.end_date && s.end_date !== s.schedule_date ? ` ~ ${s.end_date.replace(/-/g,'.')}` : ''}</span>
                     <span class="sched-row-dday${isToday ? ' today' : ''}">${dDay}</span>
                     ${meetingHint}
                   </div>
@@ -2040,16 +2044,27 @@
         const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
         const dow = i % 7;
         const isToday = dateStr === todayStr;
-        const events = dataSchedules.filter(s => s.schedule_date === dateStr);
+        // 다일 일정 — 시작 ~ 종료 사이 모든 날에 표시
+        const events = dataSchedules.filter(s => {
+          const start = s.schedule_date;
+          const end = s.end_date || s.schedule_date;
+          return start <= dateStr && dateStr <= end;
+        });
         const cellClick = isAdmin ? `onclick="schedCellClick('${dateStr}')"` : '';
         html += `
           <div class="cal-cell ${muted?'muted':''} ${isToday?'today':''}" ${cellClick}>
             <div class="cal-day ${dow===0?'sun':''}${dow===6?'sat':''}">${day}</div>
             ${events.map(e => {
-              const cls = e.schedule_date < todayStr ? 'past' : e.schedule_date === todayStr ? 'today' : '';
-              // 일정 클릭 시 상세 모달 (모든 사용자) — 셀 onclick(=일정 추가) 으로의 버블링 차단
+              const start = e.schedule_date;
+              const end = e.end_date || e.schedule_date;
+              const cls = todayStr > end ? 'past' : (todayStr >= start && todayStr <= end) ? 'today' : '';
+              const isMulti = e.end_date && e.end_date !== e.schedule_date;
+              const posCls = isMulti
+                ? (dateStr === start ? ' multi-start' : dateStr === end ? ' multi-end' : ' multi-mid')
+                : '';
+              const titleLabel = isMulti && dateStr !== start ? '··· ' + escapeHtml(e.title) : escapeHtml(e.title);
               const eventClick = `onclick="event.stopPropagation();openScheduleDetail(${e.id});"`;
-              return `<div class="cal-event ${cls}" title="${escapeHtml(e.title)}" style="cursor:pointer;" ${eventClick}>${escapeHtml(e.title)}</div>`;
+              return `<div class="cal-event ${cls}${posCls}" title="${escapeHtml(e.title)}${isMulti ? ` (${e.schedule_date} ~ ${e.end_date})` : ''}" style="cursor:pointer;" ${eventClick}>${titleLabel}</div>`;
             }).join('')}
           </div>`;
       }
@@ -2926,7 +2941,10 @@
         size: 'lg',
         body: `
           <div class="field"><label class="label">일정명 *</label><input class="input" id="sd_t" value="${(s.title||'').replace(/"/g,'&quot;')}"></div>
-          <div class="field"><label class="label">날짜 *</label><input class="input" id="sd_d" type="date" value="${s.schedule_date||''}"></div>
+          <div class="flex gap-12">
+            <div class="field flex-1"><label class="label">시작일 *</label><input class="input" id="sd_d" type="date" value="${s.schedule_date||''}"></div>
+            <div class="field flex-1"><label class="label">종료일 <span class="text-sm text-muted">(여러 날인 경우)</span></label><input class="input" id="sd_e" type="date" value="${s.end_date||''}"></div>
+          </div>
           <div class="field"><label class="label">내용</label><div id="sd_editor"></div></div>
         `,
         confirmText: '저장',
@@ -2934,6 +2952,7 @@
           const payload = {
             title: document.getElementById('sd_t').value.trim(),
             schedule_date: document.getElementById('sd_d').value,
+            end_date: document.getElementById('sd_e').value || '',
             description: editor ? editor.getHtml() : ''
           };
           if (!payload.title || !payload.schedule_date) { toast('필수값을 입력하세요.', 'error'); return false; }
@@ -2965,18 +2984,21 @@
         }
         return;
       }
-      const dateLabel = s.schedule_date ? s.schedule_date.replace(/-/g, '. ') : '';
+      // 다일 일정 — 시작일과 종료일이 다르면 범위로 표시
       const dow = ['일','월','화','수','목','금','토'];
-      let dowLabel = '';
-      try {
-        const d = new Date(s.schedule_date);
-        if (!isNaN(d)) dowLabel = ` (${dow[d.getDay()]})`;
-      } catch {}
+      const dowOf = (str) => {
+        try { const d = new Date(str); return isNaN(d) ? '' : ` (${dow[d.getDay()]})`; } catch { return ''; }
+      };
+      const startLabel = s.schedule_date ? s.schedule_date.replace(/-/g, '. ') + dowOf(s.schedule_date) : '';
+      const endLabel = (s.end_date && s.end_date !== s.schedule_date) ? s.end_date.replace(/-/g, '. ') + dowOf(s.end_date) : '';
+      const dateLabel = endLabel ? `${startLabel} ~ ${endLabel}` : startLabel;
       const today = new Date().toISOString().slice(0, 10);
-      const isPast = s.schedule_date < today;
-      const isToday = s.schedule_date === today;
-      const statusTag = isToday
-        ? '<span class="tag tag-status-progress">오늘</span>'
+      const start = s.schedule_date;
+      const end = s.end_date || s.schedule_date;
+      const isPast = today > end;
+      const isOngoing = today >= start && today <= end;
+      const statusTag = isOngoing
+        ? '<span class="tag tag-status-progress">' + (start === end ? '오늘' : '진행 중') + '</span>'
         : isPast
           ? '<span class="tag" style="background:var(--surface-2);color:var(--text-soft);">지난 일정</span>'
           : '<span class="tag tag-status-prep">예정</span>';

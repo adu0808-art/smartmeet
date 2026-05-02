@@ -88,7 +88,11 @@ function paintHero() {
   const s = document.getElementById('heroStatus');
   s.textContent = meetingStatusLabel[meeting.status] || meeting.status;
   s.className = 'tag ' + (meetingStatusClass[meeting.status] || '');
-  document.getElementById('heroDate').innerHTML = `🗓 ${fmtDate(meeting.meeting_date)}`;
+  // 시작 ~ 종료 (다일 이벤트 지원)
+  const dateLine = meeting.end_date && meeting.end_date.slice(0,10) !== String(meeting.meeting_date || '').slice(0,10)
+    ? `🗓 ${fmtDate(meeting.meeting_date)} <span style="opacity:0.7;">~</span> ${fmtDate(meeting.end_date)}`
+    : `🗓 ${fmtDate(meeting.meeting_date)}`;
+  document.getElementById('heroDate').innerHTML = dateLine;
   document.getElementById('heroLocation').innerHTML = `📍 ${meeting.location || '장소 미정'}`;
 }
 

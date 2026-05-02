@@ -123,10 +123,14 @@ router.get('/schedules/:orgId', requireOrg(req => req.params.orgId, 'read'), (re
 });
 
 router.post('/schedules/:orgId', requireOrg(req => req.params.orgId, 'write'), (req, res) => {
-  const { title, schedule_date, description } = req.body || {};
+  const { title, schedule_date, end_date, description } = req.body || {};
   if (!title || !schedule_date) return res.status(400).json({ error: '필수값 누락' });
-  const result = db.prepare('INSERT INTO schedules (organization_id, title, schedule_date, description) VALUES (?, ?, ?, ?)')
-    .run(req.params.orgId, title, schedule_date, description || '');
+  // end_date 가 schedule_date 보다 이전이면 정규화 (서로 바꾸기)
+  let s = String(schedule_date).slice(0, 10);
+  let e = end_date ? String(end_date).slice(0, 10) : '';
+  if (e && e < s) { const t = s; s = e; e = t; }
+  const result = db.prepare('INSERT INTO schedules (organization_id, title, schedule_date, end_date, description) VALUES (?, ?, ?, ?, ?)')
+    .run(req.params.orgId, title, s, e || null, description || '');
   const schedule = db.prepare('SELECT * FROM schedules WHERE id = ?').get(result.lastInsertRowid);
   res.json({ schedule });
 });
@@ -138,12 +142,15 @@ router.put('/schedules/:id', authRequired, (req, res) => {
   // ★ 회의에서 자동 생성된 일정은 직접 수정 차단 (회의 자체를 수정해야 함)
   if (sched.meeting_id) {
     return res.status(400).json({
-      error: '이 일정은 회의에서 자동 생성된 항목입니다.\n수정하려면 회의 관리에서 해당 회의를 수정하세요.',
+      error: '이 일정은 이벤트에서 자동 생성된 항목입니다.\n수정하려면 이벤트 관리에서 해당 이벤트를 수정하세요.',
       meetingId: sched.meeting_id
     });
   }
-  const { title, schedule_date, description } = req.body || {};
-  db.prepare('UPDATE schedules SET title = ?, schedule_date = ?, description = ? WHERE id = ?').run(title, schedule_date, description || '', req.params.id);
+  const { title, schedule_date, end_date, description } = req.body || {};
+  let s = String(schedule_date || '').slice(0, 10);
+  let e = end_date ? String(end_date).slice(0, 10) : '';
+  if (e && s && e < s) { const t = s; s = e; e = t; }
+  db.prepare('UPDATE schedules SET title = ?, schedule_date = ?, end_date = ?, description = ? WHERE id = ?').run(title, s, e || null, description || '', req.params.id);
   res.json({ ok: true });
 });
 

@@ -1464,6 +1464,13 @@ select.input, select.select { cursor: pointer; }
 }
 .cal-event.past { background: var(--surface-2); color: var(--text-muted); }
 .cal-event.today { background: var(--accent); color: white; }
+/* 다일 일정 — 시작/중간/끝을 시각적으로 구분 (왼쪽 색띠 + 약간 다른 음영) */
+.cal-event.multi-start, .cal-event.multi-mid, .cal-event.multi-end {
+  border-left: 3px solid currentColor;
+  position: relative;
+}
+.cal-event.multi-mid { opacity: 0.85; }
+.cal-event.multi-mid::before { content: ''; }
 
 /* ========== 조직도 핸들/도구 ========== */
 /* 보기 모드와 동일하게 보이도록 — 호버 시에만 박스 위쪽에 액션 툴바를 띄워 노출 (제목 가리지 않음).
