@@ -11,8 +11,21 @@ router.use(adminRequired);
 // === 이메일 발송 진단 — 시스템 관리자 전용 ===
 //   Resend SDK 환경변수 상태 + 시험 발송
 router.get('/smtp-status', (req, res) => {
+  const apiKey = process.env.RESEND_API_KEY || '';
+  // 키 진단 — 앞 5자 + 길이 + 끝 4자 + 공백/줄바꿈 검사
+  const keyDiag = apiKey ? {
+    length: apiKey.length,
+    prefix: apiKey.slice(0, 5),
+    suffix: apiKey.slice(-4),
+    starts_with_re_: apiKey.startsWith('re_'),
+    has_leading_space: /^\s/.test(apiKey),
+    has_trailing_space: /\s$/.test(apiKey),
+    has_newline: /[\r\n]/.test(apiKey),
+    has_quotes: /["']/.test(apiKey)
+  } : null;
+
   const env = {
-    RESEND_API_KEY: process.env.RESEND_API_KEY ? `[${process.env.RESEND_API_KEY.length}자 설정됨, ${process.env.RESEND_API_KEY.slice(0, 3)}...]` : null,
+    RESEND_API_KEY: apiKey ? `[${apiKey.length}자 설정됨, ${apiKey.slice(0, 5)}...${apiKey.slice(-4)}]` : null,
     SMTP_FROM: process.env.SMTP_FROM || null,
     NODE_ENV: process.env.NODE_ENV || null
   };
@@ -21,10 +34,38 @@ router.get('/smtp-status', (req, res) => {
     enabled: isEnabled,
     provider: 'Resend',
     env_summary: env,
+    key_diagnostic: keyDiag,
     computed: {
       from: process.env.SMTP_FROM || 'SmartMeet <onboarding@resend.dev>'
     }
   });
+});
+
+// API key 자체를 Resend 에 직접 검증 (실제 발송 ✗)
+router.post('/smtp-test-key', async (req, res) => {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) return res.status(400).json({ error: 'RESEND_API_KEY 미설정' });
+
+  try {
+    // Resend 의 가벼운 GET 엔드포인트로 키 검증
+    const resp = await fetch('https://api.resend.com/api-keys', {
+      headers: { 'Authorization': `Bearer ${apiKey}` }
+    });
+    const body = await resp.text();
+    let parsed;
+    try { parsed = JSON.parse(body); } catch { parsed = body; }
+
+    res.json({
+      http_status: resp.status,
+      ok: resp.ok,
+      response: parsed,
+      key_length: apiKey.length,
+      key_prefix: apiKey.slice(0, 5),
+      key_suffix: apiKey.slice(-4)
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 router.post('/smtp-test', async (req, res) => {

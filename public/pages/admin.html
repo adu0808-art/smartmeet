@@ -308,6 +308,24 @@
             </tbody>
           </table>
 
+          ${status.key_diagnostic ? `
+          <div class="card-title mb-8" style="font-size:13px;">🔬 API Key 상세 진단</div>
+          <table class="table" style="font-size:13px;margin-bottom:16px;">
+            <tbody>
+              <tr><td style="color:var(--text-muted);">길이</td><td style="font-family:monospace;${status.key_diagnostic.length < 30 || status.key_diagnostic.length > 60 ? 'color:#ef4444;' : 'color:#10b981;'}">${status.key_diagnostic.length}자 ${status.key_diagnostic.length < 30 ? '⚠️ 너무 짧음' : status.key_diagnostic.length > 60 ? '⚠️ 너무 김' : '✓'}</td></tr>
+              <tr><td style="color:var(--text-muted);">시작값 (prefix)</td><td style="font-family:monospace;">${status.key_diagnostic.prefix}</td></tr>
+              <tr><td style="color:var(--text-muted);">끝값 (suffix)</td><td style="font-family:monospace;">${status.key_diagnostic.suffix}</td></tr>
+              <tr><td style="color:var(--text-muted);">'re_' 로 시작?</td><td>${status.key_diagnostic.starts_with_re_ ? '✅ 예' : '❌ 아니오 (잘못된 키)'}</td></tr>
+              <tr><td style="color:var(--text-muted);">앞 공백 있음?</td><td>${status.key_diagnostic.has_leading_space ? '❌ 있음 (제거 필요)' : '✅ 없음'}</td></tr>
+              <tr><td style="color:var(--text-muted);">뒤 공백 있음?</td><td>${status.key_diagnostic.has_trailing_space ? '❌ 있음 (제거 필요)' : '✅ 없음'}</td></tr>
+              <tr><td style="color:var(--text-muted);">줄바꿈 포함?</td><td>${status.key_diagnostic.has_newline ? '❌ 있음 (한 줄로 입력)' : '✅ 없음'}</td></tr>
+              <tr><td style="color:var(--text-muted);">따옴표 포함?</td><td>${status.key_diagnostic.has_quotes ? '❌ 있음 (따옴표 제거)' : '✅ 없음'}</td></tr>
+            </tbody>
+          </table>
+          <button type="button" class="btn btn-block mb-12" onclick="checkKey()">🔬 API Key 를 Resend 에 직접 검증</button>
+          <div id="key_check_result" style="margin-bottom:12px;"></div>
+          ` : ''}
+
           <div class="field">
             <label class="label">테스트 메일 수신자</label>
             <input class="input" id="smtp_test_to" type="email" placeholder="your-email@example.com" value="${(window._lastSmtpTestTo||'').replace(/"/g,'&quot;')}">
@@ -319,6 +337,32 @@
         onConfirm: () => {}
       });
       setTimeout(() => {
+        // API Key 직접 검증 버튼
+        window.checkKey = async () => {
+          const result = document.getElementById('key_check_result');
+          if (result) result.innerHTML = '<div class="text-sm text-muted">검증 중...</div>';
+          try {
+            const r = await api.post('/api/admin/smtp-test-key', {});
+            if (r.ok) {
+              result.innerHTML = `
+                <div style="background:rgba(16,185,129,0.1);color:#047857;padding:12px;border-radius:8px;">
+                  <div class="fw-700">✅ API Key 유효 (Resend 인증 OK)</div>
+                  <div class="text-sm mt-8">발송 실패는 다른 원인입니다 — From 도메인 미검증, 수신자 제한 등.</div>
+                  <div class="text-sm" style="font-family:monospace;color:#475569;">HTTP ${r.http_status}</div>
+                </div>`;
+            } else {
+              result.innerHTML = `
+                <div style="background:rgba(239,68,68,0.1);color:#b91c1c;padding:12px;border-radius:8px;">
+                  <div class="fw-700">❌ API Key 무효 (Resend 거부)</div>
+                  <div class="text-sm mt-8">새 키 발급이 필요합니다.</div>
+                  <div class="text-sm" style="font-family:monospace;background:#fff;padding:8px;border-radius:4px;margin-top:6px;">HTTP ${r.http_status}<br>${JSON.stringify(r.response, null, 2)}</div>
+                </div>`;
+            }
+          } catch (e) {
+            result.innerHTML = `<div style="background:rgba(239,68,68,0.1);color:#b91c1c;padding:12px;border-radius:8px;">검증 실패: ${e.message}</div>`;
+          }
+        };
+
         const btn = document.getElementById('smtp_test_btn');
         if (!btn) return;
         btn.onclick = async () => {
