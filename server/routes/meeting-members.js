@@ -309,7 +309,9 @@ router.post('/send-invitations', authRequired, async (req, res) => {
   const escape = (s) => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
   const makeMessage = (m) => {
-    const rsvpUrl = `${baseUrl}/rsvp?token=${m.invitation_token}`;
+    // 메일에서 직접 클릭하면 한 번에 응답 기록 — 별도 응답 페이지 없음
+    const yesUrl = `${baseUrl}/rsvp-action?token=${m.invitation_token}&action=attending`;
+    const noUrl  = `${baseUrl}/rsvp-action?token=${m.invitation_token}&action=declined`;
     const subject = `[${org?.name || 'SmartMeet'}] ${meeting.title} 초대 안내`;
     const html = `
       <div style="font-family:'Pretendard','Malgun Gothic',sans-serif;max-width:560px;margin:auto;padding:24px;color:#1a202c;">
@@ -326,16 +328,28 @@ router.post('/send-invitations', authRequired, async (req, res) => {
             ${meeting.location ? `<tr><td style="padding:6px 10px;color:#64748b;">장소</td><td style="padding:6px 10px;font-weight:600;">${escape(meeting.location || '')}</td></tr>` : ''}
           </table>
           <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:18px;margin:18px 0;text-align:center;">
-            <p style="font-size:14px;color:#1e3a8a;font-weight:600;margin:0 0 14px;">
+            <p style="font-size:14px;color:#1e3a8a;font-weight:700;margin:0 0 14px;">
               ✋ 참석 여부를 알려주세요
             </p>
-            <a href="${rsvpUrl}"
-               style="background:#10b981;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block;margin:4px 6px;">
-              ✅ 참석 / 불참 응답
-            </a>
-            <p style="font-size:11px;color:#64748b;margin:12px 0 0;">
-              버튼이 동작하지 않으면 다음 링크를 브라우저에 붙여넣으세요:<br>
-              <a href="${rsvpUrl}" style="color:#3b82f6;word-break:break-all;">${rsvpUrl}</a>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
+              <tr>
+                <td style="padding:4px 6px;">
+                  <a href="${yesUrl}"
+                     style="background:#10b981;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block;font-size:15px;">
+                    ✅ 참석
+                  </a>
+                </td>
+                <td style="padding:4px 6px;">
+                  <a href="${noUrl}"
+                     style="background:#fff;color:#ef4444;border:2px solid #ef4444;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block;font-size:15px;">
+                    ❌ 불참
+                  </a>
+                </td>
+              </tr>
+            </table>
+            <p style="font-size:11px;color:#64748b;margin:14px 0 0;line-height:1.6;">
+              위 버튼을 한 번 누르시면 응답이 즉시 저장됩니다.<br>
+              응답 후에도 다시 변경할 수 있습니다.
             </p>
           </div>
           <p style="font-size:14px;color:#374151;line-height:1.7;">
@@ -347,7 +361,7 @@ router.post('/send-invitations', authRequired, async (req, res) => {
         </div>
       </div>
     `;
-    const text = `[${org?.name || ''}] ${meeting.title}\n\n${m.name} 님,\n\n일시: ${dateStr}\n장소: ${meeting.location || ''}\n\n참석 여부를 다음 링크에서 응답해 주세요:\n${rsvpUrl}\n\n많은 참석 부탁드립니다.`;
+    const text = `[${org?.name || ''}] ${meeting.title}\n\n${m.name} 님,\n\n일시: ${dateStr}\n장소: ${meeting.location || ''}\n\n참석 여부 응답:\n  참석: ${yesUrl}\n  불참: ${noUrl}\n\n많은 참석 부탁드립니다.`;
     return { subject, html, text };
   };
 
