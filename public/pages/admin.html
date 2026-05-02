@@ -152,17 +152,23 @@
               <option value="admin" ${u.role==='admin'?'selected':''}>관리자</option>
             </select>
           </div>
-          <div class="field"><label class="label">새 비밀번호 (변경 시에만 입력)</label><input class="input" id="u_pw" type="password" placeholder="6자 이상"></div>
+          <div class="field"><label class="label">새 비밀번호 (변경 시에만 입력)</label><input class="input" id="u_pw" type="password" placeholder="${PASSWORD_POLICY.REQUIREMENTS_TEXT}"></div>
         `,
         confirmText: '저장',
         onConfirm: async () => {
           const payload = { name: document.getElementById('u_name').value.trim(), role: document.getElementById('u_role').value };
           const pw = document.getElementById('u_pw').value;
-          if (pw) payload.password = pw;
+          if (pw) {
+            const pwErr = PASSWORD_POLICY.validate(pw);
+            if (pwErr) { toast(pwErr, 'error'); return false; }
+            payload.password = pw;
+          }
           try { await api.put(`/api/admin/users/${u.id}`, payload); toast('저장되었습니다.', 'success'); loadUsers(); }
           catch (e) { toast(e.message, 'error'); return false; }
         }
       });
+      // 비밀번호 입력 필드에 실시간 정책 체크 부착 (모달이 DOM에 추가된 직후)
+      setTimeout(() => attachPasswordPolicy(document.getElementById('u_pw')), 30);
     }
 
     function delUser(id) {

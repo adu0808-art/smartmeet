@@ -41,11 +41,11 @@
       </div>
       <div class="field">
         <label class="label">비밀번호 *</label>
-        <input class="input" type="password" name="password" placeholder="6자 이상" required minlength="6" autocomplete="new-password" />
+        <input class="input" type="password" name="password" id="reg_password" placeholder="8자 이상, 영문 대/소문자·숫자·특수문자 포함" required minlength="8" autocomplete="new-password" />
       </div>
       <div class="field">
         <label class="label">비밀번호 확인 *</label>
-        <input class="input" type="password" name="password2" placeholder="다시 입력" required minlength="6" autocomplete="new-password" />
+        <input class="input" type="password" name="password2" placeholder="다시 입력" required minlength="8" autocomplete="new-password" />
       </div>
       <button type="submit" class="btn btn-primary btn-block btn-lg">계정 만들기</button>
     </form>
@@ -125,11 +125,21 @@
       } catch (e) { toast(e.message, 'error'); }
     }
 
+    // 비밀번호 입력 시 실시간 정책 체크 UI 표시
+    attachPasswordPolicy(document.getElementById('reg_password'));
+
     document.getElementById('registerForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
       const err = document.getElementById('err');
       err.classList.remove('active');
+      // 비밀번호 정책 검증
+      const pwErr = PASSWORD_POLICY.validate(fd.get('password'));
+      if (pwErr) {
+        err.textContent = pwErr;
+        err.classList.add('active');
+        return;
+      }
       if (fd.get('password') !== fd.get('password2')) {
         err.textContent = '비밀번호가 일치하지 않습니다.';
         err.classList.add('active');

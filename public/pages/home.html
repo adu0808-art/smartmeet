@@ -3160,19 +3160,35 @@
         body: `
           <div class="text-sm text-muted mb-12"><b>${uname}</b> 회원의 비밀번호를 초기화합니다.<br>새 비밀번호를 회원에게 안전하게 전달해주세요.</div>
           <div class="field"><label class="label">새 비밀번호 *</label>
-            <input class="input" id="hpw_new" type="text" placeholder="6자 이상" autocomplete="off">
+            <input class="input" id="hpw_new" type="text" placeholder="${PASSWORD_POLICY.REQUIREMENTS_TEXT}" autocomplete="off">
           </div>
-          <div class="text-sm text-muted">💡 <a href="javascript:void(0)" onclick="document.getElementById('hpw_new').value=Math.random().toString(36).slice(-10);">자동 생성</a></div>`,
+          <div class="text-sm text-muted">💡 <a href="javascript:void(0)" onclick="genStrongPassword();">자동 생성 (정책 준수)</a></div>`,
         confirmText: '초기화',
         onConfirm: async () => {
           const password = document.getElementById('hpw_new').value.trim();
-          if (!password || password.length < 6) { toast('6자 이상 입력하세요.', 'error'); return false; }
+          const pwErr = PASSWORD_POLICY.validate(password);
+          if (pwErr) { toast(pwErr, 'error'); return false; }
           try {
             await api.post(`/api/organizations/${orgId}/users/${uid}/reset-password`, { password });
             toast('비밀번호가 초기화되었습니다.', 'success');
           } catch (e) { toast(e.message, 'error'); return false; }
         }
       });
+      setTimeout(() => attachPasswordPolicy(document.getElementById('hpw_new')), 30);
+    }
+    // 정책을 만족하는 강력 비밀번호 자동 생성 (자동 생성 링크용)
+    function genStrongPassword() {
+      const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+      const lower = 'abcdefghijkmnpqrstuvwxyz';
+      const digit = '23456789';
+      const special = '!@#$%^&*-_+=';
+      const all = upper + lower + digit + special;
+      const pick = (s) => s[Math.floor(Math.random() * s.length)];
+      let pw = pick(upper) + pick(lower) + pick(digit) + pick(special);
+      for (let i = 0; i < 8; i++) pw += pick(all);
+      pw = pw.split('').sort(() => Math.random() - 0.5).join('');
+      const el = document.getElementById('hpw_new');
+      if (el) { el.value = pw; el.dispatchEvent(new Event('input')); }
     }
 
     // 초대 링크

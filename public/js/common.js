@@ -1,3 +1,59 @@
+// ========== 비밀번호 정책 (서버와 동기화) ==========
+//   8자 이상 + 영문 대/소문자·숫자·특수문자 각 1자 이상
+const PASSWORD_POLICY = {
+  MIN_LEN: 8,
+  REQUIREMENTS_TEXT: '8자 이상, 영문 대/소문자·숫자·특수문자 각 1자 이상 포함',
+  validate(password) {
+    if (typeof password !== 'string' || !password) return '비밀번호를 입력하세요.';
+    if (password.length < 8) return '비밀번호는 8자 이상이어야 합니다.';
+    if (!/[A-Z]/.test(password)) return '비밀번호는 영문 대문자가 1자 이상 포함되어야 합니다.';
+    if (!/[a-z]/.test(password)) return '비밀번호는 영문 소문자가 1자 이상 포함되어야 합니다.';
+    if (!/[0-9]/.test(password)) return '비밀번호는 숫자가 1자 이상 포함되어야 합니다.';
+    if (!/[^A-Za-z0-9]/.test(password)) return '비밀번호는 특수문자가 1자 이상 포함되어야 합니다.';
+    return null;  // 통과
+  },
+  // 각 규칙별 충족 여부 체크 (실시간 표시용)
+  check(password) {
+    const p = String(password || '');
+    return {
+      length:  p.length >= 8,
+      upper:   /[A-Z]/.test(p),
+      lower:   /[a-z]/.test(p),
+      digit:   /[0-9]/.test(p),
+      special: /[^A-Za-z0-9]/.test(p)
+    };
+  }
+};
+
+// 비밀번호 입력 필드에 실시간 검증 UI 자동 부착
+//   사용: attachPasswordPolicy(inputEl)
+//   inputEl 의 부모에 체크리스트가 자동 삽입됨
+function attachPasswordPolicy(inputEl) {
+  if (!inputEl || inputEl._policyAttached) return;
+  inputEl._policyAttached = true;
+  const list = document.createElement('div');
+  list.className = 'password-policy-hint';
+  list.innerHTML = `
+    <div class="pp-row" data-rule="length">  <span class="pp-icon">✗</span> 8자 이상</div>
+    <div class="pp-row" data-rule="upper">   <span class="pp-icon">✗</span> 영문 대문자 1자 이상</div>
+    <div class="pp-row" data-rule="lower">   <span class="pp-icon">✗</span> 영문 소문자 1자 이상</div>
+    <div class="pp-row" data-rule="digit">   <span class="pp-icon">✗</span> 숫자 1자 이상</div>
+    <div class="pp-row" data-rule="special"> <span class="pp-icon">✗</span> 특수문자 1자 이상 (! @ # $ % 등)</div>
+  `;
+  inputEl.parentNode.insertBefore(list, inputEl.nextSibling);
+  const update = () => {
+    const r = PASSWORD_POLICY.check(inputEl.value);
+    list.querySelectorAll('.pp-row').forEach(row => {
+      const rule = row.dataset.rule;
+      const ok = !!r[rule];
+      row.classList.toggle('ok', ok);
+      row.querySelector('.pp-icon').textContent = ok ? '✓' : '✗';
+    });
+  };
+  inputEl.addEventListener('input', update);
+  update();
+}
+
 // ========== API helper ==========
 const api = {
   async req(method, url, body) {

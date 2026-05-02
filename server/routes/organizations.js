@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const db = require('../db');
 const { authRequired } = require('../auth-mw');
 const { getOrgRole, requireOrg, isAdmin } = require('../permissions');
+const passwordPolicy = require('../password-policy');
 
 const router = express.Router();
 router.use(authRequired);
@@ -185,9 +186,8 @@ router.delete('/:id/users/:userId', requireOrg(req => req.params.id, 'write'), (
 // 기관 관리자용: 소속 회원의 비밀번호 초기화
 router.post('/:id/users/:userId/reset-password', requireOrg(req => req.params.id, 'write'), (req, res) => {
   const { password } = req.body || {};
-  if (!password || String(password).length < 6) {
-    return res.status(400).json({ error: '비밀번호는 6자 이상이어야 합니다.' });
-  }
+  const pwErr = passwordPolicy.validate(password);
+  if (pwErr) return res.status(400).json({ error: pwErr });
   const member = db.prepare('SELECT id FROM organization_members WHERE organization_id = ? AND user_id = ?')
     .get(req.params.id, req.params.userId);
   if (!member) return res.status(404).json({ error: '소속 회원이 아닙니다.' });

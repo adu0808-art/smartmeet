@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const db = require('../db');
 const { adminRequired } = require('../auth-mw');
+const passwordPolicy = require('../password-policy');
 
 const router = express.Router();
 router.use(adminRequired);
@@ -36,6 +37,8 @@ router.get('/users', (req, res) => {
 router.put('/users/:id', (req, res) => {
   const { name, role, password, phone, major, workplace, bio } = req.body || {};
   if (password) {
+    const pwErr = passwordPolicy.validate(password);
+    if (pwErr) return res.status(400).json({ error: pwErr });
     const hash = bcrypt.hashSync(password, 10);
     db.prepare(`UPDATE users SET
         name = COALESCE(?, name), role = COALESCE(?, role),

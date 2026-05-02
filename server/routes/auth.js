@@ -2,13 +2,15 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const db = require('../db');
 const { sign, authRequired } = require('../auth-mw');
+const passwordPolicy = require('../password-policy');
 
 const router = express.Router();
 
 router.post('/register', (req, res) => {
   const { email, password, name, phone, workplace, invite_token } = req.body || {};
   if (!email || !password || !name) return res.status(400).json({ error: '모든 항목을 입력해주세요.' });
-  if (password.length < 6) return res.status(400).json({ error: '비밀번호는 6자 이상이어야 합니다.' });
+  const pwErr = passwordPolicy.validate(password);
+  if (pwErr) return res.status(400).json({ error: pwErr });
 
   const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
   if (existing) return res.status(400).json({ error: '이미 등록된 이메일입니다.' });
