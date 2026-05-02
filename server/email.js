@@ -16,10 +16,9 @@ let _client = null;
 function getClient() {
     if (_client) return _client;
     if (!Resend) return null;
-    if (!process.env.RESEND_API_KEY) {
-          return null; // 설정 없음
-    }
-    _client = new Resend(process.env.RESEND_API_KEY);
+    if (!process.env.RESEND_API_KEY) return null;
+
+    _client = new Resend(process.env.RESEND_API_KEY); // ✅ 수정 1, 2
     console.log('[email] Resend 클라이언트 초기화 완료');
     return _client;
 }
@@ -31,32 +30,32 @@ function isEnabled() {
 async function sendEmail({ to, subject, html, text, from }) {
     const client = getClient();
     if (!client) {
-          throw new Error('이메일 발송이 설정되지 않았습니다. RESEND_API_KEY 환경변수를 설정해주세요.');
+        throw new Error('이메일 발송이 설정되지 않았습니다. RESEND_API_KEY 환경변수를 설정해주세요.');
     }
     if (!to) throw new Error('수신자 이메일이 비어있습니다.');
 
-  const sender = from || process.env.SMTP_FROM || 'SmartMeet <onboarding@resend.dev>';
+    const sender = from || process.env.SMTP_FROM || 'SmartMeet <onboarding@resend.dev>';
 
-  try {
+    try {
         const { data, error } = await client.emails.send({
-                from: sender,
-                to: Array.isArray(to) ? to : [to],
-                subject,
-                html,
-                text,
+            from: sender,
+            to: Array.isArray(to) ? to : [to],
+            subject,
+            html,
+            text,
         });
 
-      if (error) {
-              console.error('[email] ❌ 발송 실패:', { to, error });
-              throw new Error(error.message || '이메일 발송 실패');
-      }
+        if (error) {
+            console.error('[email] ❌ 발송 실패:', { to, error });
+            throw new Error(error.message || '이메일 발송 실패');
+        }
 
-      console.log(`[email] 발송 성공 → ${to} id=${data.id}`);
+        console.log(`[email] 발송 성공 → ${to} id=${data.id}`); // ✅ 수정 3
         return data;
-  } catch (e) {
+    } catch (e) {
         console.error('[email] ❌ 발송 실패:', { to, message: e.message });
         throw e;
-  }
+    }
 }
 
 module.exports = { sendEmail, isEnabled };
