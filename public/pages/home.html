@@ -1900,8 +1900,19 @@
               dDay = days === 0 ? 'D-DAY' : `D-${days}`;
             }
             const isMeetingLinked = !!s.meeting_id;
+            // 회의 연동 일정 클릭:
+            //   - 관리자 → 회의 상세 페이지로 이동
+            //   - 일반회원 → 일정 모달로 정보 표시 (회의 페이지 접근 권한 없음)
+            const clickHandler = (isMeetingLinked && isAdmin)
+              ? `openMeetingDetailInline(${s.meeting_id})`
+              : `openScheduleDetail(${s.id})`;
+            const meetingHint = isMeetingLinked
+              ? (isAdmin
+                  ? '<span class="text-sm text-muted">→ 회의 상세로 이동</span>'
+                  : '<span class="text-sm text-muted">→ 일정 정보 보기</span>')
+              : '';
             return `
-              <div class="sched-row${isToday ? ' is-today' : ''}${isMeetingLinked ? ' is-meeting-linked' : ''}" onclick="${isMeetingLinked ? `openMeetingDetailInline(${s.meeting_id})` : `openScheduleDetail(${s.id})`}">
+              <div class="sched-row${isToday ? ' is-today' : ''}${isMeetingLinked ? ' is-meeting-linked' : ''}" onclick="${clickHandler}">
                 <div class="sched-row-date">
                   <div class="sched-row-month">${(d.getMonth()+1).toString().padStart(2,'0')}월</div>
                   <div class="sched-row-day">${d.getDate()}</div>
@@ -1912,7 +1923,7 @@
                   <div class="sched-row-meta">
                     <span class="sched-row-fullday">${s.schedule_date.replace(/-/g,'.')}</span>
                     <span class="sched-row-dday${isToday ? ' today' : ''}">${dDay}</span>
-                    ${isMeetingLinked ? '<span class="text-sm text-muted">→ 클릭하면 회의 상세로 이동</span>' : ''}
+                    ${meetingHint}
                   </div>
                 </div>
                 ${isAdmin && !isMeetingLinked ? `
@@ -2930,8 +2941,9 @@
     function openScheduleDetail(id) {
       const s = dataSchedules.find(x => x.id === Number(id));
       if (!s) { toast('일정 정보를 찾을 수 없습니다.', 'error'); return; }
-      // 회의에서 자동 생성된 일정이면 바로 회의 상세로 이동
-      if (s.meeting_id) {
+      // 회의 연동 일정 + 관리자 → 회의 상세 페이지로 이동
+      // 일반회원은 일정 모달로 description (장소·시간 등) 정보만 표시
+      if (s.meeting_id && isAdmin) {
         if (typeof openMeetingDetailInline === 'function') {
           openMeetingDetailInline(s.meeting_id);
         } else {
