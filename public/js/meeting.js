@@ -32,21 +32,22 @@ function applyRoleGates() {
 }
 
 function applyTypeGates() {
-  // For '일반' (regular) meetings: hide quorum panel, proxy-related buttons, and formal tabs
+  // For '일반' (regular) meetings:
+  //   - 정족수 패널·의안·위임장 탭은 숨김 (의미 없음)
+  //   - 출석부(의원관리) 탭은 표시 (사용자 요청)
+  //   - 초대장 버튼은 표시
   const formal = isFormalMeeting(meeting.meeting_type);
-  // Hide quorum + summary cards (right panel)
+  // Hide quorum + summary cards (right panel) — 일반 회의는 정족수 의미 없음
   const rp = document.querySelector('.rightpanel');
   if (rp) rp.style.display = formal ? '' : 'none';
   const wrap = document.querySelector('.with-rightpanel');
   if (wrap) wrap.style.gridTemplateColumns = formal ? '1fr var(--rightpanel-w)' : '1fr';
-  // Hide tabs that don't apply
-  const tabsToHide = ['agendas', 'members', 'proxies'];
+  // 일반 회의에서 숨길 탭: 의안 + 위임장 (출석부는 유지)
+  const tabsToHide = ['agendas', 'proxies'];
   document.querySelectorAll('#tabs .tab').forEach(t => {
     if (tabsToHide.includes(t.dataset.tab)) t.style.display = formal ? '' : 'none';
   });
-  // Hide invitation button (proxy-related) for regular type
-  const invBtn = document.getElementById('invitationBtn');
-  if (invBtn && !formal) invBtn.style.display = 'none';
+  // 초대장 버튼은 모든 회의 유형에 표시 (사용자 요청)
   if (!formal) {
     // Switch to TOC tab if currently on a hidden one
     if (tabsToHide.includes(activeTab)) {
@@ -261,7 +262,7 @@ async function openTocForm(existing) {
     title: existing ? '목차 항목 수정' : '목차 항목 추가',
     size: 'lg',
     body: `
-      ${!existing ? `
+      ${!existing && isFormalMeeting(meeting.meeting_type) ? `
       <div class="field">
         <label class="label">유형</label>
         <div class="flex gap-12">
@@ -683,12 +684,16 @@ function renderMembers() {
 
   // Bulk action bar
   const selN = _memberSelected.size;
+  const formal = isFormalMeeting(meeting.meeting_type);
   const bulkBar = `
     <div class="flex items-center gap-8 mb-12" style="flex-wrap:wrap;">
       <span class="text-sm text-muted">선택 ${selN}명</span>
       <button class="btn btn-sm btn-danger" ${selN ? '' : 'disabled'} onclick="bulkDeleteMembers()">선택 삭제</button>
       <button class="btn btn-sm" ${selN ? '' : 'disabled'} onclick="bulkMarkAttend(true)">선택 출석</button>
       <button class="btn btn-sm" ${selN ? '' : 'disabled'} onclick="bulkMarkAttend(false)">선택 불참</button>
+      <span style="width:1px;background:var(--border);height:24px;"></span>
+      <button class="btn btn-sm" ${selN ? '' : 'disabled'} onclick="bulkSendInvitations()" title="선택한 의원에게 초대장 메일 발송">📩 초대장 발송</button>
+      ${formal ? `<button class="btn btn-sm" ${selN ? '' : 'disabled'} onclick="bulkSendProxies()" title="선택한 의원에게 위임장 메일 발송">📋 위임장 발송</button>` : ''}
     </div>`;
 
   if (!list.length) {
@@ -696,6 +701,11 @@ function renderMembers() {
     return;
   }
   const allSelected = list.length && list.every(m => _memberSelected.has(m.id));
+  // 발송 상태 아이콘 헬퍼
+  const sentIcon = (sentAt, label) => sentAt
+    ? `<span title="${label} 발송됨: ${sentAt}" style="color:#10b981;font-weight:700;">✓</span>`
+    : `<span title="${label} 미발송" style="color:#cbd5e0;">·</span>`;
+
   root.innerHTML = bulkBar + `
     <table class="table">
       <thead><tr>
@@ -707,6 +717,7 @@ function renderMembers() {
         <th>전화번호</th>
         <th style="width:110px;">상태</th>
         <th style="width:50px;text-align:center;" title="출석 체크">출석</th>
+        <th style="width:80px;text-align:center;" title="이메일 발송 상태 — 초대장 / 위임장">📩 발송</th>
         <th style="width:120px;text-align:right;">작업</th>
       </tr></thead>
       <tbody id="memberRows">
@@ -716,7 +727,7 @@ function renderMembers() {
             <td class="member-drag-handle" style="text-align:center;color:var(--text-soft);cursor:grab;user-select:none;">⋮⋮</td>
             <td>${m.seq || ''}</td>
             <td>${m.position || ''}</td>
-            <td><b>${m.name}</b></td>
+            <td><b>${m.name}</b>${m.email ? `<div class="text-sm text-muted">${m.email}</div>` : ''}</td>
             <td>${m.phone || ''}</td>
             <td>${statusChip(m.attendance_status)}</td>
             <td style="text-align:center;">
@@ -725,6 +736,12 @@ function renderMembers() {
                 ${m.attendance_status === 'proxy' ? 'disabled' : ''}
                 onchange="toggleAttend(${m.id}, this.checked)"
                 title="${m.attendance_status === 'proxy' ? '⚠️ 위임장 제출됨 — 위임장 탭에서 삭제 후 출석 체크 가능' : '출석 체크'}">
+            </td>
+            <td style="text-align:center;font-size:13px;">
+              <span style="display:inline-flex;gap:6px;">
+                <span title="초대장">📩${sentIcon(m.invitation_sent_at, '초대장')}</span>
+                ${formal ? `<span title="위임장">📋${sentIcon(m.proxy_sent_at, '위임장')}</span>` : ''}
+              </span>
             </td>
             <td style="text-align:right;">
               <button class="btn btn-sm" onclick='editMember(${JSON.stringify(m)})'>수정</button>
@@ -807,6 +824,63 @@ async function bulkMarkAttend(present) {
   }
   loadMembers();
   refreshQuorum();
+}
+
+// 선택 의원에게 초대장 메일 일괄 발송
+async function bulkSendInvitations() {
+  if (!_memberSelected.size) return;
+  const ids = [..._memberSelected];
+  // 이메일 등록 의원 카운트
+  const targets = members.filter(m => ids.includes(m.id) && m.email && /.+@.+\..+/.test(m.email));
+  if (!targets.length) {
+    toast('선택한 의원 중 이메일 등록자가 없습니다.', 'error');
+    return;
+  }
+  confirmDialog(
+    `선택한 ${ids.length}명 중 이메일 등록 ${targets.length}명에게 초대장을 발송합니다. 계속하시겠습니까?`,
+    async () => {
+      try {
+        const r = await api.post('/api/meeting-members/send-invitations', {
+          meeting_id: Number(meetingId),
+          meeting_member_ids: ids
+        });
+        let msg = `✅ ${r.sent}명에게 초대장 발송 완료.`;
+        if (r.skipped) msg += ` (이메일 누락 ${r.skipped}명 제외)`;
+        if (r.failed) msg += ` ⚠️ 실패 ${r.failed}명`;
+        toast(msg, r.failed ? 'warning' : 'success');
+        if (r.errors && r.errors.length) console.warn('초대장 발송 오류:', r.errors);
+        loadMembers();  // 발송 상태 갱신
+      } catch (e) { toast(e.message, 'error'); return false; }
+    }
+  );
+}
+
+// 선택 의원에게 위임장 메일 일괄 발송
+async function bulkSendProxies() {
+  if (!_memberSelected.size) return;
+  const ids = [..._memberSelected];
+  const targets = members.filter(m => ids.includes(m.id) && m.email && /.+@.+\..+/.test(m.email));
+  if (!targets.length) {
+    toast('선택한 의원 중 이메일 등록자가 없습니다.', 'error');
+    return;
+  }
+  confirmDialog(
+    `선택한 ${ids.length}명 중 이메일 등록 ${targets.length}명에게 위임장을 발송합니다. 계속하시겠습니까?`,
+    async () => {
+      try {
+        const r = await api.post('/api/proxies/send-emails', {
+          meeting_id: Number(meetingId),
+          meeting_member_ids: ids
+        });
+        let msg = `✅ ${r.sent}명에게 위임장 발송 완료.`;
+        if (r.skipped) msg += ` (이메일 누락 ${r.skipped}명 제외)`;
+        if (r.failed) msg += ` ⚠️ 실패 ${r.failed}명`;
+        toast(msg, r.failed ? 'warning' : 'success');
+        if (r.errors && r.errors.length) console.warn('위임장 발송 오류:', r.errors);
+        loadMembers();
+      } catch (e) { toast(e.message, 'error'); return false; }
+    }
+  );
 }
 
 function statusChip(s) {

@@ -222,6 +222,10 @@ try { db.exec("ALTER TABLE organizations ADD COLUMN slogan TEXT"); } catch (e) {
 // Posts: category — 'free' (자유게시판) | 'news' (회원소식)
 try { db.exec("ALTER TABLE posts ADD COLUMN category TEXT DEFAULT 'free'"); } catch (e) {}
 
+// meeting_members: 이메일 발송 이력 — 위임장 / 초대장
+try { db.exec("ALTER TABLE meeting_members ADD COLUMN invitation_sent_at TEXT"); } catch (e) {}
+try { db.exec("ALTER TABLE meeting_members ADD COLUMN proxy_sent_at TEXT"); } catch (e) {}
+
 // Password reset tokens — 이메일로 비밀번호 재설정 링크 발송용
 try {
   db.exec(`

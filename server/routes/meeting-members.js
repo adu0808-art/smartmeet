@@ -255,4 +255,96 @@ router.post('/reorder', authRequired, (req, res) => {
   res.json({ ok: true });
 });
 
+// === 의원 초대장 이메일 발송 (선택 / 일괄) ===
+//   body: { meeting_id, meeting_member_ids?: [id,...] }
+//     meeting_member_ids 미지정 시 → 전체 의원
+router.post('/send-invitations', authRequired, async (req, res) => {
+  const { meeting_id, meeting_member_ids } = req.body || {};
+  if (!meeting_id) return res.status(400).json({ error: 'meeting_id 필요' });
+  const orgId = getOrgIdFromMeeting(meeting_id);
+  if (!orgId || !isAdmin(getOrgRole(req.user, orgId))) {
+    return res.status(403).json({ error: '관리자 권한이 필요합니다.' });
+  }
+
+  const emailModule = require('../email');
+  if (!emailModule.isEnabled()) {
+    return res.status(400).json({ error: '이메일 발송이 설정되지 않았습니다.\n시스템 관리자에게 문의해주세요.' });
+  }
+
+  const meeting = db.prepare('SELECT * FROM meetings WHERE id = ?').get(meeting_id);
+  if (!meeting) return res.status(404).json({ error: '회의를 찾을 수 없습니다.' });
+  const org = db.prepare('SELECT * FROM organizations WHERE id = ?').get(meeting.organization_id);
+
+  // 대상 의원
+  let members;
+  if (Array.isArray(meeting_member_ids) && meeting_member_ids.length) {
+    const placeholders = meeting_member_ids.map(() => '?').join(',');
+    members = db.prepare(
+      `SELECT id, name, email FROM meeting_members WHERE meeting_id = ? AND id IN (${placeholders})`
+    ).all(meeting_id, ...meeting_member_ids);
+  } else {
+    members = db.prepare(
+      'SELECT id, name, email FROM meeting_members WHERE meeting_id = ?'
+    ).all(meeting_id);
+  }
+  if (!members.length) return res.status(400).json({ error: '대상 의원이 없습니다.' });
+
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+  const host = req.get('host') || 'localhost';
+  const baseUrl = `${protocol}://${host}`;
+
+  const dateStr = meeting.meeting_date ? String(meeting.meeting_date).replace('T', ' ').slice(0, 16) : '';
+  const customMessage = (meeting.invitation_message || '').replace(/</g,'&lt;').replace(/\n/g, '<br>');
+  const escape = (s) => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  const results = { sent: 0, skipped: 0, failed: 0, errors: [] };
+  for (const m of members) {
+    if (!m.email || !/.+@.+\..+/.test(m.email)) {
+      results.skipped++;
+      results.errors.push(`${m.name}: 이메일 없음`);
+      continue;
+    }
+    const subject = `[${org?.name || 'SmartMeet'}] ${meeting.title} 초대 안내`;
+    const html = `
+      <div style="font-family:'Pretendard','Malgun Gothic',sans-serif;max-width:560px;margin:auto;padding:24px;color:#1a202c;">
+        <div style="background:linear-gradient(135deg,#0f2c5c,#1e40af);color:#fff;padding:28px;border-radius:12px;text-align:center;">
+          <div style="font-size:13px;color:#fbbf24;letter-spacing:2px;margin-bottom:8px;">📩 MEETING INVITATION</div>
+          <h1 style="font-size:22px;font-weight:800;margin:8px 0;color:#fff;">${escape(org?.name || '')}</h1>
+          <h2 style="font-size:16px;font-weight:600;margin:0;color:#dbeafe;">${escape(meeting.title || '')}</h2>
+        </div>
+        <div style="margin:24px 0;">
+          <p style="font-size:15px;color:#374151;">안녕하세요, <strong>${escape(m.name || '')}</strong> 님.</p>
+          ${customMessage ? `<div style="background:#f9fafb;padding:14px 18px;border-radius:8px;margin:14px 0;border-left:4px solid #fbbf24;font-size:14px;line-height:1.7;">${customMessage}</div>` : ''}
+          <table style="width:100%;border-collapse:collapse;margin:14px 0;font-size:13px;">
+            ${dateStr ? `<tr><td style="padding:6px 10px;color:#64748b;">일시</td><td style="padding:6px 10px;font-weight:600;">${dateStr}</td></tr>` : ''}
+            ${meeting.location ? `<tr><td style="padding:6px 10px;color:#64748b;">장소</td><td style="padding:6px 10px;font-weight:600;">${escape(meeting.location || '')}</td></tr>` : ''}
+          </table>
+          <p style="font-size:14px;color:#374151;line-height:1.7;">
+            많은 참석 부탁드립니다.
+          </p>
+        </div>
+        <div style="border-top:1px solid #e2e8f0;padding-top:14px;text-align:center;font-size:11px;color:#94a3b8;">
+          본 메일은 ${escape(org?.name || 'SmartMeet')} 의 시스템에서 자동 발송되었습니다.
+        </div>
+      </div>
+    `;
+    const text = `[${org?.name || ''}] ${meeting.title}\n\n${m.name} 님,\n\n일시: ${dateStr}\n장소: ${meeting.location || ''}\n\n많은 참석 부탁드립니다.`;
+    try {
+      await emailModule.sendEmail({ to: m.email, subject, html, text });
+      results.sent++;
+      // 발송 이력 갱신
+      try {
+        const now = new Date().toLocaleString('sv-SE');
+        db.prepare('UPDATE meeting_members SET invitation_sent_at = ? WHERE id = ?').run(now, m.id);
+      } catch {}
+    } catch (e) {
+      results.failed++;
+      results.errors.push(`${m.name} (${m.email}): ${e.message}`);
+      console.warn('[invitation email] 발송 실패:', m.email, e.message);
+    }
+  }
+
+  res.json(results);
+});
+
 module.exports = router;

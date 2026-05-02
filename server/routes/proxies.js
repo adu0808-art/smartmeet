@@ -269,6 +269,11 @@ router.post('/send-emails', async (req, res) => {
     try {
       await emailModule.sendEmail({ to: m.email, subject, html, text });
       results.sent++;
+      // 발송 이력 갱신
+      try {
+        const now = new Date().toLocaleString('sv-SE');
+        db.prepare('UPDATE meeting_members SET proxy_sent_at = ? WHERE id = ?').run(now, m.id);
+      } catch {}
     } catch (e) {
       results.failed++;
       results.errors.push(`${m.name} (${m.email}): ${e.message}`);
