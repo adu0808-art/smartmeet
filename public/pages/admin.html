@@ -64,7 +64,10 @@
         <div id="page-organizations" class="admin-page hidden">
           <div class="page-header">
             <h1 class="page-title">기관 관리</h1>
-            <span class="text-sm text-muted" id="orgCount"></span>
+            <div class="flex gap-8 items-center">
+              <span class="text-sm text-muted" id="orgCount"></span>
+              <button class="btn btn-sm" onclick="openSmtpDiag()">📧 SMTP 진단</button>
+            </div>
           </div>
           <div id="orgsList"></div>
         </div>
@@ -264,6 +267,90 @@
           }
         }
       });
+    }
+
+    // SMTP 진단 모달
+    async function openSmtpDiag() {
+      let status;
+      try {
+        status = await api.get('/api/admin/smtp-status');
+      } catch (e) {
+        toast('SMTP 상태 조회 실패: ' + e.message, 'error');
+        return;
+      }
+      const env = status.env_summary;
+      const ok = status.enabled;
+      modal({
+        title: '📧 SMTP 진단',
+        size: 'lg',
+        body: `
+          <div class="text-sm text-muted mb-12">현재 환경변수 상태와 발송 테스트를 진행할 수 있습니다.</div>
+          <div style="background:${ok ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)'};color:${ok ? '#047857' : '#b91c1c'};padding:14px;border-radius:8px;margin-bottom:16px;font-weight:600;">
+            ${ok ? '✅ SMTP 활성 (SMTP_HOST 설정됨)' : '❌ SMTP 비활성 (SMTP_HOST 미설정)'}
+          </div>
+
+          <div class="card-title mb-8" style="font-size:13px;">환경변수</div>
+          <table class="table" style="font-size:13px;margin-bottom:16px;">
+            <tbody>
+              ${Object.entries(env).map(([k, v]) => `
+                <tr>
+                  <td style="width:140px;color:var(--text-muted);font-family:monospace;">${k}</td>
+                  <td style="font-family:monospace;${v ? '' : 'color:#ef4444;'}">${v || '(미설정)'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+
+          <div class="card-title mb-8" style="font-size:13px;">계산된 연결 설정</div>
+          <table class="table" style="font-size:13px;margin-bottom:16px;">
+            <tbody>
+              <tr><td style="color:var(--text-muted);">port</td><td style="font-family:monospace;">${status.computed.port}</td></tr>
+              <tr><td style="color:var(--text-muted);">secure</td><td style="font-family:monospace;">${status.computed.secure}</td></tr>
+            </tbody>
+          </table>
+
+          <div class="field">
+            <label class="label">테스트 메일 수신자</label>
+            <input class="input" id="smtp_test_to" type="email" placeholder="your-email@example.com" value="${(window._lastSmtpTestTo||'').replace(/"/g,'&quot;')}">
+          </div>
+          <button type="button" class="btn btn-primary btn-block" id="smtp_test_btn" ${ok ? '' : 'disabled'}>📨 테스트 메일 발송</button>
+          <div id="smtp_test_result" style="margin-top:12px;"></div>
+        `,
+        confirmText: '닫기',
+        onConfirm: () => {}
+      });
+      setTimeout(() => {
+        const btn = document.getElementById('smtp_test_btn');
+        if (!btn) return;
+        btn.onclick = async () => {
+          const to = document.getElementById('smtp_test_to').value.trim();
+          const result = document.getElementById('smtp_test_result');
+          if (!to) { result.innerHTML = '<div style="color:#ef4444;">수신자를 입력하세요.</div>'; return; }
+          window._lastSmtpTestTo = to;
+          btn.disabled = true;
+          btn.textContent = '발송 중...';
+          result.innerHTML = '';
+          try {
+            await api.post('/api/admin/smtp-test', { to });
+            result.innerHTML = `
+              <div style="background:rgba(16,185,129,0.1);color:#047857;padding:12px;border-radius:8px;">
+                ✅ 발송 성공! ${to} 의 받은편지함을 확인하세요. (스팸함도 함께)
+              </div>`;
+          } catch (e) {
+            // 서버에서 자세한 에러 정보 (code, command, response) 포함
+            let detail = '';
+            try { const err = JSON.parse(e.message); detail = err; } catch {}
+            result.innerHTML = `
+              <div style="background:rgba(239,68,68,0.1);color:#b91c1c;padding:12px;border-radius:8px;">
+                <div class="fw-700">❌ 발송 실패</div>
+                <div style="margin-top:6px;font-family:monospace;font-size:12px;white-space:pre-wrap;">${e.message}</div>
+              </div>`;
+          } finally {
+            btn.disabled = false;
+            btn.textContent = '📨 테스트 메일 발송';
+          }
+        };
+      }, 50);
     }
   </script>
 </body>

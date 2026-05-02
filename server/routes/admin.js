@@ -3,9 +3,68 @@ const bcrypt = require('bcryptjs');
 const db = require('../db');
 const { adminRequired } = require('../auth-mw');
 const passwordPolicy = require('../password-policy');
+const emailModule = require('../email');
 
 const router = express.Router();
 router.use(adminRequired);
+
+// === SMTP 진단 — 시스템 관리자 전용 ===
+//   현재 SMTP 환경변수 상태 + 연결 테스트 + 시험 발송
+router.get('/smtp-status', (req, res) => {
+  const env = {
+    SMTP_HOST: process.env.SMTP_HOST || null,
+    SMTP_PORT: process.env.SMTP_PORT || null,
+    SMTP_SECURE: process.env.SMTP_SECURE || null,
+    SMTP_USER: process.env.SMTP_USER ? `${process.env.SMTP_USER.slice(0, 3)}***${process.env.SMTP_USER.includes('@') ? '@' + process.env.SMTP_USER.split('@')[1] : ''}` : null,
+    SMTP_PASS: process.env.SMTP_PASS ? `[${process.env.SMTP_PASS.length}자 설정됨]` : null,
+    SMTP_FROM: process.env.SMTP_FROM || null,
+    NODE_ENV: process.env.NODE_ENV || null
+  };
+  const isEnabled = emailModule.isEnabled();
+  const computedSecure = (() => {
+    const v = String(process.env.SMTP_SECURE || '').toLowerCase().trim();
+    if (['true','1','yes','on'].includes(v)) return true;
+    if (['false','0','no','off'].includes(v)) return false;
+    return Number(process.env.SMTP_PORT) === 465;
+  })();
+  res.json({
+    enabled: isEnabled,
+    env_summary: env,
+    computed: {
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: computedSecure
+    }
+  });
+});
+
+router.post('/smtp-test', async (req, res) => {
+  const { to } = req.body || {};
+  if (!to) return res.status(400).json({ error: '수신자 이메일을 입력하세요.' });
+  if (!emailModule.isEnabled()) {
+    return res.status(400).json({ error: 'SMTP_HOST 환경변수가 설정되지 않았습니다.' });
+  }
+  try {
+    await emailModule.sendEmail({
+      to,
+      subject: '[SmartMeet] SMTP 테스트 메일',
+      html: `<div style="font-family:sans-serif;padding:20px;">
+        <h2 style="color:#1e40af;">✅ SMTP 발송 성공</h2>
+        <p>이 메일이 보이시면 Railway 의 SMTP 설정이 정상 동작 중입니다.</p>
+        <p style="color:#64748b;font-size:13px;">발송 시각: ${new Date().toLocaleString('ko-KR')}</p>
+      </div>`,
+      text: 'SmartMeet SMTP 테스트 발송 성공'
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[smtp-test] 실패:', e);
+    res.status(500).json({
+      error: e.message,
+      code: e.code,
+      command: e.command,
+      response: e.response
+    });
+  }
+});
 
 router.get('/stats', (req, res) => {
   const userCount = db.prepare('SELECT COUNT(*) AS c FROM users').get().c;

@@ -82,7 +82,17 @@ async function sendEmail({ to, subject, html, text, from }) {
   }
   if (!to) throw new Error('수신자 이메일이 비어있습니다.');
   const sender = from || process.env.SMTP_FROM || process.env.SMTP_USER;
-  return await t.sendMail({ from: sender, to, subject, html, text });
+  try {
+    const info = await t.sendMail({ from: sender, to, subject, html, text });
+    console.log(`[email] 발송 성공 → ${to}  messageId=${info.messageId}  response=${info.response}`);
+    return info;
+  } catch (e) {
+    // 자세한 에러 로그 (디버깅용)
+    console.error('[email] ❌ 발송 실패:', {
+      to, code: e.code, command: e.command, response: e.response, message: e.message
+    });
+    throw e;
+  }
 }
 
 module.exports = { sendEmail, isEnabled };
