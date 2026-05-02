@@ -57,16 +57,15 @@ router.post('/submit/:token', (req, res) => {
     }
   }
 
-  // 같은 회의 내 동일 (이름 + 전화번호) 중복 검사
+  // 전화번호 중복 검사 (이름과 무관 — 한 사람이 여러 이름으로 우회 신청 차단)
   const existing = db.prepare(
     'SELECT id, name, phone FROM meeting_members WHERE meeting_id = ?'
   ).all(meeting.id);
-  const dup = existing.find(m =>
-    String(m.name || '').trim() === trimmedName &&
-    normalizePhone(m.phone) === phoneNorm
-  );
+  const dup = existing.find(m => normalizePhone(m.phone) === phoneNorm);
   if (dup) {
-    return res.status(400).json({ error: '이미 신청하셨습니다. (동일한 이름·전화번호)' });
+    return res.status(400).json({
+      error: `이미 같은 전화번호로 신청된 내역이 있습니다 (${dup.name || ''}). 중복 신청은 불가합니다.`
+    });
   }
 
   // 다음 seq 계산

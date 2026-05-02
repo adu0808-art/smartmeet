@@ -278,6 +278,13 @@ router.post('/send-invitations', authRequired, async (req, res) => {
   if (!meeting) return res.status(404).json({ error: '회의를 찾을 수 없습니다.' });
   const org = db.prepare('SELECT * FROM organizations WHERE id = ?').get(meeting.organization_id);
 
+  // 행사 타입인데 토큰이 없는 경우 — 자유 신청 링크용 토큰 자동 발급
+  if (meeting.meeting_type === 'event' && !meeting.public_register_token) {
+    const newToken = uuidv4();
+    db.prepare('UPDATE meetings SET public_register_token = ? WHERE id = ?').run(newToken, meeting.id);
+    meeting.public_register_token = newToken;
+  }
+
   // 대상 의원 — invitation_token 도 함께 조회 (없으면 발송 직전 생성)
   let members;
   if (Array.isArray(meeting_member_ids) && meeting_member_ids.length) {
@@ -305,28 +312,52 @@ router.post('/send-invitations', authRequired, async (req, res) => {
   const host = req.get('host') || 'localhost';
   const baseUrl = `${protocol}://${host}`;
   const dateStr = meeting.meeting_date ? String(meeting.meeting_date).replace('T', ' ').slice(0, 16) : '';
+  const endStr  = meeting.end_date     ? String(meeting.end_date).replace('T', ' ').slice(0, 16)     : '';
   const customMessage = (meeting.invitation_message || '').replace(/</g,'&lt;').replace(/\n/g, '<br>');
   const escape = (s) => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  // 행사(event) 타입이면 자유 신청 링크 (의원 본인용 + 외부 공유용)
+  const isEvent = meeting.meeting_type === 'event';
+  const registerUrl = isEvent && meeting.public_register_token
+    ? `${baseUrl}/event-register?token=${meeting.public_register_token}` : '';
 
   const makeMessage = (m) => {
     // 메일에서 직접 클릭하면 한 번에 응답 기록 — 별도 응답 페이지 없음
     const yesUrl = `${baseUrl}/rsvp-action?token=${m.invitation_token}&action=attending`;
     const noUrl  = `${baseUrl}/rsvp-action?token=${m.invitation_token}&action=declined`;
     const subject = `[${org?.name || 'SmartMeet'}] ${meeting.title} 초대 안내`;
+    // 행사용 신청 링크 박스 (행사 타입에만 표시)
+    const eventRegisterBox = isEvent && registerUrl ? `
+          <div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:18px;margin:18px 0;text-align:center;">
+            <p style="font-size:14px;color:#3730a3;font-weight:700;margin:0 0 12px;">
+              🎉 행사 신청 링크
+            </p>
+            <p style="font-size:13px;color:#4338ca;margin:0 0 14px;line-height:1.7;">
+              아래 링크를 통해 직접 신청하시거나,<br>주변 분들에게도 자유롭게 공유해 주세요.
+            </p>
+            <a href="${registerUrl}"
+               style="background:#6366f1;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block;font-size:14.5px;">
+              📝 행사 신청하기
+            </a>
+            <p style="font-size:11px;color:#6366f1;margin:12px 0 0;line-height:1.6;word-break:break-all;">
+              <a href="${registerUrl}" style="color:#6366f1;text-decoration:underline;">${registerUrl}</a>
+            </p>
+          </div>` : '';
     const html = `
       <div style="font-family:'Pretendard','Malgun Gothic',sans-serif;max-width:560px;margin:auto;padding:24px;color:#1a202c;">
-        <div style="background:linear-gradient(135deg,#0f2c5c,#1e40af);color:#fff;padding:28px;border-radius:12px;text-align:center;">
-          <div style="font-size:13px;color:#fbbf24;letter-spacing:2px;margin-bottom:8px;">📩 MEETING INVITATION</div>
+        <div style="background:linear-gradient(135deg,${isEvent ? '#6366f1,#4f46e5' : '#0f2c5c,#1e40af'});color:#fff;padding:28px;border-radius:12px;text-align:center;">
+          <div style="font-size:13px;color:#fde68a;letter-spacing:2px;margin-bottom:8px;">${isEvent ? '🎉 EVENT INVITATION' : '📩 MEETING INVITATION'}</div>
           <h1 style="font-size:22px;font-weight:800;margin:8px 0;color:#fff;">${escape(org?.name || '')}</h1>
-          <h2 style="font-size:16px;font-weight:600;margin:0;color:#dbeafe;">${escape(meeting.title || '')}</h2>
+          <h2 style="font-size:16px;font-weight:600;margin:0;color:${isEvent ? '#e0e7ff' : '#dbeafe'};">${escape(meeting.title || '')}</h2>
         </div>
         <div style="margin:24px 0;">
           <p style="font-size:15px;color:#374151;">안녕하세요, <strong>${escape(m.name || '')}</strong> 님.</p>
           ${customMessage ? `<div style="background:#f9fafb;padding:14px 18px;border-radius:8px;margin:14px 0;border-left:4px solid #fbbf24;font-size:14px;line-height:1.7;">${customMessage}</div>` : ''}
           <table style="width:100%;border-collapse:collapse;margin:14px 0;font-size:13px;">
-            ${dateStr ? `<tr><td style="padding:6px 10px;color:#64748b;">일시</td><td style="padding:6px 10px;font-weight:600;">${dateStr}</td></tr>` : ''}
+            ${dateStr ? `<tr><td style="padding:6px 10px;color:#64748b;">${endStr ? '시작' : '일시'}</td><td style="padding:6px 10px;font-weight:600;">${dateStr}</td></tr>` : ''}
+            ${endStr ? `<tr><td style="padding:6px 10px;color:#64748b;">종료</td><td style="padding:6px 10px;font-weight:600;">${endStr}</td></tr>` : ''}
             ${meeting.location ? `<tr><td style="padding:6px 10px;color:#64748b;">장소</td><td style="padding:6px 10px;font-weight:600;">${escape(meeting.location || '')}</td></tr>` : ''}
           </table>
+          ${eventRegisterBox}
           <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:18px;margin:18px 0;text-align:center;">
             <p style="font-size:14px;color:#1e3a8a;font-weight:700;margin:0 0 14px;">
               ✋ 참석 여부를 알려주세요
@@ -361,7 +392,7 @@ router.post('/send-invitations', authRequired, async (req, res) => {
         </div>
       </div>
     `;
-    const text = `[${org?.name || ''}] ${meeting.title}\n\n${m.name} 님,\n\n일시: ${dateStr}\n장소: ${meeting.location || ''}\n\n참석 여부 응답:\n  참석: ${yesUrl}\n  불참: ${noUrl}\n\n많은 참석 부탁드립니다.`;
+    const text = `[${org?.name || ''}] ${meeting.title}\n\n${m.name} 님,\n\n${endStr ? '시작' : '일시'}: ${dateStr}${endStr ? `\n종료: ${endStr}` : ''}\n장소: ${meeting.location || ''}\n\n참석 여부 응답:\n  참석: ${yesUrl}\n  불참: ${noUrl}\n${registerUrl ? `\n🎉 행사 신청 링크 (공유 가능):\n  ${registerUrl}\n` : ''}\n많은 참석 부탁드립니다.`;
     return { subject, html, text };
   };
 
