@@ -77,7 +77,83 @@ app.use('/api/admin', require('./routes/admin'));
 // Static files
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-// Pages routing
+// =====================================================
+// 기관별 메타 태그 동적 주입 (홈 페이지 공유 시 미리보기)
+//   - URL: /home?org=X 또는 서브도메인 자동 라우팅
+//   - <title>, og:title, og:description, og:image 등을 기관 정보로 치환
+// =====================================================
+const fs = require('fs');
+const HOME_HTML_PATH = path.join(__dirname, '..', 'public', 'pages/home.html');
+let _cachedHomeHtml = null;
+let _cachedHomeHtmlTime = 0;
+function loadHomeHtml() {
+  // 운영 환경에서는 캐시 (메모리). 개발 환경에서는 파일 변경 시 재읽기.
+  const isProd = process.env.NODE_ENV === 'production';
+  if (isProd && _cachedHomeHtml) return _cachedHomeHtml;
+  try {
+    const stat = fs.statSync(HOME_HTML_PATH);
+    if (_cachedHomeHtml && stat.mtimeMs === _cachedHomeHtmlTime) return _cachedHomeHtml;
+    _cachedHomeHtml = fs.readFileSync(HOME_HTML_PATH, 'utf8');
+    _cachedHomeHtmlTime = stat.mtimeMs;
+  } catch (e) { console.warn('[home] file read fail:', e.message); }
+  return _cachedHomeHtml;
+}
+function escapeAttr(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+function stripHtml(s) {
+  return String(s == null ? '' : s).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+app.get('/home', (req, res) => {
+  let html = loadHomeHtml();
+  if (!html) return res.sendFile(HOME_HTML_PATH);
+
+  // 기관 ID 결정 — 1) 서브도메인 2) ?org= 쿼리
+  let orgId = req.orgFromDomain;
+  if (!orgId && req.query.org) orgId = Number(req.query.org);
+  let org = null;
+  if (orgId) {
+    try {
+      org = db.prepare('SELECT name, description, intro_html, logo_combo_url, logo_url, logo_text_url FROM organizations WHERE id = ?').get(orgId);
+    } catch {}
+  }
+
+  let title, description, logo;
+  if (org) {
+    title = org.name;
+    // 인사말(description) 보다 기관 소개(intro_html) 가 더 짧고 적합
+    const sourceHtml = org.intro_html || org.description || '';
+    description = stripHtml(sourceHtml).slice(0, 200);
+    if (!description) description = `${org.name} 공식 홈페이지`;
+    logo = org.logo_combo_url || org.logo_url || org.logo_text_url || '';
+  } else {
+    title = 'SmartMeet';
+    description = 'SmartMeet — 기관·회의 관리 시스템';
+    logo = '';
+  }
+  // OG 이미지는 절대 URL 이어야 함 — data URL 은 일부 SNS 에서 미리보기 안 됨
+  // logo 가 data URL 인 경우 그대로 두되, 외부 URL 일 경우 origin 보정
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+  const url = `${protocol}://${req.get('host') || ''}${req.originalUrl}`;
+
+  html = html
+    .replace(/{{ORG_NAME}}/g, escapeAttr(title))
+    .replace(/{{ORG_DESCRIPTION}}/g, escapeAttr(description))
+    .replace(/{{ORG_LOGO}}/g, escapeAttr(logo))
+    .replace(/{{ORG_URL}}/g, escapeAttr(url));
+
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');  // 기관별로 다른 응답
+  res.send(html);
+});
+
+// Pages routing (그 외 정적 페이지)
 const pages = {
   '/': 'index.html',
   '/login': 'pages/login.html',
@@ -85,7 +161,6 @@ const pages = {
   '/admin': 'pages/admin.html',
   '/dashboard': 'pages/dashboard.html',
   '/organization': 'pages/organization.html',
-  '/home': 'pages/home.html',
   '/notices': 'pages/notices.html',
   '/notice': 'pages/notice.html',
   '/board': 'pages/board.html',
