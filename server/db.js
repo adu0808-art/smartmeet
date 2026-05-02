@@ -225,8 +225,20 @@ try { db.exec("ALTER TABLE posts ADD COLUMN category TEXT DEFAULT 'free'"); } ca
 // Organizations: 도메인 라우팅 — 서브도메인 / 커스텀 도메인
 //   subdomain: 'ksitm' → ksitm.smartmeet.co.kr 로 접근 시 자동으로 이 기관 홈으로
 //   custom_domain: 'kistem.or.kr' 같은 자체 도메인
-try { db.exec("ALTER TABLE organizations ADD COLUMN subdomain TEXT UNIQUE"); } catch (e) {}
-try { db.exec("ALTER TABLE organizations ADD COLUMN custom_domain TEXT UNIQUE"); } catch (e) {}
+//   ※ SQLite 는 ALTER TABLE ... ADD COLUMN ... UNIQUE 를 지원하지 않으므로
+//     컬럼은 일반 TEXT 로 추가하고 UNIQUE INDEX 로 별도 처리 (NULL 은 중복 허용)
+try { db.exec("ALTER TABLE organizations ADD COLUMN subdomain TEXT"); } catch (e) {
+  if (!/duplicate column/i.test(e.message)) console.warn('[DB] subdomain column add:', e.message);
+}
+try { db.exec("ALTER TABLE organizations ADD COLUMN custom_domain TEXT"); } catch (e) {
+  if (!/duplicate column/i.test(e.message)) console.warn('[DB] custom_domain column add:', e.message);
+}
+try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_org_subdomain ON organizations(subdomain) WHERE subdomain IS NOT NULL"); } catch (e) {
+  console.warn('[DB] subdomain unique index:', e.message);
+}
+try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_org_custom_domain ON organizations(custom_domain) WHERE custom_domain IS NOT NULL"); } catch (e) {
+  console.warn('[DB] custom_domain unique index:', e.message);
+}
 
 // Schedules: 회의 연동 — 회의 생성 시 자동 일정 추가, 회의 삭제 시 CASCADE 로 자동 제거
 //   meeting_id 가 설정된 일정은 회의에서 자동 생성된 것 → 직접 수정·삭제 불가 (회의 자체를 수정·삭제해야 함)
