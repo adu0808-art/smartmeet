@@ -174,6 +174,7 @@ router.delete('/:id', (req, res) => {
 // === 위임장 이메일 발송 (선택 / 일괄) ===
 //   body: { meeting_id, meeting_member_ids?: [id,...] }
 //     meeting_member_ids 미지정 시 → 회의 의원 전체에 발송
+//   query: ?stream=1 → SSE 스트리밍 진행률 응답
 router.post('/send-emails', async (req, res) => {
   const { meeting_id, meeting_member_ids } = req.body || {};
   if (!meeting_id) return res.status(400).json({ error: 'meeting_id 필요' });
@@ -206,31 +207,22 @@ router.post('/send-emails', async (req, res) => {
   const host = req.get('host') || 'localhost';
   const baseUrl = `${protocol}://${host}`;
 
-  // 각 의원별로 발송
-  const results = { sent: 0, skipped: 0, failed: 0, errors: [] };
-  for (const m of members) {
-    if (!m.email || !/.+@.+\..+/.test(m.email)) {
-      results.skipped++;
-      results.errors.push(`${m.name}: 이메일 없음`);
-      continue;
-    }
-    // 이 의원의 위임장 토큰 가져오기 (없으면 생성). 새 의원관리에서는 source_member_id 가 있을 수 있음
-    let proxy = db.prepare(
-      `SELECT * FROM proxies WHERE meeting_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1`
-    ).get(meeting_id);
-    // 또는 공용 토큰을 모두에게 같이 발송 (사용자가 본인 확인하여 제출)
-    if (!proxy) {
-      const newToken = uuidv4();
-      db.prepare('INSERT INTO proxies (meeting_id, member_id, token, status) VALUES (?, NULL, ?, ?)')
-        .run(meeting_id, newToken, 'pending');
-      proxy = db.prepare(`SELECT * FROM proxies WHERE token = ?`).get(newToken);
-    }
+  // 공용 위임장 토큰 — 처음 한 번만 생성하여 모두에게 공유 (사용자가 본인확인 후 제출)
+  let sharedProxy = db.prepare(
+    `SELECT * FROM proxies WHERE meeting_id = ? AND status = 'pending' AND member_id IS NULL ORDER BY id DESC LIMIT 1`
+  ).get(meeting_id);
+  if (!sharedProxy) {
+    const newToken = uuidv4();
+    db.prepare('INSERT INTO proxies (meeting_id, member_id, token, status) VALUES (?, NULL, ?, ?)')
+      .run(meeting_id, newToken, 'pending');
+    sharedProxy = db.prepare(`SELECT * FROM proxies WHERE token = ?`).get(newToken);
+  }
+  const proxyUrl = `${baseUrl}/proxy?token=${sharedProxy.token}`;
+  const dateStr = meeting.meeting_date ? String(meeting.meeting_date).replace('T', ' ').slice(0, 16) : '';
+  const customMessage = (meeting.invitation_message || '').replace(/\n/g, '<br>');
 
-    const proxyUrl = `${baseUrl}/proxy?token=${proxy.token}`;
-    const dateStr = meeting.meeting_date ? String(meeting.meeting_date).replace('T', ' ').slice(0, 16) : '';
+  const makeMessage = (m) => {
     const subject = `[${org?.name || 'SmartMeet'}] ${meeting.title} 위임장 안내`;
-    const customMessage = (meeting.invitation_message || '').replace(/\n/g, '<br>');
-
     const html = `
       <div style="font-family:'Pretendard','Malgun Gothic',sans-serif;max-width:560px;margin:auto;padding:24px;color:#1a202c;">
         <div style="background:linear-gradient(135deg,#0f2c5c,#1e40af);color:#fff;padding:28px;border-radius:12px;text-align:center;">
@@ -265,23 +257,25 @@ router.post('/send-emails', async (req, res) => {
       </div>
     `;
     const text = `[${org?.name || 'SmartMeet'}] ${meeting.title}\n\n${m.name} 님,\n\n회의 참석이 어려우시면 다음 링크에서 위임장을 제출해주세요:\n${proxyUrl}\n\n일시: ${dateStr}\n장소: ${meeting.location || ''}`;
+    return { subject, html, text };
+  };
 
+  const onSent = (m) => {
     try {
-      await emailModule.sendEmail({ to: m.email, subject, html, text });
-      results.sent++;
-      // 발송 이력 갱신
-      try {
-        const now = new Date().toLocaleString('sv-SE');
-        db.prepare('UPDATE meeting_members SET proxy_sent_at = ? WHERE id = ?').run(now, m.id);
-      } catch {}
-    } catch (e) {
-      results.failed++;
-      results.errors.push(`${m.name} (${m.email}): ${e.message}`);
-      console.warn('[proxy email] 발송 실패:', m.email, e.message);
-    }
-  }
+      const now = new Date().toLocaleString('sv-SE');
+      db.prepare('UPDATE meeting_members SET proxy_sent_at = ? WHERE id = ?').run(now, m.id);
+    } catch {}
+  };
 
-  res.json(results);
+  const stream = req.query.stream === '1' || req.query.stream === 'true';
+  const { sendBulk } = require('../bulk-email');
+  await sendBulk({
+    targets: members.map(m => ({ id: m.id, name: m.name, email: m.email })),
+    makeMessage,
+    onSent,
+    res,
+    stream
+  });
 });
 
 module.exports = router;

@@ -3,6 +3,7 @@ let me, meeting, organization, agendas = [], members = [], proxies = [], tocItem
 let activeTab = (location.hash || '#toc').replace('#', '') || 'toc';
 let memberFilter = 'all';
 let memberSearchQ = '';
+let memberSort = { key: 'seq', dir: 'asc' };  // 출석부 정렬 상태
 
 let myRole;
 (async function init() {
@@ -673,14 +674,53 @@ async function loadMembers() {
 
 let _memberSelected = new Set();
 
+// 출석부 컬럼 헤더 클릭 → 정렬 토글 (asc ↔ desc)
+function sortMembers(key) {
+  if (memberSort.key === key) {
+    memberSort.dir = memberSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    memberSort = { key, dir: 'asc' };
+  }
+  renderMembers();
+}
+window.sortMembers = sortMembers;
+
+// 정렬 비교 함수
+function _memberCmp(a, b) {
+  const k = memberSort.key;
+  let av, bv;
+  if (k === 'seq') { av = a.seq || 0; bv = b.seq || 0; }
+  else if (k === 'status') {
+    const order = { present: 0, proxy: 1, absent: 2 };
+    av = order[a.attendance_status] ?? 99;
+    bv = order[b.attendance_status] ?? 99;
+  } else if (k === 'attend') {
+    av = a.attendance_status === 'present' ? 0 : 1;
+    bv = b.attendance_status === 'present' ? 0 : 1;
+  } else if (k === 'invitation_sent_at' || k === 'proxy_sent_at') {
+    // 발송 컬럼: 빈값(미발송)은 빈 문자열 → asc 시 미발송 먼저 / desc 시 발송 먼저
+    av = a[k] || '';
+    bv = b[k] || '';
+  } else {
+    av = (a[k] || '').toString();
+    bv = (b[k] || '').toString();
+  }
+  let r;
+  if (typeof av === 'number' && typeof bv === 'number') r = av - bv;
+  else r = String(av).localeCompare(String(bv), 'ko');
+  if (r === 0) r = (a.seq || 0) - (b.seq || 0);  // 동률시 순번 보조정렬
+  return memberSort.dir === 'desc' ? -r : r;
+}
+
 function renderMembers() {
   const root = document.getElementById('memberList');
-  let list = members;
+  let list = members.slice();  // 정렬을 위해 복사 (원본 보존)
   if (memberSearchQ) {
     const q = memberSearchQ.toLowerCase();
     list = list.filter(m => (m.name||'').toLowerCase().includes(q) || (m.position||'').toLowerCase().includes(q) || (m.phone||'').includes(q));
   }
   if (memberFilter !== 'all') list = list.filter(m => m.attendance_status === memberFilter);
+  list.sort(_memberCmp);
 
   // Bulk action bar
   const selN = _memberSelected.size;
@@ -705,26 +745,33 @@ function renderMembers() {
   const sentIcon = (sentAt, label) => sentAt
     ? `<span title="${label} 발송됨: ${sentAt}" style="color:#10b981;font-weight:700;">✓</span>`
     : `<span title="${label} 미발송" style="color:#cbd5e0;">·</span>`;
+  // 정렬 가능 헤더의 화살표 아이콘
+  const sortIcon = (k) => memberSort.key === k
+    ? `<span style="color:#3b82f6;font-weight:700;margin-left:3px;">${memberSort.dir === 'asc' ? '↑' : '↓'}</span>`
+    : `<span style="color:#cbd5e0;margin-left:3px;font-size:10px;">↕</span>`;
+  // 드래그 reorder 는 순번 오름차순일 때만 활성 (다른 정렬 상태에서 드래그하면 seq 가 뒤섞임)
+  const dndEnabled = memberSort.key === 'seq' && memberSort.dir === 'asc';
 
   root.innerHTML = bulkBar + `
     <table class="table">
       <thead><tr>
         <th style="width:36px;text-align:center;"><input type="checkbox" class="check" id="memCheckAll" ${allSelected?'checked':''} title="선택"></th>
-        <th style="width:32px;text-align:center;" title="드래그하여 순서 변경">⋮⋮</th>
-        <th style="width:50px;">순번</th>
-        <th>직책</th>
-        <th>성명</th>
-        <th>전화번호</th>
-        <th style="width:110px;">상태</th>
-        <th style="width:50px;text-align:center;" title="출석 체크">출석</th>
-        <th style="width:80px;text-align:center;" title="이메일 발송 상태 — 초대장 / 위임장">📩 발송</th>
+        <th style="width:32px;text-align:center;" title="${dndEnabled ? '드래그하여 순서 변경' : '드래그 reorder 는 순번 오름차순 정렬일 때만 가능합니다'}">⋮⋮</th>
+        <th style="width:64px;cursor:pointer;user-select:none;" onclick="sortMembers('seq')" title="순번 정렬">순번${sortIcon('seq')}</th>
+        <th style="cursor:pointer;user-select:none;" onclick="sortMembers('position')" title="직책 정렬">직책${sortIcon('position')}</th>
+        <th style="cursor:pointer;user-select:none;" onclick="sortMembers('name')" title="성명 정렬">성명${sortIcon('name')}</th>
+        <th style="cursor:pointer;user-select:none;" onclick="sortMembers('phone')" title="전화번호 정렬">전화번호${sortIcon('phone')}</th>
+        <th style="width:110px;cursor:pointer;user-select:none;" onclick="sortMembers('status')" title="상태 정렬">상태${sortIcon('status')}</th>
+        <th style="width:60px;text-align:center;cursor:pointer;user-select:none;" onclick="sortMembers('attend')" title="출석 정렬">출석${sortIcon('attend')}</th>
+        <th style="width:90px;text-align:center;cursor:pointer;user-select:none;" onclick="sortMembers('invitation_sent_at')" title="초대장 발송 여부 정렬">📩 초대장${sortIcon('invitation_sent_at')}</th>
+        ${formal ? `<th style="width:90px;text-align:center;cursor:pointer;user-select:none;" onclick="sortMembers('proxy_sent_at')" title="위임장 발송 여부 정렬">📋 위임장${sortIcon('proxy_sent_at')}</th>` : ''}
         <th style="width:120px;text-align:right;">작업</th>
       </tr></thead>
       <tbody id="memberRows">
         ${list.map(m => `
           <tr data-mid="${m.id}">
             <td style="text-align:center;"><input type="checkbox" class="check row-sel" data-mid="${m.id}" ${_memberSelected.has(m.id)?'checked':''}></td>
-            <td class="member-drag-handle" style="text-align:center;color:var(--text-soft);cursor:grab;user-select:none;">⋮⋮</td>
+            <td class="${dndEnabled ? 'member-drag-handle' : ''}" style="text-align:center;color:${dndEnabled ? 'var(--text-soft)' : '#e2e8f0'};cursor:${dndEnabled ? 'grab' : 'not-allowed'};user-select:none;" title="${dndEnabled ? '' : '순번 ↑ 정렬일 때만 드래그 가능'}">⋮⋮</td>
             <td>${m.seq || ''}</td>
             <td>${m.position || ''}</td>
             <td><b>${m.name}</b>${m.email ? `<div class="text-sm text-muted">${m.email}</div>` : ''}</td>
@@ -737,12 +784,8 @@ function renderMembers() {
                 onchange="toggleAttend(${m.id}, this.checked)"
                 title="${m.attendance_status === 'proxy' ? '⚠️ 위임장 제출됨 — 위임장 탭에서 삭제 후 출석 체크 가능' : '출석 체크'}">
             </td>
-            <td style="text-align:center;font-size:13px;">
-              <span style="display:inline-flex;gap:6px;">
-                <span title="초대장">📩${sentIcon(m.invitation_sent_at, '초대장')}</span>
-                ${formal ? `<span title="위임장">📋${sentIcon(m.proxy_sent_at, '위임장')}</span>` : ''}
-              </span>
-            </td>
+            <td style="text-align:center;font-size:13px;">${sentIcon(m.invitation_sent_at, '초대장')}</td>
+            ${formal ? `<td style="text-align:center;font-size:13px;">${sentIcon(m.proxy_sent_at, '위임장')}</td>` : ''}
             <td style="text-align:right;">
               <button class="btn btn-sm" onclick='editMember(${JSON.stringify(m)})'>수정</button>
               <button class="btn btn-sm btn-danger" onclick="deleteMember(${m.id})">🗑</button>
@@ -766,8 +809,8 @@ function renderMembers() {
     };
   });
 
-  // Drag & drop reorder (admin only)
-  if (myRole === 'system_admin' || myRole === 'admin') {
+  // Drag & drop reorder (admin only) — 순번 오름차순 정렬일 때만
+  if (dndEnabled && (myRole === 'system_admin' || myRole === 'admin')) {
     bindMembersDnd();
   }
 }
@@ -826,6 +869,121 @@ async function bulkMarkAttend(present) {
   refreshQuorum();
 }
 
+// SSE 스트리밍으로 일괄 이메일 발송 + 실시간 진행률 모달
+//   url: 서버 엔드포인트 (자동으로 ?stream=1 부착)
+//   body: POST 본문
+//   label: 모달 제목용 ("초대장" / "위임장")
+async function streamBulkEmail({ url, body, label }) {
+  const sep = url.includes('?') ? '&' : '?';
+  const streamUrl = `${url}${sep}stream=1`;
+
+  // 진행률 모달 생성
+  const root = document.createElement('div');
+  root.className = 'modal-backdrop active';
+  root.innerHTML = `
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">📩 ${label} 발송 중...</div>
+      </div>
+      <div class="modal-body">
+        <div id="bulk-current" style="font-size:13px;color:var(--text-muted);margin-bottom:6px;min-height:18px;">준비 중...</div>
+        <div style="background:var(--surface-2);border-radius:999px;height:14px;overflow:hidden;margin-bottom:10px;">
+          <div id="bulk-bar" style="background:linear-gradient(90deg,#3b82f6,#1e40af);height:100%;width:0%;transition:width 0.25s ease;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:600;">
+          <span id="bulk-count">0 / 0 명</span>
+          <span><span style="color:#10b981;">✓ <span id="bulk-sent">0</span></span> &nbsp; <span style="color:#ef4444;">⚠ <span id="bulk-failed">0</span></span> &nbsp; <span style="color:#94a3b8;">∅ <span id="bulk-skipped">0</span></span></span>
+        </div>
+        <div id="bulk-log" style="margin-top:12px;max-height:140px;overflow-y:auto;font-size:11.5px;color:var(--text-muted);font-family:'Consolas','Malgun Gothic',monospace;line-height:1.5;"></div>
+      </div>
+      <div class="modal-foot" id="bulk-foot" style="display:none;">
+        <button class="btn btn-primary" data-close>닫기</button>
+      </div>
+    </div>`;
+  document.body.appendChild(root);
+  const $bar = root.querySelector('#bulk-bar');
+  const $current = root.querySelector('#bulk-current');
+  const $count = root.querySelector('#bulk-count');
+  const $sent = root.querySelector('#bulk-sent');
+  const $failed = root.querySelector('#bulk-failed');
+  const $skipped = root.querySelector('#bulk-skipped');
+  const $log = root.querySelector('#bulk-log');
+  const $foot = root.querySelector('#bulk-foot');
+  const close = () => root.remove();
+  root.querySelectorAll('[data-close]').forEach(b => b.onclick = close);
+
+  let finalResult = null;
+  try {
+    const r = await fetch(streamUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) {
+      // 스트리밍 시작 전 오류 (권한, 검증 실패 등)
+      let errMsg = `요청 실패 (${r.status})`;
+      try { const j = await r.json(); if (j.error) errMsg = j.error; } catch {}
+      throw new Error(errMsg);
+    }
+
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buf = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      // SSE 이벤트는 \n\n 으로 구분
+      const events = buf.split('\n\n');
+      buf = events.pop();  // 마지막은 미완성일 수 있음
+      for (const evt of events) {
+        const line = evt.split('\n').find(l => l.startsWith('data: '));
+        if (!line) continue;
+        let data; try { data = JSON.parse(line.slice(6)); } catch { continue; }
+        if (data.type === 'start') {
+          $count.textContent = `0 / ${data.total} 명`;
+        } else if (data.type === 'progress') {
+          const pct = data.total ? Math.round((data.current / data.total) * 100) : 0;
+          $bar.style.width = pct + '%';
+          $count.textContent = `${data.current} / ${data.total} 명`;
+          $sent.textContent = data.sent;
+          $failed.textContent = data.failed;
+          $skipped.textContent = data.skipped;
+          if (data.currentName) $current.textContent = `📤 ${data.currentName} 님에게 발송 중...`;
+        } else if (data.type === 'item-success') {
+          const pct = data.total ? Math.round((data.current / data.total) * 100) : 0;
+          $bar.style.width = pct + '%';
+          $log.insertAdjacentHTML('afterbegin',
+            `<div style="color:#10b981;">✓ ${data.target.name} (${data.target.email})</div>`);
+        } else if (data.type === 'item-failed') {
+          const pct = data.total ? Math.round((data.current / data.total) * 100) : 0;
+          $bar.style.width = pct + '%';
+          $log.insertAdjacentHTML('afterbegin',
+            `<div style="color:#ef4444;">⚠ ${data.target.name} (${data.target.email}) — ${data.error || '실패'}</div>`);
+        } else if (data.type === 'done') {
+          finalResult = data;
+          $bar.style.width = '100%';
+          $sent.textContent = data.sent;
+          $failed.textContent = data.failed;
+          $skipped.textContent = data.skipped;
+          const total = data.sent + data.failed + data.skipped;
+          $count.textContent = `${total} / ${total} 명`;
+          $current.textContent = data.failed
+            ? `⚠️ 발송 완료 (성공 ${data.sent} · 실패 ${data.failed}${data.skipped ? ` · 누락 ${data.skipped}` : ''})`
+            : `✅ ${data.sent}명에게 ${label} 발송 완료${data.skipped ? ` (이메일 누락 ${data.skipped}명 제외)` : ''}`;
+          root.querySelector('.modal-title').textContent = `📩 ${label} 발송 완료`;
+        }
+      }
+    }
+  } catch (e) {
+    $current.textContent = `❌ 오류: ${e.message}`;
+    finalResult = { sent: 0, failed: 0, skipped: 0, errors: [e.message] };
+  }
+  $foot.style.display = '';
+  return finalResult || { sent: 0, failed: 0, skipped: 0, errors: [] };
+}
+
 // 선택 의원에게 초대장 메일 일괄 발송
 async function bulkSendInvitations() {
   if (!_memberSelected.size) return;
@@ -839,18 +997,13 @@ async function bulkSendInvitations() {
   confirmDialog(
     `선택한 ${ids.length}명 중 이메일 등록 ${targets.length}명에게 초대장을 발송합니다. 계속하시겠습니까?`,
     async () => {
-      try {
-        const r = await api.post('/api/meeting-members/send-invitations', {
-          meeting_id: Number(meetingId),
-          meeting_member_ids: ids
-        });
-        let msg = `✅ ${r.sent}명에게 초대장 발송 완료.`;
-        if (r.skipped) msg += ` (이메일 누락 ${r.skipped}명 제외)`;
-        if (r.failed) msg += ` ⚠️ 실패 ${r.failed}명`;
-        toast(msg, r.failed ? 'warning' : 'success');
-        if (r.errors && r.errors.length) console.warn('초대장 발송 오류:', r.errors);
-        loadMembers();  // 발송 상태 갱신
-      } catch (e) { toast(e.message, 'error'); return false; }
+      const r = await streamBulkEmail({
+        url: '/api/meeting-members/send-invitations',
+        body: { meeting_id: Number(meetingId), meeting_member_ids: ids },
+        label: '초대장'
+      });
+      if (r && r.errors && r.errors.length) console.warn('초대장 발송 오류:', r.errors);
+      loadMembers();  // 발송 상태 갱신
     }
   );
 }
@@ -867,18 +1020,13 @@ async function bulkSendProxies() {
   confirmDialog(
     `선택한 ${ids.length}명 중 이메일 등록 ${targets.length}명에게 위임장을 발송합니다. 계속하시겠습니까?`,
     async () => {
-      try {
-        const r = await api.post('/api/proxies/send-emails', {
-          meeting_id: Number(meetingId),
-          meeting_member_ids: ids
-        });
-        let msg = `✅ ${r.sent}명에게 위임장 발송 완료.`;
-        if (r.skipped) msg += ` (이메일 누락 ${r.skipped}명 제외)`;
-        if (r.failed) msg += ` ⚠️ 실패 ${r.failed}명`;
-        toast(msg, r.failed ? 'warning' : 'success');
-        if (r.errors && r.errors.length) console.warn('위임장 발송 오류:', r.errors);
-        loadMembers();
-      } catch (e) { toast(e.message, 'error'); return false; }
+      const r = await streamBulkEmail({
+        url: '/api/proxies/send-emails',
+        body: { meeting_id: Number(meetingId), meeting_member_ids: ids },
+        label: '위임장'
+      });
+      if (r && r.errors && r.errors.length) console.warn('위임장 발송 오류:', r.errors);
+      loadMembers();
     }
   );
 }
@@ -1445,19 +1593,13 @@ async function openProxyEmailSendDialog(isAll) {
         memberIds = [...document.querySelectorAll('.pem-check:checked')].map(c => Number(c.dataset.mid));
       }
       if (!memberIds.length) { toast('대상을 선택하세요.', 'error'); return false; }
-      try {
-        const r = await api.post('/api/proxies/send-emails', {
-          meeting_id: Number(meetingId),
-          meeting_member_ids: memberIds
-        });
-        let msg = `✅ ${r.sent}명에게 발송했습니다.`;
-        if (r.skipped) msg += ` (이메일 누락 ${r.skipped}명 제외)`;
-        if (r.failed) msg += ` ⚠️ 실패 ${r.failed}명`;
-        toast(msg, r.failed ? 'warning' : 'success');
-        if (r.errors && r.errors.length) {
-          console.warn('이메일 발송 오류:', r.errors);
-        }
-      } catch (e) { toast(e.message, 'error'); return false; }
+      const r = await streamBulkEmail({
+        url: '/api/proxies/send-emails',
+        body: { meeting_id: Number(meetingId), meeting_member_ids: memberIds },
+        label: '위임장'
+      });
+      if (r && r.errors && r.errors.length) console.warn('이메일 발송 오류:', r.errors);
+      try { if (typeof loadMembers === 'function') loadMembers(); } catch {}
     }
   });
 }

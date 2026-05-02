@@ -258,6 +258,7 @@ router.post('/reorder', authRequired, (req, res) => {
 // === 의원 초대장 이메일 발송 (선택 / 일괄) ===
 //   body: { meeting_id, meeting_member_ids?: [id,...] }
 //     meeting_member_ids 미지정 시 → 전체 의원
+//   query: ?stream=1 → SSE 스트리밍 진행률 응답
 router.post('/send-invitations', authRequired, async (req, res) => {
   const { meeting_id, meeting_member_ids } = req.body || {};
   if (!meeting_id) return res.status(400).json({ error: 'meeting_id 필요' });
@@ -289,21 +290,11 @@ router.post('/send-invitations', authRequired, async (req, res) => {
   }
   if (!members.length) return res.status(400).json({ error: '대상 의원이 없습니다.' });
 
-  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
-  const host = req.get('host') || 'localhost';
-  const baseUrl = `${protocol}://${host}`;
-
   const dateStr = meeting.meeting_date ? String(meeting.meeting_date).replace('T', ' ').slice(0, 16) : '';
   const customMessage = (meeting.invitation_message || '').replace(/</g,'&lt;').replace(/\n/g, '<br>');
   const escape = (s) => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-  const results = { sent: 0, skipped: 0, failed: 0, errors: [] };
-  for (const m of members) {
-    if (!m.email || !/.+@.+\..+/.test(m.email)) {
-      results.skipped++;
-      results.errors.push(`${m.name}: 이메일 없음`);
-      continue;
-    }
+  const makeMessage = (m) => {
     const subject = `[${org?.name || 'SmartMeet'}] ${meeting.title} 초대 안내`;
     const html = `
       <div style="font-family:'Pretendard','Malgun Gothic',sans-serif;max-width:560px;margin:auto;padding:24px;color:#1a202c;">
@@ -329,22 +320,25 @@ router.post('/send-invitations', authRequired, async (req, res) => {
       </div>
     `;
     const text = `[${org?.name || ''}] ${meeting.title}\n\n${m.name} 님,\n\n일시: ${dateStr}\n장소: ${meeting.location || ''}\n\n많은 참석 부탁드립니다.`;
-    try {
-      await emailModule.sendEmail({ to: m.email, subject, html, text });
-      results.sent++;
-      // 발송 이력 갱신
-      try {
-        const now = new Date().toLocaleString('sv-SE');
-        db.prepare('UPDATE meeting_members SET invitation_sent_at = ? WHERE id = ?').run(now, m.id);
-      } catch {}
-    } catch (e) {
-      results.failed++;
-      results.errors.push(`${m.name} (${m.email}): ${e.message}`);
-      console.warn('[invitation email] 발송 실패:', m.email, e.message);
-    }
-  }
+    return { subject, html, text };
+  };
 
-  res.json(results);
+  const onSent = (m) => {
+    try {
+      const now = new Date().toLocaleString('sv-SE');
+      db.prepare('UPDATE meeting_members SET invitation_sent_at = ? WHERE id = ?').run(now, m.id);
+    } catch {}
+  };
+
+  const stream = req.query.stream === '1' || req.query.stream === 'true';
+  const { sendBulk } = require('../bulk-email');
+  await sendBulk({
+    targets: members.map(m => ({ id: m.id, name: m.name, email: m.email })),
+    makeMessage,
+    onSent,
+    res,
+    stream
+  });
 });
 
 module.exports = router;
