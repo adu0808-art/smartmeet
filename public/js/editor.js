@@ -15,11 +15,11 @@
     css.id = 'rt-editor-css';
     css.textContent = `
       .rt-editor { border: 1px solid var(--border, #e2e8f0); border-radius: 10px; overflow: visible; background: var(--surface, #fff); position: relative; }
-      .rt-toolbar { display: flex; flex-wrap: wrap; gap: 2px; padding: 6px 8px; border-bottom: 1px solid var(--border, #e2e8f0); background: var(--surface-2, #f8fafc); align-items: center; }
-      .rt-tb-group { display: inline-flex; gap: 1px; align-items: center; padding: 0 4px; }
-      .rt-tb-sep { width: 1px; height: 22px; background: var(--border, #e2e8f0); margin: 0 4px; }
+      .rt-toolbar { display: flex; flex-wrap: wrap; gap: 1px; padding: 6px 6px; border-bottom: 1px solid var(--border, #e2e8f0); background: var(--surface-2, #f8fafc); align-items: center; }
+      .rt-tb-group { display: inline-flex; gap: 1px; align-items: center; padding: 0 2px; }
+      .rt-tb-sep { width: 1px; height: 22px; background: var(--border, #e2e8f0); margin: 0 2px; }
       .rt-btn {
-        height: 30px; min-width: 30px; padding: 0 8px;
+        height: 30px; min-width: 28px; padding: 0 6px;
         background: transparent; border: 1px solid transparent; border-radius: 5px;
         font-size: 13px; color: var(--text, #1a202c); cursor: pointer;
         display: inline-flex; align-items: center; justify-content: center; gap: 4px;
@@ -36,9 +36,9 @@
       .rt-btn-h2 { font-weight: 800; font-size: 13px; }
       .rt-btn-h3 { font-weight: 700; font-size: 12.5px; }
       .rt-select {
-        height: 30px; padding: 0 8px; border-radius: 5px;
+        height: 30px; padding: 0 6px; border-radius: 5px;
         border: 1px solid var(--border, #e2e8f0); background: var(--surface, #fff);
-        font-size: 12.5px; color: var(--text, #1a202c); cursor: pointer; min-width: 80px;
+        font-size: 12.5px; color: var(--text, #1a202c); cursor: pointer; min-width: 64px;
       }
       .rt-color-wrap { position: relative; display: inline-flex; align-items: center; }
       .rt-color-swatch { display: inline-block; width: 14px; height: 4px; border-radius: 2px; margin-left: 4px; background: #1a202c; }
