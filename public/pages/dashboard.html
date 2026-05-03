@@ -111,30 +111,21 @@
     function openNewOrg() {
       const logoState = { logo_url: '', logo_text_url: '', logo_combo_url: '' };
       const heroState = { hero_image_url: '' };
-      let introEditor = null;
-      let greetingEditor = null;
       modal({
         title: '기관 등록',
         size: 'lg',
         body: `
-          ${heroImageHtml('ne', '')}
-          <div class="label" style="margin-bottom:6px;">기관 로고 (3종)</div>
-          ${logoSlotsHtml('ne', logoState)}
           <div class="field"><label class="label">기관명 *</label><input class="input" id="m_name" placeholder="예: 연세대학교 공학동창회" /></div>
           <div class="field">
             <label class="label">개요</label>
             <div class="text-sm text-muted mb-8">한 줄로 짧게 기관을 소개하세요. 기관 목록 카드에 표시됩니다.</div>
             <textarea class="input" id="m_summary" rows="2" placeholder="예: 1980년 설립, 회원 800여 명의 산업·학술 협력 단체"></textarea>
           </div>
-          <div class="field">
-            <label class="label">기관 소개</label>
-            <div class="text-sm text-muted mb-8">홈 페이지 "기관 소개" 섹션에 표시되는 자세한 소개</div>
-            <div id="m_intro_host"></div>
-          </div>
-          <div class="field">
-            <label class="label">인사말</label>
-            <div class="text-sm text-muted mb-8">기관장의 인사말</div>
-            <div id="m_desc_host"></div>
+          ${heroImageHtml('ne', '')}
+          <div class="label" style="margin-bottom:6px;">기관 로고 (3종)</div>
+          ${logoSlotsHtml('ne', logoState)}
+          <div class="text-sm text-muted mt-12" style="background:var(--surface-2);padding:10px 12px;border-radius:8px;line-height:1.6;">
+            💡 자세한 <b>기관 소개</b>와 <b>인사말</b>은 등록 후 기관 홈에서 직접 편집할 수 있습니다.
           </div>
         `,
         confirmText: '등록',
@@ -142,12 +133,10 @@
           const name = document.getElementById('m_name').value.trim();
           if (!name) { toast('기관명을 입력하세요.', 'error'); return false; }
           const summary = document.getElementById('m_summary').value.trim();
-          const intro_html = introEditor ? introEditor.getHtml() : '';
-          const description = greetingEditor ? greetingEditor.getHtml() : '';
           const logos = readLogoSlots('ne', logoState);
           const hero_image_url = readHeroImage('ne', heroState);
           try {
-            await api.post('/api/organizations', { name, summary, description, intro_html, hero_image_url, ...logos });
+            await api.post('/api/organizations', { name, summary, hero_image_url, ...logos });
             toast('기관이 등록되었습니다.', 'success');
             load();
           } catch (e) { toast(e.message, 'error'); return false; }
@@ -157,12 +146,6 @@
         bindHeroImage('ne', heroState);
         bindLogoSlots('ne', logoState);
       }, 30);
-      RichEditor.mount(document.getElementById('m_intro_host'), {
-        placeholder: '예: 우리 학회는 1980년에 설립되어 ...'
-      }).then(ed => introEditor = ed);
-      RichEditor.mount(document.getElementById('m_desc_host'), {
-        placeholder: '예: 안녕하십니까, 회원 여러분. ...'
-      }).then(ed => greetingEditor = ed);
     }
   </script>
 </body>

@@ -1548,6 +1548,7 @@
     }
 
     // 기관 정보 수정 모달 — 홈 우측상단 메뉴에서 호출
+    //   기관 소개 / 인사말 은 별도로 홈 화면 인라인 편집 (✏️ 수정 버튼) 으로 변경
     function openOrgEditor() {
       const logoState = {
         logo_url:       organization.logo_url       || '',
@@ -1555,29 +1556,21 @@
         logo_combo_url: organization.logo_combo_url || ''
       };
       const heroState = { hero_image_url: organization.hero_image_url || '' };
-      let introEditor = null, greetingEditor = null;
       modal({
         title: '기관 정보 수정',
         size: 'lg',
         body: `
-          ${heroImageHtml('hoe', organization.hero_image_url || '')}
-          <div class="label" style="margin-bottom:6px;">기관 로고 (3종)</div>
-          ${logoSlotsHtml('hoe', logoState)}
           <div class="field"><label class="label">기관명 *</label><input class="input" id="hoe_name" value="${(organization.name||'').replace(/"/g,'&quot;')}"></div>
           <div class="field">
             <label class="label">개요</label>
             <div class="text-sm text-muted mb-8">한 줄로 짧게 기관을 소개하세요. 기관 목록 카드에 표시됩니다.</div>
             <textarea class="input" id="hoe_summary" rows="2" placeholder="예: 1980년 설립, 회원 800여 명의 산업·학술 협력 단체">${(organization.summary||'').replace(/</g,'&lt;')}</textarea>
           </div>
-          <div class="field">
-            <label class="label">기관 소개</label>
-            <div class="text-sm text-muted mb-8">홈 페이지 "기관 소개" 섹션에 표시됩니다.</div>
-            <div id="hoe_intro_host"></div>
-          </div>
-          <div class="field">
-            <label class="label">인사말</label>
-            <div class="text-sm text-muted mb-8">홈 페이지 "인사말" 섹션에 표시됩니다.</div>
-            <div id="hoe_desc_host"></div>
+          ${heroImageHtml('hoe', organization.hero_image_url || '')}
+          <div class="label" style="margin-bottom:6px;">기관 로고 (3종)</div>
+          ${logoSlotsHtml('hoe', logoState)}
+          <div class="text-sm text-muted mt-12" style="background:var(--surface-2);padding:10px 12px;border-radius:8px;line-height:1.6;">
+            💡 <b>기관 소개</b>와 <b>인사말</b>은 홈 페이지의 각 섹션에서 ✏️ 수정 버튼으로 직접 편집하세요.
           </div>
         `,
         confirmText: '저장',
@@ -1588,8 +1581,6 @@
             await api.put(`/api/organizations/${orgId}`, {
               name: document.getElementById('hoe_name').value.trim(),
               summary: document.getElementById('hoe_summary').value.trim(),
-              intro_html: introEditor ? introEditor.getHtml() : '',
-              description: greetingEditor ? greetingEditor.getHtml() : '',
               hero_image_url,
               ...logos
             });
@@ -1602,14 +1593,6 @@
         bindHeroImage('hoe', heroState);
         bindLogoSlots('hoe', logoState);
       }, 30);
-      RichEditor.mount(document.getElementById('hoe_intro_host'), {
-        value: organization.intro_html || '',
-        placeholder: '예: 우리 학회는 1980년에 설립되어 ...'
-      }).then(ed => introEditor = ed);
-      RichEditor.mount(document.getElementById('hoe_desc_host'), {
-        value: organization.description || '',
-        placeholder: '예: 안녕하십니까, 회원 여러분. ...'
-      }).then(ed => greetingEditor = ed);
     }
 
     // ====== Section switcher ======
