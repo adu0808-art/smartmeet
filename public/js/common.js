@@ -140,6 +140,20 @@ function confirmDialog(message, onConfirm) {
   });
 }
 
+// ========== Embed mode auto-detect ==========
+//   ?embed=1 쿼리가 있으면 body 에 .embed 클래스 추가 → CSS 가 사이드바/토픽바 숨김
+//   SPA shell 모드에서 iframe 내부 페이지가 자체 사이드바를 숨기도록 사용
+(function _autoDetectEmbed() {
+  try {
+    const params = new URLSearchParams(location.search);
+    if (params.get('embed') === '1') {
+      const apply = () => document.body && document.body.classList.add('embed');
+      if (document.body) apply();
+      else document.addEventListener('DOMContentLoaded', apply, { once: true });
+    }
+  } catch {}
+})();
+
 // ========== Phone format ==========
 //   서버는 숫자만 저장 → 표시는 한국식 하이픈 형식 (010-1234-5678 등)
 function normalizePhone(s) { return String(s == null ? '' : s).replace(/\D/g, ''); }

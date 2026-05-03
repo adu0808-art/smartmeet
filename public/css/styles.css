@@ -1601,3 +1601,20 @@ select.input, select.select { cursor: pointer; }
   .content { padding: 16px; }
   .topbar { padding: 12px 16px; }
 }
+
+/* ========== Embed 모드 (?embed=1) — iframe 내부에서 사이드바/토픽바 숨김 ========== */
+body.embed .sidebar,
+body.embed .topbar { display: none !important; }
+body.embed .app { grid-template-columns: 1fr !important; }
+body.embed .main { width: 100%; }
+body.embed .content { padding: 14px; }
+
+/* SPA shell 모드 — 사이드바 클릭 시 .content 가 iframe 으로 교체되어 표시 */
+.shell-frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: var(--surface-2, #fafbfc);
+  display: block;
+  min-height: 0;       /* flex column 안에서 정상 축소되도록 */
+}

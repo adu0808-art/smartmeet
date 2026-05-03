@@ -51,6 +51,12 @@ function renderOrgSidebar(org, currentKey, opts = {}) {
     ? '<span class="tag tag-status-progress" style="font-size:10px;padding:2px 6px;">관리자</span>'
     : '<span class="tag tag-status-prep" style="font-size:10px;padding:2px 6px;">회원</span>';
 
+  // SPA shell 모드 안에서 (iframe 내부) 인 경우 사이드바를 숨기고 끝냄 — 부모 창의 사이드바만 보이게
+  const isInsideShell = (function() {
+    try { return window.parent !== window && window.parent.location.pathname; }
+    catch { return false; }
+  })();
+
   sb.innerHTML = `
     <div class="brand">
       <div class="brand-mark">${logoText(org.name)}</div>
@@ -59,16 +65,83 @@ function renderOrgSidebar(org, currentKey, opts = {}) {
         <div class="brand-sub">${roleBadge}</div>
       </div>
     </div>
-    <a href="/dashboard" class="nav-item" style="font-size:12px;color:var(--text-muted);">← 기관 목록</a>
+    <a href="/dashboard" class="nav-item" data-shell-skip="1" style="font-size:12px;color:var(--text-muted);">← 기관 목록</a>
     <div class="nav-section-title">기관</div>
-    ${orgItems.map(it => `<a href="${it.href}" class="nav-item ${currentKey === it.key ? 'active' : ''}"><span class="icon">${it.icon}</span> ${it.label}</a>`).join('')}
+    ${orgItems.map(it => `<a href="${it.href}" data-shell-key="${it.key}" class="nav-item ${currentKey === it.key ? 'active' : ''}"><span class="icon">${it.icon}</span> ${it.label}</a>`).join('')}
     ${adminItems.length ? `
       <div class="nav-section-title">관리자</div>
-      ${adminItems.map(it => `<a href="${it.href}" class="nav-item ${currentKey === it.key ? 'active' : ''}"><span class="icon">${it.icon}</span> ${it.label}</a>`).join('')}
+      ${adminItems.map(it => `<a href="${it.href}" data-shell-key="${it.key}" class="nav-item ${currentKey === it.key ? 'active' : ''}"><span class="icon">${it.icon}</span> ${it.label}</a>`).join('')}
     ` : ''}
     ${meetingItems.length ? `
       <div class="nav-section-title">현재 이벤트</div>
-      ${meetingItems.map(it => `<a href="${it.href}" class="nav-item ${currentKey === it.key ? 'active' : ''}"><span class="icon">${it.icon}</span> ${it.label}</a>`).join('')}
+      ${meetingItems.map(it => `<a href="${it.href}" data-shell-key="${it.key}" class="nav-item ${currentKey === it.key ? 'active' : ''}"><span class="icon">${it.icon}</span> ${it.label}</a>`).join('')}
     ` : ''}
   `;
+
+  // SPA shell 네비게이션 — 사이드바 클릭 시 iframe 으로 우측 영역만 교체
+  //   현재 페이지가 embed 모드(부모 shell 안의 iframe)인 경우엔 동작 안 함
+  if (!document.body.classList.contains('embed')) {
+    bindShellNav(sb);
+  }
+}
+
+// 사이드바 클릭 → iframe 기반으로 우측 콘텐츠만 교체 (전체 페이지 새로고침 없음)
+function bindShellNav(sb) {
+  sb.querySelectorAll('a.nav-item[data-shell-key]').forEach(a => {
+    a.addEventListener('click', (e) => {
+      // Cmd/Ctrl/Shift + click 은 새 탭이므로 통과
+      if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+      const href = a.getAttribute('href');
+      if (!href || !href.startsWith('/')) return;
+      e.preventDefault();
+      shellLoad(href, a);
+    });
+  });
+}
+
+function shellLoad(href, navEl) {
+  const main = document.querySelector('.main');
+  if (!main) { location.href = href; return; }
+  // 한 번만 만드는 iframe — 이후엔 src 교체만
+  let frame = document.getElementById('shellFrame');
+  if (!frame) {
+    // 기존 .content 숨김 + iframe 삽입
+    const existing = main.querySelectorAll('.content, .container');
+    existing.forEach(el => el.style.display = 'none');
+    frame = document.createElement('iframe');
+    frame.id = 'shellFrame';
+    frame.className = 'shell-frame';
+    frame.title = '본문';
+    main.appendChild(frame);
+    // popstate 처리 (뒤로가기/앞으로가기)
+    if (!window._shellPopBound) {
+      window._shellPopBound = true;
+      window.addEventListener('popstate', (e) => {
+        if (e.state && e.state.shell) {
+          frame.src = _withEmbed(e.state.shell);
+          _highlightNavByHref(e.state.shell);
+        } else {
+          // 비-shell 상태로 복귀 → 그냥 리로드
+          location.reload();
+        }
+      });
+    }
+  }
+  frame.src = _withEmbed(href);
+  history.pushState({ shell: href }, '', href);
+  _highlightNavByHref(href);
+}
+
+function _withEmbed(href) {
+  try {
+    const u = new URL(href, location.origin);
+    u.searchParams.set('embed', '1');
+    return u.pathname + (u.search ? u.search : '') + (u.hash || '');
+  } catch { return href; }
+}
+
+function _highlightNavByHref(href) {
+  document.querySelectorAll('.sidebar .nav-item').forEach(n => n.classList.remove('active'));
+  const target = document.querySelector(`.sidebar a.nav-item[href="${CSS.escape(href)}"]`);
+  if (target) target.classList.add('active');
 }
