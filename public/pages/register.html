@@ -58,7 +58,13 @@
   <script src="/js/common.js"></script>
   <script>
     const inviteToken = qs('invite');
+    const ctxOrgId = Number(qs('org')) || 0;     // 기관 홈에서 가입할 때 자동 소속 지정
+    const nextUrl = (function() {
+      const n = qs('next');
+      return (n && n.startsWith('/') && !n.startsWith('//')) ? n : null;
+    })();
     let invitation = null;
+    let ctxOrg = null;       // ?org= 로 들어왔을 때의 기관 정보 (이름 등)
 
     (async function init() {
       if (inviteToken) {
@@ -74,10 +80,22 @@
           document.getElementById('err').classList.add('active');
         }
       }
+      // ?org= 컨텍스트 — 초대 토큰 없이도 기관 정보를 보여주고 자동 소속 지정
+      if (!inviteToken && ctxOrgId) {
+        try {
+          const r = await fetch(`/api/public/home/${ctxOrgId}`);
+          const data = await r.json();
+          if (r.ok && data.organization) {
+            ctxOrg = data.organization;
+            document.getElementById('subtitle').textContent = `${ctxOrg.name}의 회원으로 가입합니다.`;
+            renderOrgPreview();
+          }
+        } catch (e) { /* 무시 — 일반 가입으로 fallback */ }
+      }
       // Already logged in?
       const u = await getMe();
-      if (u && !inviteToken) {
-        // No invite — already-logged-in user goes to their workspace
+      if (u && !inviteToken && !ctxOrgId) {
+        // No invite + no org ctx — already-logged-in user goes to their workspace
         return smartRedirect(u);
       }
       if (u && inviteToken && invitation) {
@@ -112,6 +130,23 @@
             <div class="text-sm text-muted">초대된 기관</div>
             <div class="fw-700">${invitation.organization_name}</div>
             <div class="text-sm">기본 권한: ${invitation.default_role === 'admin' ? '🔑 관리자' : '👤 일반 사용자'}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderOrgPreview() {
+      if (!ctxOrg) return;
+      const p = document.getElementById('invitePreview');
+      p.style.display = 'block';
+      const initials = (ctxOrg.name || '?').slice(0, 2);
+      p.innerHTML = `
+        <div class="flex items-center gap-12">
+          <div class="auth-logo" style="background:var(--accent);width:36px;height:36px;font-size:14px;">${initials}</div>
+          <div>
+            <div class="text-sm text-muted">소속 기관</div>
+            <div class="fw-700">${ctxOrg.name || ''}</div>
+            <div class="text-sm" style="color:var(--text-muted);">가입 후 자동으로 회원으로 등록됩니다.</div>
           </div>
         </div>
       `;
@@ -152,9 +187,17 @@
           phone: fd.get('phone') || '',
           workplace: fd.get('workplace') || '',
           password: fd.get('password'),
-          invite_token: inviteToken || undefined
+          invite_token: inviteToken || undefined,
+          org_id: !inviteToken && ctxOrgId ? ctxOrgId : undefined
         });
-        location.href = r.joined_organization_id ? `/home?org=${r.joined_organization_id}` : '/dashboard';
+        // 우선순위: next 파라미터 → 초대/기관 컨텍스트 홈 → 대시보드
+        if (nextUrl) {
+          location.href = nextUrl;
+        } else if (r.joined_organization_id) {
+          location.href = `/home?org=${r.joined_organization_id}`;
+        } else {
+          location.href = '/dashboard';
+        }
       } catch (ex) {
         err.textContent = ex.message;
         err.classList.add('active');

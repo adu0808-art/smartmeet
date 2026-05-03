@@ -1374,12 +1374,15 @@
       me = await getMe();
       if (!orgId) { location.href = '/dashboard'; return; }
 
-      // 사용자 chip 또는 로그인 버튼
+      // 사용자 chip 또는 로그인/회원가입 버튼
       if (me) {
         document.getElementById('userArea').innerHTML = renderUserChip(me);
       } else {
+        const nextUrl = encodeURIComponent(location.pathname + location.search);
+        // 회원가입 링크에 ?org= 와 ?next= 모두 — 가입 후 자동으로 이 기관 소속 + 이 화면으로 복귀
         document.getElementById('userArea').innerHTML =
-          `<a class="btn btn-primary" href="/login?next=${encodeURIComponent(location.pathname + location.search)}" style="text-decoration:none;">로그인</a>`;
+          `<a class="btn" href="/register?org=${orgId}&next=${nextUrl}" style="text-decoration:none;">회원가입</a>` +
+          `<a class="btn btn-primary" href="/login?next=${nextUrl}" style="text-decoration:none;margin-left:6px;">로그인</a>`;
       }
 
       // 기관 정보 — 로그인된 경우 권한까지 가져오고, 비로그인은 공개 API 사용

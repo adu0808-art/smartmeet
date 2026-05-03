@@ -7,7 +7,7 @@ const passwordPolicy = require('../password-policy');
 const router = express.Router();
 
 router.post('/register', (req, res) => {
-  const { email, password, name, phone, workplace, invite_token } = req.body || {};
+  const { email, password, name, phone, workplace, invite_token, org_id } = req.body || {};
   if (!email || !password || !name) return res.status(400).json({ error: '모든 항목을 입력해주세요.' });
   const pwErr = passwordPolicy.validate(password);
   if (pwErr) return res.status(400).json({ error: pwErr });
@@ -28,22 +28,38 @@ router.post('/register', (req, res) => {
     }
   }
 
+  // 초대 없이도 org_id 가 들어오면 기관 홈 가입 — 해당 기관이 실제로 존재하는지 확인
+  let ctxOrg = null;
+  if (!invitation && org_id) {
+    const oid = Number(org_id);
+    if (oid) {
+      ctxOrg = db.prepare('SELECT id FROM organizations WHERE id = ?').get(oid);
+    }
+  }
+
   const hash = bcrypt.hashSync(password, 10);
   const result = db.prepare('INSERT INTO users (email, password_hash, name, role, phone, workplace) VALUES (?, ?, ?, ?, ?, ?)')
     .run(email, hash, name, 'user', phone || '', workplace || '');
   const userId = result.lastInsertRowid;
 
-  // If invite, attach to org
+  // 기관 자동 소속
+  let joinedOrgId = null;
   if (invitation) {
     db.prepare('INSERT OR IGNORE INTO organization_members (organization_id, user_id, member_role) VALUES (?, ?, ?)')
       .run(invitation.organization_id, userId, invitation.default_role);
     db.prepare('UPDATE invitations SET used_count = used_count + 1 WHERE id = ?').run(invitation.id);
+    joinedOrgId = invitation.organization_id;
+  } else if (ctxOrg) {
+    // 기관 홈에서 직접 가입 → 일반 회원(staff) 으로 자동 등록
+    db.prepare('INSERT OR IGNORE INTO organization_members (organization_id, user_id, member_role) VALUES (?, ?, ?)')
+      .run(ctxOrg.id, userId, 'staff');
+    joinedOrgId = ctxOrg.id;
   }
 
   const user = db.prepare('SELECT id, email, name, role FROM users WHERE id = ?').get(userId);
   const token = sign(user);
   res.cookie('token', token, { httpOnly: true, sameSite: 'lax', maxAge: 7 * 24 * 3600 * 1000 });
-  res.json({ user, token, joined_organization_id: invitation ? invitation.organization_id : null });
+  res.json({ user, token, joined_organization_id: joinedOrgId });
 });
 
 router.post('/login', (req, res) => {
