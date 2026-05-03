@@ -1,5 +1,8 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 const db = require('../db');
 const { adminRequired } = require('../auth-mw');
 const passwordPolicy = require('../password-policy');
@@ -104,6 +107,53 @@ router.get('/stats', (req, res) => {
   const proxyCount = db.prepare('SELECT COUNT(*) AS c FROM proxies').get().c;
   const submittedProxyCount = db.prepare(`SELECT COUNT(*) AS c FROM proxies WHERE status = 'submitted'`).get().c;
   res.json({ userCount, orgCount, meetingCount, memberCount, proxyCount, submittedProxyCount });
+});
+
+// === DB 백업 다운로드 — 시스템 관리자 전용 ===
+//   better-sqlite3 의 .backup() 으로 일관된 스냅샷을 만든 후 파일 스트리밍
+//   운영 환경(Railway Volume) 의 smartmeet.db 를 로컬로 가져갈 때 사용
+router.get('/db-backup', async (req, res) => {
+  const tmpDir = process.env.DB_BACKUP_TMP || os.tmpdir();
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const tmpPath = path.join(tmpDir, `smartmeet-backup-${stamp}.db`);
+  try {
+    // 일관된 스냅샷 — WAL 통합 후 단일 파일로 백업
+    await db.backup(tmpPath);
+    const filename = `smartmeet-${new Date().toISOString().slice(0, 10)}.db`;
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    const stream = fs.createReadStream(tmpPath);
+    stream.pipe(res);
+    const cleanup = () => { try { fs.unlinkSync(tmpPath); } catch {} };
+    stream.on('close', cleanup);
+    stream.on('error', cleanup);
+    res.on('close', cleanup);
+  } catch (e) {
+    console.error('[admin db-backup]', e);
+    try { fs.unlinkSync(tmpPath); } catch {}
+    res.status(500).json({ error: '백업 실패: ' + (e.message || '알 수 없는 오류') });
+  }
+});
+
+// === DB 통계 (백업 다운로드 화면용) ===
+router.get('/db-info', (req, res) => {
+  try {
+    const dbDir = process.env.DB_DIR || path.resolve(__dirname, '..', '..', 'DB');
+    const dbPath = path.join(dbDir, 'smartmeet.db');
+    let sizeBytes = 0;
+    try { sizeBytes = fs.statSync(dbPath).size; } catch {}
+    const counts = {
+      users: db.prepare('SELECT COUNT(*) AS c FROM users').get().c,
+      organizations: db.prepare('SELECT COUNT(*) AS c FROM organizations').get().c,
+      meetings: db.prepare('SELECT COUNT(*) AS c FROM meetings').get().c,
+      meeting_members: db.prepare('SELECT COUNT(*) AS c FROM meeting_members').get().c,
+      members: db.prepare('SELECT COUNT(*) AS c FROM members').get().c,
+      schedules: db.prepare('SELECT COUNT(*) AS c FROM schedules').get().c
+    };
+    res.json({ dbPath, sizeBytes, counts });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 router.get('/users', (req, res) => {

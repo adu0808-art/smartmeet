@@ -46,8 +46,26 @@
             <ul class="text-sm" style="line-height:1.9;color:var(--text-muted);padding-left:18px;">
               <li>사용자 관리에서 권한 변경 및 비밀번호 재설정이 가능합니다.</li>
               <li>기관 관리에서 등록된 모든 기관을 확인하고 진입할 수 있습니다.</li>
-              <li>DB는 <code>/DB/smartmeet.db</code>에 저장됩니다.</li>
+              <li>DB는 <code>/DB/smartmeet.db</code>에 저장됩니다 (운영: Volume <code>/data</code>).</li>
             </ul>
+          </div>
+
+          <div class="card mt-16">
+            <div class="card-title">💾 DB 백업 다운로드</div>
+            <div class="text-sm text-muted mb-12" style="line-height:1.7;">
+              현재 DB 의 일관된 스냅샷을 <code>.db</code> 파일로 다운로드합니다.<br>
+              로컬 환경에서 <code>DB/smartmeet.db</code> 자리에 덮어쓰면 운영 데이터로 작업할 수 있습니다.
+            </div>
+            <div id="dbInfo" class="text-sm" style="background:var(--surface-2);padding:10px 12px;border-radius:8px;margin-bottom:12px;line-height:1.7;font-family:Consolas,monospace;">
+              불러오는 중...
+            </div>
+            <div class="flex gap-8" style="flex-wrap:wrap;">
+              <button class="btn btn-primary" id="dbBackupBtn">📥 DB 백업 다운로드</button>
+              <button class="btn btn-sm" onclick="loadDbInfo()">↻ 통계 새로고침</button>
+            </div>
+            <div class="text-sm text-muted mt-12" style="background:#fef3c7;border-left:3px solid #f59e0b;padding:10px 12px;border-radius:6px;line-height:1.6;color:#92400e;">
+              ⚠️ 백업 파일에는 <b>모든 사용자·기관·이벤트 데이터</b>가 포함됩니다. 안전하게 보관하세요.
+            </div>
           </div>
         </div>
 
@@ -109,7 +127,55 @@
       document.getElementById('s-members').textContent = s.memberCount;
       document.getElementById('s-proxies').textContent = s.proxyCount;
       document.getElementById('s-submitted').textContent = s.submittedProxyCount;
+      loadDbInfo();
+      const btn = document.getElementById('dbBackupBtn');
+      if (btn && !btn._bound) {
+        btn._bound = true;
+        btn.onclick = downloadDbBackup;
+      }
     }
+
+    async function loadDbInfo() {
+      const el = document.getElementById('dbInfo');
+      if (!el) return;
+      try {
+        const r = await api.get('/api/admin/db-info');
+        const mb = (r.sizeBytes / 1024 / 1024).toFixed(2);
+        el.innerHTML = `
+          <div>📁 <b>${r.dbPath}</b></div>
+          <div style="margin-top:4px;">크기: <b>${mb} MB</b> (${r.sizeBytes.toLocaleString()} bytes)</div>
+          <div style="margin-top:6px;color:var(--text-muted);font-size:11.5px;">
+            행 수: 사용자 ${r.counts.users}, 기관 ${r.counts.organizations},
+            이벤트 ${r.counts.meetings}, 출석부 ${r.counts.meeting_members},
+            임원 ${r.counts.members}, 일정 ${r.counts.schedules}
+          </div>`;
+      } catch (e) {
+        el.innerHTML = `<span style="color:var(--danger);">정보 로드 실패: ${e.message}</span>`;
+      }
+    }
+    window.loadDbInfo = loadDbInfo;
+
+    function downloadDbBackup() {
+      const btn = document.getElementById('dbBackupBtn');
+      if (!btn) return;
+      const orig = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '⏳ 백업 생성 중...';
+      // 직접 navigation 으로 다운로드 (쿠키 인증 자동 적용)
+      const a = document.createElement('a');
+      a.href = '/api/admin/db-backup';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // 잠시 후 버튼 복귀
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = orig;
+        toast('💾 DB 백업 다운로드가 시작되었습니다.', 'success');
+      }, 1500);
+    }
+    window.downloadDbBackup = downloadDbBackup;
 
     let _allUsers = [];
     let _userSearchQ = '';
