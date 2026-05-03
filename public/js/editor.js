@@ -425,6 +425,160 @@
       if (!html) return;
       // 블록 뒤에 빈 단락을 추가해 커서 이동 여지 확보
       exec('insertHTML', html + '<p><br></p>');
+      // 직후 도구막대 위치 갱신
+      setTimeout(updateBlockTools, 50);
+    }
+
+    // ===== 활성 블록 도구막대 (⚙️ 설정 / 🗑️ 삭제) =====
+    let blockToolsEl = null;
+    let activeBlockEl = null;
+
+    function ensureBlockToolsEl() {
+      if (blockToolsEl) return blockToolsEl;
+      blockToolsEl = document.createElement('div');
+      blockToolsEl.className = 'sb-block-tools';
+      blockToolsEl.contentEditable = 'false';
+      blockToolsEl.innerHTML = `
+        <button type="button" data-tool="settings" title="설정">⚙️</button>
+        <button type="button" data-tool="delete" class="danger" title="블록 삭제">🗑️</button>
+      `;
+      blockToolsEl.addEventListener('mousedown', (e) => e.preventDefault());
+      blockToolsEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-tool]');
+        if (!btn || !activeBlockEl) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (btn.dataset.tool === 'settings') {
+          openBlockSettings(activeBlockEl);
+        } else if (btn.dataset.tool === 'delete') {
+          if (confirm('이 블록을 삭제하시겠습니까?')) {
+            activeBlockEl.remove();
+            activeBlockEl = null;
+            hideBlockTools();
+          }
+        }
+      });
+      container.appendChild(blockToolsEl);
+      return blockToolsEl;
+    }
+
+    function showBlockTools(blockEl) {
+      ensureBlockToolsEl();
+      activeBlockEl = blockEl;
+      const blockRect = blockEl.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      const top = blockRect.top - containerRect.top + 6;
+      const right = containerRect.right - blockRect.right + 6;
+      blockToolsEl.style.display = 'flex';
+      blockToolsEl.style.top = top + 'px';
+      blockToolsEl.style.right = Math.max(6, right) + 'px';
+      blockToolsEl.style.left = '';
+    }
+    function hideBlockTools() {
+      if (blockToolsEl) blockToolsEl.style.display = 'none';
+      activeBlockEl = null;
+    }
+
+    function updateBlockTools() {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) { hideBlockTools(); return; }
+      const node = sel.getRangeAt(0).startContainer;
+      if (!content.contains(node)) { hideBlockTools(); return; }
+      const block = findBlockRoot(node);
+      if (block) showBlockTools(block);
+      else hideBlockTools();
+    }
+    document.addEventListener('selectionchange', () => {
+      if (document.activeElement === content || content.contains(document.activeElement)) {
+        updateBlockTools();
+      }
+    });
+    content.addEventListener('click', updateBlockTools);
+    content.addEventListener('keyup', updateBlockTools);
+    content.addEventListener('scroll', () => {
+      if (activeBlockEl) showBlockTools(activeBlockEl);
+    });
+
+    // 블록 설정 모달
+    function openBlockSettings(blockEl) {
+      const kind = detectBlockKind(blockEl);
+      if (!kind) return;
+      const fields = renderBlockSettingsBody(kind, blockEl);
+      if (!window.modal) { alert('설정 UI 를 사용할 수 없습니다.'); return; }
+      const m = window.modal({
+        title: '⚙️ ' + (SMART_BLOCKS.find(b => b.kind === kind)?.name || '블록') + ' 설정',
+        body: `<div class="sb-settings-grid">${fields}</div>`,
+        confirmText: '적용',
+        onConfirm: (root) => {
+          applyBlockSettings(kind, blockEl, root);
+        }
+      });
+      // 옵션/스워치 클릭 시 즉시 강조 + 즉시 add/remove 항목 처리
+      setTimeout(() => {
+        const root = m && m.root;
+        if (!root) return;
+        // 옵션 토글
+        root.querySelectorAll('.sb-settings-options').forEach(group => {
+          group.addEventListener('click', (e) => {
+            const opt = e.target.closest('.sb-settings-opt');
+            if (!opt) return;
+            group.querySelectorAll('.sb-settings-opt').forEach(o => o.classList.remove('is-on'));
+            opt.classList.add('is-on');
+          });
+        });
+        // 스워치 토글
+        root.querySelectorAll('.sb-settings-swatches').forEach(group => {
+          group.addEventListener('click', (e) => {
+            const sw = e.target.closest('.sb-settings-swatch');
+            if (!sw) return;
+            group.querySelectorAll('.sb-settings-swatch').forEach(o => o.classList.remove('is-on'));
+            sw.classList.add('is-on');
+          });
+        });
+        // 즉시 적용되는 add/remove 버튼들
+        root.querySelectorAll('button[data-field]').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            const action = btn.dataset.field;
+            handleBlockAction(kind, blockEl, action);
+          });
+        });
+      }, 30);
+    }
+
+    // Add/remove 등 즉시 적용 액션
+    function handleBlockAction(kind, blockEl, action) {
+      if (kind === 'features') {
+        if (action === 'add-feature') {
+          const colors = ['blue', 'orange', 'green', 'purple', 'pink', 'cyan'];
+          const used = blockEl.querySelectorAll('.sb-feature').length;
+          const color = colors[used % colors.length];
+          blockEl.insertAdjacentHTML('beforeend',
+            `<div class="sb-feature" data-color="${color}"><div class="sb-feature-icon">⭐</div><div class="sb-feature-text"><div class="sb-feature-title">새 항목</div><div class="sb-feature-desc">설명을 입력하세요.</div></div></div>`);
+        } else if (action === 'remove-feature') {
+          const items = blockEl.querySelectorAll('.sb-feature');
+          if (items.length > 1) items[items.length - 1].remove();
+          else (window.toast || alert)('최소 1개 항목은 유지해야 합니다.', 'error');
+        }
+      } else if (kind === 'checklist') {
+        if (action === 'add-item') {
+          const ul = blockEl.querySelector('ul');
+          if (ul) ul.insertAdjacentHTML('beforeend',
+            `<li><input type="checkbox"><span>새 항목</span></li>`);
+        } else if (action === 'remove-item') {
+          const items = blockEl.querySelectorAll('ul > li');
+          if (items.length > 1) items[items.length - 1].remove();
+          else (window.toast || alert)('최소 1개 항목은 유지해야 합니다.', 'error');
+        }
+      } else if (kind === 'gallery') {
+        if (action === 'add-slot') {
+          blockEl.insertAdjacentHTML('beforeend', `<div class="sb-gallery-item" contenteditable="false"></div>`);
+        } else if (action === 'remove-slot') {
+          const items = blockEl.querySelectorAll('.sb-gallery-item');
+          if (items.length > 1) items[items.length - 1].remove();
+          else (window.toast || alert)('최소 1개 슬롯은 유지해야 합니다.', 'error');
+        }
+      }
     }
 
     // 갤러리 placeholder 클릭 → 파일 선택 → 이미지로 교체
@@ -484,6 +638,7 @@
         closeImagePopover();
         closeTablePopover();
         closeBlockPopover();
+        if (blockToolsEl) blockToolsEl.remove();
         container.replaceChildren();
       },
       focus: () => content.focus()
@@ -673,6 +828,10 @@
 
   // ===== 스마트 블록 팝오버 빌더 =====
   const SMART_BLOCKS = [
+    { kind: 'statement',    icon: '🎯', name: '스테이트먼트', desc: 'MISSION/VISION 등 강조 배너' },
+    { kind: 'hero',         icon: '🌅', name: '히어로 배너', desc: '인사말·소개 그라디언트 헤더' },
+    { kind: 'features',     icon: '🧩', name: '피처 그리드', desc: '아이콘 + 제목 + 설명 (2~4열)' },
+    { kind: 'card',         icon: '📇', name: '피처 카드', desc: '단일 강조 카드 (아이콘+제목+설명)' },
     { kind: 'callout-info', icon: '💡', name: '정보 콜아웃', desc: '강조하고 싶은 정보 박스' },
     { kind: 'callout-warn', icon: '⚠️', name: '주의 콜아웃', desc: '주의·경고 박스' },
     { kind: 'callout-tip',  icon: '✨', name: '팁 콜아웃', desc: '팁·노하우 박스' },
@@ -681,7 +840,7 @@
     { kind: 'checklist',    icon: '✅', name: '체크리스트', desc: '체크박스 항목 묶음' },
     { kind: 'quote',        icon: '❝',  name: '인용 + 출처', desc: '강조 인용문과 출처' },
     { kind: 'gallery',      icon: '🖼️', name: '이미지 갤러리', desc: '3장 그리드 — 클릭해 업로드' },
-    { kind: 'cta',          icon: '🔘', name: 'CTA 버튼', desc: '클릭 유도 버튼 (Ctrl+클릭=링크 편집)' }
+    { kind: 'cta',          icon: '🔘', name: 'CTA 버튼', desc: '클릭 유도 버튼' }
   ];
 
   function buildBlockPopover(onPick) {
@@ -715,6 +874,19 @@
   // ===== 스마트 블록 HTML 템플릿 =====
   function renderSmartBlockHtml(kind) {
     switch (kind) {
+      case 'statement':
+        return `<div class="sb-statement" data-bg="navy" data-accent="yellow"><div class="sb-statement-label">MISSION</div><div class="sb-statement-body">여기에 핵심 메시지를 입력하세요. <span class="sb-accent">강조 텍스트</span> 부분은 색상이 다르게 표시됩니다.</div></div>`;
+      case 'hero':
+        return `<div class="sb-hero" data-gradient="blue" data-accent="yellow"><div class="sb-hero-label">PRESIDENT'S GREETINGS</div><div class="sb-hero-title">제목을 입력하세요</div><div class="sb-hero-subtitle">부제목을 입력하세요</div><div class="sb-hero-bar" contenteditable="false"></div></div>`;
+      case 'features':
+        return `<div class="sb-features" data-cols="2">`
+          + `<div class="sb-feature" data-color="blue"><div class="sb-feature-icon">📚</div><div class="sb-feature-text"><div class="sb-feature-title">학술 연구</div><div class="sb-feature-desc">정기 학술대회·전문 학술지 발간</div></div></div>`
+          + `<div class="sb-feature" data-color="orange"><div class="sb-feature-icon">🏭</div><div class="sb-feature-text"><div class="sb-feature-title">산학 협력</div><div class="sb-feature-desc">기업·연구기관 공동 연구 및 자문</div></div></div>`
+          + `<div class="sb-feature" data-color="cyan"><div class="sb-feature-icon">🌐</div><div class="sb-feature-text"><div class="sb-feature-title">국제 교류</div><div class="sb-feature-desc">글로벌 학회·연구기관과 MOU</div></div></div>`
+          + `<div class="sb-feature" data-color="purple"><div class="sb-feature-icon">🎯</div><div class="sb-feature-text"><div class="sb-feature-title">인재 양성</div><div class="sb-feature-desc">차세대 기술경영 리더 교육</div></div></div>`
+          + `</div>`;
+      case 'card':
+        return `<div class="sb-card" data-color="blue"><div class="sb-card-icon">🎓</div><div class="sb-card-title">제목을 입력하세요</div><div class="sb-card-desc">설명 문구를 입력하세요. 한두 문장 정도로 핵심 내용을 정리하면 좋습니다.</div></div>`;
       case 'callout-info':
         return `<div class="sb-callout sb-callout--info"><div class="sb-callout-icon">💡</div><div class="sb-callout-body">정보 — 여기에 강조하고 싶은 내용을 입력하세요.</div></div>`;
       case 'callout-warn':
@@ -735,6 +907,286 @@
         return `<div class="sb-cta"><a href="#" class="sb-cta-button">지금 신청하기</a><div class="sb-cta-sub">Ctrl+클릭 으로 링크 URL 을 편집할 수 있습니다.</div></div>`;
       default:
         return '';
+    }
+  }
+
+  // ===== 블록 종류 식별 (DOM 노드 → kind) =====
+  function detectBlockKind(el) {
+    if (!el || !el.classList) return null;
+    if (el.classList.contains('sb-statement')) return 'statement';
+    if (el.classList.contains('sb-hero')) return 'hero';
+    if (el.classList.contains('sb-features')) return 'features';
+    if (el.classList.contains('sb-card')) return 'card';
+    if (el.classList.contains('sb-callout')) {
+      if (el.classList.contains('sb-callout--info')) return 'callout-info';
+      if (el.classList.contains('sb-callout--warn')) return 'callout-warn';
+      if (el.classList.contains('sb-callout--tip')) return 'callout-tip';
+      return 'callout-info';
+    }
+    if (el.classList.contains('sb-tldr')) return 'tldr';
+    if (el.classList.contains('sb-compare')) return 'compare';
+    if (el.classList.contains('sb-checklist')) return 'checklist';
+    if (el.classList.contains('sb-quote')) return 'quote';
+    if (el.classList.contains('sb-gallery')) return 'gallery';
+    if (el.classList.contains('sb-cta')) return 'cta';
+    return null;
+  }
+
+  // 활성 블록 노드 찾기 (커서가 들어 있는 가장 가까운 sb-* 블록)
+  const SB_SELECTOR = '.sb-statement, .sb-hero, .sb-features, .sb-card, .sb-callout, .sb-tldr, .sb-compare, .sb-checklist, .sb-quote, .sb-gallery, .sb-cta';
+  function findBlockRoot(node) {
+    while (node && node !== document.body) {
+      if (node.nodeType === 1 && node.matches && node.matches(SB_SELECTOR)) return node;
+      node = node.parentNode;
+    }
+    return null;
+  }
+
+  // ===== 블록 설정 폼 — 블록 종류별 필드 =====
+  function settingsRow(label, html) {
+    return `<div class="sb-settings-row"><div class="sb-settings-label">${escapeHtml(label)}</div>${html}</div>`;
+  }
+  function optionsHtml(name, options, current) {
+    return `<div class="sb-settings-options" data-field="${name}">` +
+      options.map(o => `<button type="button" class="sb-settings-opt${o.value === current ? ' is-on' : ''}" data-value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</button>`).join('') +
+      `</div>`;
+  }
+  function swatchesHtml(name, swatches, current) {
+    return `<div class="sb-settings-swatches" data-field="${name}">` +
+      swatches.map(s => `<div class="sb-settings-swatch${s.value === current ? ' is-on' : ''}" data-value="${escapeHtml(s.value)}" title="${escapeHtml(s.label)}" style="background:${s.bg};"></div>`).join('') +
+      `</div>`;
+  }
+  function inputHtml(name, value, placeholder = '') {
+    return `<input type="text" class="input" data-field="${escapeHtml(name)}" value="${escapeHtml(value || '')}" placeholder="${escapeHtml(placeholder)}">`;
+  }
+  function textareaHtml(name, value, placeholder = '') {
+    return `<textarea class="input" data-field="${escapeHtml(name)}" rows="3" placeholder="${escapeHtml(placeholder)}">${escapeHtml(value || '')}</textarea>`;
+  }
+
+  function renderBlockSettingsBody(kind, el) {
+    if (kind === 'statement') {
+      return [
+        settingsRow('라벨 (예: MISSION, VISION)', inputHtml('label', el.querySelector('.sb-statement-label')?.textContent || '')),
+        settingsRow('배경 스타일', optionsHtml('bg', [
+          { value: 'navy', label: '네이비' },
+          { value: 'dark', label: '다크' },
+          { value: 'blue', label: '블루' },
+          { value: 'purple', label: '퍼플' },
+          { value: 'green', label: '그린' },
+          { value: 'light', label: '라이트' }
+        ], el.dataset.bg || 'navy')),
+        settingsRow('강조 색상', optionsHtml('accent', [
+          { value: 'yellow', label: '옐로우' },
+          { value: 'orange', label: '오렌지' },
+          { value: 'green', label: '그린' },
+          { value: 'pink', label: '핑크' },
+          { value: 'cyan', label: '시안' }
+        ], el.dataset.accent || 'yellow'))
+      ].join('');
+    }
+    if (kind === 'hero') {
+      return [
+        settingsRow('라벨 (소제목)', inputHtml('label', el.querySelector('.sb-hero-label')?.textContent || '')),
+        settingsRow('배경 그라디언트', optionsHtml('gradient', [
+          { value: 'navy', label: '네이비' },
+          { value: 'blue', label: '블루' },
+          { value: 'purple', label: '퍼플' },
+          { value: 'teal', label: '틸' },
+          { value: 'orange', label: '오렌지' },
+          { value: 'rose', label: '로즈' }
+        ], el.dataset.gradient || 'blue')),
+        settingsRow('강조 바 색상', optionsHtml('accent', [
+          { value: 'yellow', label: '옐로우' },
+          { value: 'white', label: '화이트' },
+          { value: 'orange', label: '오렌지' },
+          { value: 'cyan', label: '시안' }
+        ], el.dataset.accent || 'yellow'))
+      ].join('');
+    }
+    if (kind === 'features') {
+      return [
+        settingsRow('컬럼 수', optionsHtml('cols', [
+          { value: '2', label: '2열' },
+          { value: '3', label: '3열' },
+          { value: '4', label: '4열' }
+        ], el.dataset.cols || '2')),
+        settingsRow('항목', `<div class="text-sm text-muted" style="font-size:12px;">항목별 아이콘·제목·설명은 본문에서 직접 클릭해 수정하세요. 항목 색상은 각 카드에 마우스를 올려 ⚙️ 으로 개별 설정하거나, 추가/삭제는 아래 버튼 사용.</div>`),
+        settingsRow('항목 추가/삭제', `
+          <div class="flex gap-8" style="display:flex;gap:8px;">
+            <button type="button" class="btn btn-sm" data-field="add-feature">+ 항목 추가</button>
+            <button type="button" class="btn btn-sm" data-field="remove-feature">- 마지막 항목 삭제</button>
+          </div>`)
+      ].join('');
+    }
+    if (kind === 'card') {
+      return [
+        settingsRow('아이콘 (이모지 또는 텍스트)', inputHtml('icon', el.querySelector('.sb-card-icon')?.textContent || '')),
+        settingsRow('상단 강조선 색상', optionsHtml('color', [
+          { value: 'blue', label: '블루' },
+          { value: 'orange', label: '오렌지' },
+          { value: 'green', label: '그린' },
+          { value: 'purple', label: '퍼플' },
+          { value: 'pink', label: '핑크' },
+          { value: 'rose', label: '로즈' }
+        ], el.dataset.color || 'blue'))
+      ].join('');
+    }
+    if (kind === 'callout-info' || kind === 'callout-warn' || kind === 'callout-tip') {
+      const variant = kind.split('-')[1];
+      return [
+        settingsRow('아이콘 (이모지)', inputHtml('icon', el.querySelector('.sb-callout-icon')?.textContent || '')),
+        settingsRow('스타일', optionsHtml('variant', [
+          { value: 'info', label: '💡 정보 (파랑)' },
+          { value: 'warn', label: '⚠️ 주의 (호박)' },
+          { value: 'tip',  label: '✨ 팁 (초록)' }
+        ], variant))
+      ].join('');
+    }
+    if (kind === 'tldr') {
+      return [
+        settingsRow('라벨', inputHtml('label', el.querySelector('.sb-tldr-label')?.textContent || 'TL;DR'))
+      ].join('');
+    }
+    if (kind === 'compare') {
+      const left = el.querySelector('.sb-compare-col--left .sb-compare-head')?.textContent || 'Before';
+      const right = el.querySelector('.sb-compare-col--right .sb-compare-head')?.textContent || 'After';
+      return [
+        settingsRow('왼쪽 제목', inputHtml('left', left)),
+        settingsRow('오른쪽 제목', inputHtml('right', right))
+      ].join('');
+    }
+    if (kind === 'checklist') {
+      return [
+        settingsRow('제목', inputHtml('title', el.querySelector('.sb-checklist-title')?.textContent || '체크리스트')),
+        settingsRow('항목 추가/삭제', `
+          <div class="flex gap-8" style="display:flex;gap:8px;">
+            <button type="button" class="btn btn-sm" data-field="add-item">+ 항목 추가</button>
+            <button type="button" class="btn btn-sm" data-field="remove-item">- 마지막 항목 삭제</button>
+          </div>`)
+      ].join('');
+    }
+    if (kind === 'quote') {
+      const cite = el.querySelector('.sb-quote-cite');
+      return [
+        settingsRow('출처 표시', optionsHtml('cite', [
+          { value: 'show', label: '표시' },
+          { value: 'hide', label: '숨김' }
+        ], cite ? 'show' : 'hide'))
+      ].join('');
+    }
+    if (kind === 'gallery') {
+      const cols = el.classList.contains('sb-gallery--2') ? '2' :
+                   el.classList.contains('sb-gallery--4') ? '4' : '3';
+      return [
+        settingsRow('컬럼 수', optionsHtml('cols', [
+          { value: '2', label: '2열' },
+          { value: '3', label: '3열' },
+          { value: '4', label: '4열' }
+        ], cols)),
+        settingsRow('이미지 슬롯', `
+          <div class="flex gap-8" style="display:flex;gap:8px;">
+            <button type="button" class="btn btn-sm" data-field="add-slot">+ 슬롯 추가</button>
+            <button type="button" class="btn btn-sm" data-field="remove-slot">- 마지막 슬롯 삭제</button>
+          </div>`)
+      ].join('');
+    }
+    if (kind === 'cta') {
+      const btn = el.querySelector('.sb-cta-button');
+      const sub = el.querySelector('.sb-cta-sub');
+      return [
+        settingsRow('버튼 텍스트', inputHtml('text', btn?.textContent || '')),
+        settingsRow('링크 URL', inputHtml('href', btn?.getAttribute('href') || '#', 'https://...')),
+        settingsRow('보조 설명 (선택)', inputHtml('sub', sub?.textContent || ''))
+      ].join('');
+    }
+    return '<div class="text-sm text-muted">이 블록은 추가 설정이 없습니다.</div>';
+  }
+
+  function applyBlockSettings(kind, el, modalRoot) {
+    const get = (field) => modalRoot.querySelector(`[data-field="${field}"]`);
+    const getOptValue = (field) => modalRoot.querySelector(`[data-field="${field}"] .sb-settings-opt.is-on`)?.dataset.value;
+    const getInputValue = (field) => modalRoot.querySelector(`input[data-field="${field}"], textarea[data-field="${field}"]`)?.value;
+
+    if (kind === 'statement') {
+      const label = getInputValue('label');
+      const bg = getOptValue('bg');
+      const accent = getOptValue('accent');
+      if (label !== undefined) el.querySelector('.sb-statement-label').textContent = label || 'MISSION';
+      if (bg) el.dataset.bg = bg;
+      if (accent) el.dataset.accent = accent;
+    } else if (kind === 'hero') {
+      const label = getInputValue('label');
+      const gradient = getOptValue('gradient');
+      const accent = getOptValue('accent');
+      if (label !== undefined) el.querySelector('.sb-hero-label').textContent = label || '';
+      if (gradient) el.dataset.gradient = gradient;
+      if (accent) el.dataset.accent = accent;
+    } else if (kind === 'features') {
+      const cols = getOptValue('cols');
+      if (cols) el.dataset.cols = cols;
+    } else if (kind === 'card') {
+      const icon = getInputValue('icon');
+      const color = getOptValue('color');
+      if (icon !== undefined) el.querySelector('.sb-card-icon').textContent = icon || '';
+      if (color) el.dataset.color = color;
+    } else if (kind === 'callout-info' || kind === 'callout-warn' || kind === 'callout-tip') {
+      const icon = getInputValue('icon');
+      const variant = getOptValue('variant');
+      if (icon !== undefined) el.querySelector('.sb-callout-icon').textContent = icon || '';
+      if (variant) {
+        el.classList.remove('sb-callout--info', 'sb-callout--warn', 'sb-callout--tip');
+        el.classList.add('sb-callout--' + variant);
+      }
+    } else if (kind === 'tldr') {
+      const label = getInputValue('label');
+      if (label !== undefined) el.querySelector('.sb-tldr-label').textContent = label || 'TL;DR';
+    } else if (kind === 'compare') {
+      const left = getInputValue('left');
+      const right = getInputValue('right');
+      if (left !== undefined) el.querySelector('.sb-compare-col--left .sb-compare-head').textContent = left || 'Before';
+      if (right !== undefined) el.querySelector('.sb-compare-col--right .sb-compare-head').textContent = right || 'After';
+    } else if (kind === 'checklist') {
+      const title = getInputValue('title');
+      if (title !== undefined) el.querySelector('.sb-checklist-title').textContent = title || '체크리스트';
+    } else if (kind === 'quote') {
+      const cite = getOptValue('cite');
+      const citeEl = el.querySelector('.sb-quote-cite');
+      if (cite === 'hide' && citeEl) citeEl.remove();
+      if (cite === 'show' && !citeEl) {
+        const newCite = document.createElement('div');
+        newCite.className = 'sb-quote-cite';
+        newCite.textContent = '출처를 입력하세요';
+        el.appendChild(newCite);
+      }
+    } else if (kind === 'gallery') {
+      const cols = getOptValue('cols');
+      if (cols) {
+        el.classList.remove('sb-gallery--2', 'sb-gallery--4');
+        if (cols === '2') el.classList.add('sb-gallery--2');
+        else if (cols === '4') el.classList.add('sb-gallery--4');
+      }
+    } else if (kind === 'cta') {
+      const text = getInputValue('text');
+      const href = getInputValue('href');
+      const sub = getInputValue('sub');
+      const btn = el.querySelector('.sb-cta-button');
+      if (btn) {
+        if (text !== undefined) btn.textContent = text || '버튼';
+        if (href !== undefined) btn.setAttribute('href', href || '#');
+      }
+      let subEl = el.querySelector('.sb-cta-sub');
+      if (sub !== undefined) {
+        if (sub.trim()) {
+          if (!subEl) {
+            subEl = document.createElement('div');
+            subEl.className = 'sb-cta-sub';
+            el.appendChild(subEl);
+          }
+          subEl.textContent = sub;
+        } else if (subEl) {
+          subEl.remove();
+        }
+      }
     }
   }
 

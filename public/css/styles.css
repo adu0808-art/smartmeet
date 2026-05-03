@@ -1334,6 +1334,155 @@ select.input, select.select { cursor: pointer; }
   .sb-gallery, .sb-gallery--2, .sb-gallery--4 { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* === 8. 스테이트먼트 (Mission/Vision/Values 등) === */
+.sb-statement {
+  padding: 26px 32px; margin: 18px 0;
+  border-radius: 12px;
+  background: #112c54; color: #fff;
+}
+.sb-statement[data-bg="navy"]   { background: #112c54; color: #fff; }
+.sb-statement[data-bg="dark"]   { background: #1a202c; color: #fff; }
+.sb-statement[data-bg="blue"]   { background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%); color: #fff; }
+.sb-statement[data-bg="purple"] { background: linear-gradient(135deg, #6d28d9 0%, #9333ea 100%); color: #fff; }
+.sb-statement[data-bg="green"]  { background: linear-gradient(135deg, #047857 0%, #059669 100%); color: #fff; }
+.sb-statement[data-bg="light"]  {
+  background: var(--surface-2, #fafbfc); color: var(--text, #1a202c);
+  border: 1px solid var(--border, #e2e8f0);
+}
+.sb-statement-label {
+  font-size: 12px; font-weight: 800; letter-spacing: 3px;
+  color: #fbbf24; margin-bottom: 14px;
+}
+.sb-statement[data-accent="orange"] .sb-statement-label,
+.sb-statement[data-accent="orange"] .sb-statement-body .sb-accent { color: #fb923c; }
+.sb-statement[data-accent="green"]  .sb-statement-label,
+.sb-statement[data-accent="green"]  .sb-statement-body .sb-accent { color: #34d399; }
+.sb-statement[data-accent="pink"]   .sb-statement-label,
+.sb-statement[data-accent="pink"]   .sb-statement-body .sb-accent { color: #f472b6; }
+.sb-statement[data-accent="cyan"]   .sb-statement-label,
+.sb-statement[data-accent="cyan"]   .sb-statement-body .sb-accent { color: #22d3ee; }
+.sb-statement-body {
+  font-size: 16px; line-height: 1.7;
+}
+.sb-statement-body .sb-accent {
+  font-weight: 700; color: #fbbf24;
+}
+.sb-statement[data-bg="light"] .sb-statement-label,
+.sb-statement[data-bg="light"] .sb-statement-body .sb-accent { color: #d97706; }
+
+/* === 9. 히어로 배너 (인사말·소개 등) === */
+.sb-hero {
+  position: relative; overflow: hidden;
+  padding: 38px 44px; margin: 18px 0;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
+  color: #fff;
+}
+.sb-hero[data-gradient="navy"]   { background: linear-gradient(135deg, #0f1d3a 0%, #1e3a8a 100%); }
+.sb-hero[data-gradient="blue"]   { background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%); }
+.sb-hero[data-gradient="purple"] { background: linear-gradient(135deg, #5b21b6 0%, #8b5cf6 100%); }
+.sb-hero[data-gradient="teal"]   { background: linear-gradient(135deg, #134e4a 0%, #0d9488 100%); }
+.sb-hero[data-gradient="orange"] { background: linear-gradient(135deg, #c2410c 0%, #f59e0b 100%); }
+.sb-hero[data-gradient="rose"]   { background: linear-gradient(135deg, #9f1239 0%, #e11d48 100%); }
+.sb-hero::before {
+  content: ''; position: absolute; right: -40px; top: -60px;
+  width: 220px; height: 220px; border-radius: 50%;
+  background: rgba(255,255,255,0.08);
+  pointer-events: none;
+}
+.sb-hero::after {
+  content: ''; position: absolute; right: 40px; bottom: -80px;
+  width: 160px; height: 160px; border-radius: 50%;
+  background: rgba(255,255,255,0.05);
+  pointer-events: none;
+}
+.sb-hero-label {
+  font-size: 12px; font-weight: 800; letter-spacing: 4px;
+  opacity: 0.85; margin-bottom: 14px;
+}
+.sb-hero-title {
+  font-size: 28px; font-weight: 800; line-height: 1.25;
+  margin-bottom: 8px;
+}
+.sb-hero-subtitle {
+  font-size: 16px; opacity: 0.9; margin-bottom: 16px;
+}
+.sb-hero-bar {
+  width: 64px; height: 3px; background: #fbbf24; border-radius: 2px;
+}
+.sb-hero[data-accent="white"]  .sb-hero-bar { background: rgba(255,255,255,0.7); }
+.sb-hero[data-accent="orange"] .sb-hero-bar { background: #fb923c; }
+.sb-hero[data-accent="cyan"]   .sb-hero-bar { background: #22d3ee; }
+
+/* === 10. 피처 그리드 (2~4 열 아이콘 카드) === */
+.sb-features {
+  display: grid; gap: 14px;
+  grid-template-columns: repeat(2, 1fr);
+  margin: 18px 0;
+}
+.sb-features[data-cols="3"] { grid-template-columns: repeat(3, 1fr); }
+.sb-features[data-cols="4"] { grid-template-columns: repeat(4, 1fr); }
+.sb-feature {
+  display: flex; gap: 16px; align-items: flex-start;
+  padding: 18px 20px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+}
+.sb-feature-icon {
+  flex: 0 0 auto;
+  width: 48px; height: 48px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px; line-height: 1;
+  background: #dbeafe; color: #2563eb;
+}
+.sb-feature[data-color="blue"]   .sb-feature-icon { background: #dbeafe; color: #2563eb; }
+.sb-feature[data-color="orange"] .sb-feature-icon { background: #fef3c7; color: #d97706; }
+.sb-feature[data-color="green"]  .sb-feature-icon { background: #d1fae5; color: #059669; }
+.sb-feature[data-color="purple"] .sb-feature-icon { background: #ede9fe; color: #7c3aed; }
+.sb-feature[data-color="pink"]   .sb-feature-icon { background: #fce7f3; color: #db2777; }
+.sb-feature[data-color="cyan"]   .sb-feature-icon { background: #cffafe; color: #0891b2; }
+.sb-feature[data-color="gray"]   .sb-feature-icon { background: #e5e7eb; color: #4b5563; }
+.sb-feature-text { flex: 1 1 auto; min-width: 0; }
+.sb-feature-title {
+  font-size: 15px; font-weight: 700; margin-bottom: 4px;
+  color: var(--text, #1a202c);
+}
+.sb-feature-desc {
+  font-size: 13px; color: var(--text-muted, #64748b); line-height: 1.5;
+}
+@media (max-width: 640px) {
+  .sb-features, .sb-features[data-cols="3"], .sb-features[data-cols="4"] {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* === 11. 단일 피처 카드 === */
+.sb-card {
+  max-width: 360px;
+  padding: 24px 26px; margin: 14px 0;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-top: 3px solid #2563eb;
+  border-radius: 12px;
+}
+.sb-card[data-color="blue"]   { border-top-color: #2563eb; }
+.sb-card[data-color="orange"] { border-top-color: #f59e0b; }
+.sb-card[data-color="green"]  { border-top-color: #10b981; }
+.sb-card[data-color="purple"] { border-top-color: #8b5cf6; }
+.sb-card[data-color="pink"]   { border-top-color: #ec4899; }
+.sb-card[data-color="rose"]   { border-top-color: #f43f5e; }
+.sb-card-icon {
+  font-size: 32px; line-height: 1; margin-bottom: 18px;
+}
+.sb-card-title {
+  font-size: 17px; font-weight: 800; margin-bottom: 8px;
+  color: var(--text, #1a202c);
+}
+.sb-card-desc {
+  font-size: 14px; color: var(--text-muted, #64748b); line-height: 1.6;
+}
+
 /* === 7. CTA 버튼 === */
 .sb-cta {
   text-align: center; margin: 24px 0;
@@ -1355,6 +1504,65 @@ select.input, select.select { cursor: pointer; }
 }
 .sb-cta-sub {
   margin-top: 8px; font-size: 12px; color: var(--text-muted, #64748b);
+}
+
+/* === 스마트 블록 — 플로팅 도구막대 (활성 블록에 표시) === */
+.sb-block-tools {
+  position: absolute; z-index: 50;
+  display: flex; gap: 4px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.1);
+  padding: 4px;
+  user-select: none;
+}
+.sb-block-tools button {
+  width: 28px; height: 28px; border: none; background: transparent;
+  border-radius: 5px; cursor: pointer; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text, #1a202c);
+}
+.sb-block-tools button:hover { background: var(--surface-2, #fafbfc); }
+.sb-block-tools button.danger:hover { background: #fee2e2; color: #dc2626; }
+
+/* === 스마트 블록 설정 — 모달 내부 폼 === */
+.sb-settings-grid {
+  display: grid; gap: 12px;
+}
+.sb-settings-row {
+  display: flex; flex-direction: column; gap: 6px;
+}
+.sb-settings-label {
+  font-size: 12px; font-weight: 700; color: var(--text-muted, #64748b);
+}
+.sb-settings-swatches {
+  display: flex; gap: 6px; flex-wrap: wrap;
+}
+.sb-settings-swatch {
+  width: 32px; height: 32px; border-radius: 6px;
+  border: 2px solid transparent; cursor: pointer;
+  transition: transform 0.1s;
+}
+.sb-settings-swatch:hover { transform: scale(1.1); }
+.sb-settings-swatch.is-on {
+  border-color: var(--accent, #f59e0b);
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+}
+.sb-settings-options {
+  display: flex; gap: 4px; flex-wrap: wrap;
+}
+.sb-settings-opt {
+  padding: 6px 12px; border-radius: 6px;
+  background: var(--surface-2, #fafbfc);
+  border: 1px solid var(--border, #e2e8f0);
+  font-size: 13px; cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+.sb-settings-opt:hover { background: var(--accent-soft, #fef3c7); }
+.sb-settings-opt.is-on {
+  background: var(--accent, #f59e0b); color: #fff;
+  border-color: var(--accent, #f59e0b);
 }
 
 /* ========== 예산·결산 의안 상세 ========== */
