@@ -222,6 +222,8 @@ try { db.exec("ALTER TABLE organizations ADD COLUMN hero_image_url TEXT"); } cat
 try { db.exec("ALTER TABLE organizations ADD COLUMN footer_html TEXT"); } catch (e) {}
 // Organization: 기관 소개 (intro), separate from 인사말 (description/greeting)
 try { db.exec("ALTER TABLE organizations ADD COLUMN intro_html TEXT"); } catch (e) {}
+// Organization: 개요 (summary) — 짧은 소개 문장. 기관 목록 카드에 표시되는 한 줄 요약
+try { db.exec("ALTER TABLE organizations ADD COLUMN summary TEXT"); } catch (e) {}
 // Organization: hero sub-title (under org name) and slogan bar text — admin editable on home
 try { db.exec("ALTER TABLE organizations ADD COLUMN hero_sub TEXT"); } catch (e) {}
 try { db.exec("ALTER TABLE organizations ADD COLUMN slogan TEXT"); } catch (e) {}

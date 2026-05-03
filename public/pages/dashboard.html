@@ -80,6 +80,10 @@
           const logoCell = logoSrc
             ? `<div class="org-card-logo" style="background:white;border:1px solid var(--border);overflow:hidden;"><img src="${logoSrc}" style="width:100%;height:100%;object-fit:contain;background:white;"></div>`
             : `<div class="org-card-logo">${logoText(o.name)}</div>`;
+          // 기관 카드에는 짧은 개요(summary)를 표시 — 없으면 description 의 plain text 일부로 fallback
+          const summaryText = (o.summary && o.summary.trim())
+            ? o.summary
+            : (o.description ? String(o.description).replace(/<[^>]+>/g, '').trim().slice(0, 120) : '');
           return `
           <div class="org-card" onclick="goOrg(${o.id})">
             <div class="org-card-head">
@@ -90,9 +94,9 @@
               </div>
               ${badge}
             </div>
-            <div class="org-card-desc">${o.description || '설명이 없습니다.'}</div>
+            <div class="org-card-desc">${summaryText || '개요가 등록되지 않았습니다.'}</div>
             <div class="org-card-stats">
-              <div>회의 <b>${o.meeting_count || 0}</b>건</div>
+              <div>이벤트 <b>${o.meeting_count || 0}</b>건</div>
               <div>구성원 <b>${o.member_count || 0}</b>명</div>
             </div>
           </div>`;
@@ -118,8 +122,13 @@
           ${logoSlotsHtml('ne', logoState)}
           <div class="field"><label class="label">기관명 *</label><input class="input" id="m_name" placeholder="예: 연세대학교 공학동창회" /></div>
           <div class="field">
+            <label class="label">개요</label>
+            <div class="text-sm text-muted mb-8">한 줄로 짧게 기관을 소개하세요. 기관 목록 카드에 표시됩니다.</div>
+            <textarea class="input" id="m_summary" rows="2" placeholder="예: 1980년 설립, 회원 800여 명의 산업·학술 협력 단체"></textarea>
+          </div>
+          <div class="field">
             <label class="label">기관 소개</label>
-            <div class="text-sm text-muted mb-8">기관에 대한 일반 소개</div>
+            <div class="text-sm text-muted mb-8">홈 페이지 "기관 소개" 섹션에 표시되는 자세한 소개</div>
             <div id="m_intro_host"></div>
           </div>
           <div class="field">
@@ -132,12 +141,13 @@
         onConfirm: async () => {
           const name = document.getElementById('m_name').value.trim();
           if (!name) { toast('기관명을 입력하세요.', 'error'); return false; }
+          const summary = document.getElementById('m_summary').value.trim();
           const intro_html = introEditor ? introEditor.getHtml() : '';
           const description = greetingEditor ? greetingEditor.getHtml() : '';
           const logos = readLogoSlots('ne', logoState);
           const hero_image_url = readHeroImage('ne', heroState);
           try {
-            await api.post('/api/organizations', { name, description, intro_html, hero_image_url, ...logos });
+            await api.post('/api/organizations', { name, summary, description, intro_html, hero_image_url, ...logos });
             toast('기관이 등록되었습니다.', 'success');
             load();
           } catch (e) { toast(e.message, 'error'); return false; }

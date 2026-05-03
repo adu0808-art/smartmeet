@@ -1565,6 +1565,11 @@
           ${logoSlotsHtml('hoe', logoState)}
           <div class="field"><label class="label">기관명 *</label><input class="input" id="hoe_name" value="${(organization.name||'').replace(/"/g,'&quot;')}"></div>
           <div class="field">
+            <label class="label">개요</label>
+            <div class="text-sm text-muted mb-8">한 줄로 짧게 기관을 소개하세요. 기관 목록 카드에 표시됩니다.</div>
+            <textarea class="input" id="hoe_summary" rows="2" placeholder="예: 1980년 설립, 회원 800여 명의 산업·학술 협력 단체">${(organization.summary||'').replace(/</g,'&lt;')}</textarea>
+          </div>
+          <div class="field">
             <label class="label">기관 소개</label>
             <div class="text-sm text-muted mb-8">홈 페이지 "기관 소개" 섹션에 표시됩니다.</div>
             <div id="hoe_intro_host"></div>
@@ -1582,6 +1587,7 @@
           try {
             await api.put(`/api/organizations/${orgId}`, {
               name: document.getElementById('hoe_name').value.trim(),
+              summary: document.getElementById('hoe_summary').value.trim(),
               intro_html: introEditor ? introEditor.getHtml() : '',
               description: greetingEditor ? greetingEditor.getHtml() : '',
               hero_image_url,

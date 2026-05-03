@@ -43,10 +43,10 @@ router.get('/', (req, res) => {
 
 // Create org — creator becomes admin
 router.post('/', (req, res) => {
-  const { name, description, logo_url, logo_text_url, logo_combo_url, hero_image_url, footer_html, intro_html } = req.body || {};
+  const { name, summary, description, logo_url, logo_text_url, logo_combo_url, hero_image_url, footer_html, intro_html } = req.body || {};
   if (!name) return res.status(400).json({ error: '기관명을 입력하세요.' });
-  const result = db.prepare('INSERT INTO organizations (name, description, logo_url, logo_text_url, logo_combo_url, hero_image_url, footer_html, intro_html, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(name, description || '', logo_url || '', logo_text_url || '', logo_combo_url || '', hero_image_url || '', footer_html || '', intro_html || '', req.user.id);
+  const result = db.prepare('INSERT INTO organizations (name, summary, description, logo_url, logo_text_url, logo_combo_url, hero_image_url, footer_html, intro_html, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(name, summary || '', description || '', logo_url || '', logo_text_url || '', logo_combo_url || '', hero_image_url || '', footer_html || '', intro_html || '', req.user.id);
   const orgId = result.lastInsertRowid;
   db.prepare('INSERT INTO organization_members (organization_id, user_id, member_role) VALUES (?, ?, ?)')
     .run(orgId, req.user.id, 'admin');
@@ -68,6 +68,7 @@ router.put('/:id', requireOrg(req => req.params.id, 'write'), (req, res) => {
   if (!existing) return res.status(404).json({ error: '기관을 찾을 수 없습니다.' });
   const merged = {
     name: body.name !== undefined ? body.name : existing.name,
+    summary: body.summary !== undefined ? body.summary : existing.summary,
     description: body.description !== undefined ? body.description : existing.description,
     logo_url: body.logo_url !== undefined ? body.logo_url : existing.logo_url,
     logo_text_url: body.logo_text_url !== undefined ? body.logo_text_url : existing.logo_text_url,
@@ -78,8 +79,8 @@ router.put('/:id', requireOrg(req => req.params.id, 'write'), (req, res) => {
     hero_sub: body.hero_sub !== undefined ? body.hero_sub : existing.hero_sub,
     slogan: body.slogan !== undefined ? body.slogan : existing.slogan
   };
-  db.prepare('UPDATE organizations SET name = ?, description = ?, logo_url = ?, logo_text_url = ?, logo_combo_url = ?, hero_image_url = ?, footer_html = ?, intro_html = ?, hero_sub = ?, slogan = ? WHERE id = ?')
-    .run(merged.name, merged.description || '', merged.logo_url || '', merged.logo_text_url || '', merged.logo_combo_url || '', merged.hero_image_url || '', merged.footer_html || '', merged.intro_html || '', merged.hero_sub || '', merged.slogan || '', req.params.id);
+  db.prepare('UPDATE organizations SET name = ?, summary = ?, description = ?, logo_url = ?, logo_text_url = ?, logo_combo_url = ?, hero_image_url = ?, footer_html = ?, intro_html = ?, hero_sub = ?, slogan = ? WHERE id = ?')
+    .run(merged.name, merged.summary || '', merged.description || '', merged.logo_url || '', merged.logo_text_url || '', merged.logo_combo_url || '', merged.hero_image_url || '', merged.footer_html || '', merged.intro_html || '', merged.hero_sub || '', merged.slogan || '', req.params.id);
   const org = db.prepare('SELECT * FROM organizations WHERE id = ?').get(req.params.id);
   res.json({ organization: org });
 });
