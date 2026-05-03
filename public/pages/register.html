@@ -181,7 +181,7 @@
         return;
       }
       try {
-        const r = await api.post('/api/auth/register', {
+        const r = await api.post('/api/auth/register-request', {
           name: fd.get('name'),
           email: fd.get('email'),
           phone: fd.get('phone') || '',
@@ -190,19 +190,46 @@
           invite_token: inviteToken || undefined,
           org_id: !inviteToken && ctxOrgId ? ctxOrgId : undefined
         });
-        // 우선순위: next 파라미터 → 초대/기관 컨텍스트 홈 → 대시보드
-        if (nextUrl) {
-          location.href = nextUrl;
-        } else if (r.joined_organization_id) {
-          location.href = `/home?org=${r.joined_organization_id}`;
-        } else {
-          location.href = '/dashboard';
-        }
+        // 인증 메일 발송 완료 — 안내 화면으로 전환
+        showVerificationSent(r.email || fd.get('email'));
       } catch (ex) {
         err.textContent = ex.message;
         err.classList.add('active');
+        // 이미 가입된 이메일이면 로그인 링크 안내
+        if (ex.message && ex.message.includes('이미 등록된')) {
+          const inviteParam = inviteToken ? `?invite=${inviteToken}` : (ctxOrgId ? `?org=${ctxOrgId}` : '');
+          const nextParam = '/register' + inviteParam;
+          err.innerHTML = ex.message + ` <a href="/login?next=${encodeURIComponent(nextParam)}" style="color:#1e40af;text-decoration:underline;">로그인 →</a>`;
+        }
       }
     });
+
+    // 인증 메일 발송 완료 화면
+    function showVerificationSent(email) {
+      const card = document.querySelector('.auth-card');
+      if (!card) return;
+      card.innerHTML = `
+        <div style="text-align:center;padding:30px 8px;">
+          <div style="font-size:64px;margin-bottom:12px;">📩</div>
+          <h1 style="font-size:22px;font-weight:800;margin:8px 0 12px;color:#0f2c5c;">이메일을 확인해주세요</h1>
+          <p style="font-size:15px;color:#374151;line-height:1.7;margin:0 0 18px;">
+            <b>${escapeHtmlReg(email)}</b> 로<br>
+            인증 메일을 발송했습니다.
+          </p>
+          <div style="background:#eef2ff;border-left:3px solid #6366f1;padding:14px 16px;border-radius:8px;text-align:left;margin:0 0 18px;font-size:13.5px;line-height:1.7;color:#3730a3;">
+            메일의 <b>"이메일 인증하고 가입 완료"</b> 버튼을 클릭하시면<br>
+            회원가입이 자동으로 완료됩니다.<br>
+            <span style="color:#6b7280;font-size:12px;">※ 이 링크는 1시간 동안만 유효합니다.</span>
+          </div>
+          <div style="font-size:13px;color:var(--text-muted);line-height:1.7;">
+            메일이 안 오면 스팸함을 확인해주세요.<br>
+            여전히 안 오면 잠시 후 다시 시도해주세요.
+          </div>
+          <a class="btn" href="/login" style="margin-top:18px;display:inline-block;text-decoration:none;">로그인 페이지로</a>
+        </div>
+      `;
+    }
+    function escapeHtmlReg(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
   </script>
 </body>
 </html>

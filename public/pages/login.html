@@ -67,6 +67,15 @@
       if (link) link.href = '/register?' + params.toString();
     })();
 
+    // next 파라미터에서 invite 토큰 추출 (있으면 로그인 후 자동 가입)
+    function getInviteFromNext() {
+      try {
+        const next = new URLSearchParams(location.search).get('next') || '';
+        const m = next.match(/[?&]invite=([A-Za-z0-9_-]+)/);
+        return m ? m[1] : null;
+      } catch { return null; }
+    }
+
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
@@ -74,6 +83,20 @@
       err.classList.remove('active');
       try {
         const data = await api.post('/api/auth/login', { email: fd.get('email'), password: fd.get('password') });
+        // 로그인 후 — next 에 invite 토큰이 있으면 자동으로 해당 기관 가입
+        const inviteToken = getInviteFromNext();
+        if (inviteToken) {
+          try {
+            const joined = await api.post('/api/auth/join', { invite_token: inviteToken });
+            if (joined.organization_id) {
+              location.href = `/home?org=${joined.organization_id}`;
+              return;
+            }
+          } catch (joinErr) {
+            // 자동 가입 실패해도 로그인 자체는 성공 — 일반 redirect 로 fallback
+            console.warn('[login] auto-join failed:', joinErr.message);
+          }
+        }
         const next = getNextUrl();
         if (next) location.href = next;
         else smartRedirect(data.user);

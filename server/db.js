@@ -270,6 +270,28 @@ try {
   `);
 } catch (e) {}
 
+// Email verifications — 회원가입 시 이메일 인증용
+//   가입 폼 제출 → 임시 저장 (해시된 비밀번호 포함) → 인증 메일 발송 →
+//   사용자가 메일 링크 클릭 → 토큰으로 verify → users 테이블에 최종 INSERT + (있으면) 기관 자동 가입
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS email_verifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      token TEXT UNIQUE NOT NULL,
+      email TEXT NOT NULL,
+      name TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      phone TEXT,
+      workplace TEXT,
+      invite_token TEXT,
+      org_id INTEGER,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT DEFAULT (datetime('now', 'localtime'))
+    )
+  `);
+} catch (e) {}
+
 // Organizations: 도메인 라우팅 — 서브도메인 / 커스텀 도메인
 //   subdomain: 'ksitm' → ksitm.smartmeet.co.kr 로 접근 시 자동으로 이 기관 홈으로
 //   custom_domain: 'kistem.or.kr' 같은 자체 도메인

@@ -252,6 +252,7 @@ const pages = {
   '/': 'index.html',
   '/login': 'pages/login.html',
   '/register': 'pages/register.html',
+  '/verify-email': 'pages/verify-email.html',
   '/reset-password': 'pages/reset-password.html',
   '/admin': 'pages/admin.html',
   '/dashboard': 'pages/dashboard.html',

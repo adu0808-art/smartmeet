@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>이메일 인증 · SmartMeet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body class="auth-shell">
+  <div class="auth-card">
+    <div class="auth-brand">
+      <div class="auth-logo">SM</div>
+      <div>
+        <div class="auth-brand-name">SmartMeet</div>
+        <div class="auth-brand-sub">이사회·총회 자료 관리 시스템</div>
+      </div>
+    </div>
+    <div id="content" style="text-align:center;padding:24px 0;">
+      <div style="font-size:48px;">⏳</div>
+      <h1 style="font-size:20px;font-weight:800;margin:14px 0 6px;">이메일 인증 중...</h1>
+      <p class="text-sm text-muted">잠시만 기다려주세요.</p>
+    </div>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script>
+    const token = qs('token');
+    const root = document.getElementById('content');
+
+    function renderError(msg) {
+      root.innerHTML = `
+        <div style="font-size:64px;">⚠️</div>
+        <h1 style="font-size:20px;font-weight:800;margin:14px 0 6px;color:#ef4444;">인증 실패</h1>
+        <p class="text-sm text-muted" style="line-height:1.7;margin:8px 0 18px;">${escapeHtmlV(msg)}</p>
+        <div class="flex gap-8" style="justify-content:center;flex-wrap:wrap;">
+          <a class="btn btn-primary" href="/register" style="text-decoration:none;">다시 가입하기</a>
+          <a class="btn" href="/login" style="text-decoration:none;">로그인 페이지로</a>
+        </div>
+      `;
+    }
+
+    function renderSuccess(orgId) {
+      root.innerHTML = `
+        <div style="font-size:64px;">✅</div>
+        <h1 style="font-size:22px;font-weight:800;margin:14px 0 6px;color:#10b981;">가입 완료!</h1>
+        <p style="font-size:15px;color:#374151;line-height:1.7;margin:0 0 18px;">
+          이메일 인증이 완료되어 SmartMeet 회원이 되었습니다.<br>
+          ${orgId ? '소속 기관에도 자동 등록되었습니다.' : ''}
+        </p>
+        <p class="text-sm text-muted">잠시 후 자동으로 이동합니다...</p>
+      `;
+      setTimeout(() => {
+        location.href = orgId ? `/home?org=${orgId}` : '/dashboard';
+      }, 1500);
+    }
+
+    function escapeHtmlV(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+    (async function init() {
+      if (!token) { renderError('인증 토큰이 없습니다. 메일의 링크를 다시 클릭해주세요.'); return; }
+      try {
+        const r = await api.post('/api/auth/verify-email', { token });
+        if (r.ok) renderSuccess(r.joined_organization_id);
+        else renderError('인증에 실패했습니다.');
+      } catch (e) {
+        renderError(e.message || '인증 중 오류가 발생했습니다.');
+      }
+    })();
+  </script>
+</body>
+</html>
