@@ -20,7 +20,6 @@
         <div class="page-header">
           <div>
             <h1 class="page-title" id="orgTitle">-</h1>
-            <div class="page-sub" id="orgDesc"></div>
           </div>
           <div class="topbar-actions">
             <button class="btn" id="editOrgBtn" data-admin-only>수정</button>
@@ -35,7 +34,7 @@
             <div style="font-size:28px;font-weight:800;" id="stat-meetings">-</div>
           </div>
           <div class="card">
-            <div class="text-sm text-muted mb-8">의원 수</div>
+            <div class="text-sm text-muted mb-8">회원 수</div>
             <div style="font-size:28px;font-weight:800;" id="stat-members">-</div>
           </div>
           <div class="card">
@@ -76,7 +75,6 @@
         return;
       }
       document.getElementById('orgTitle').textContent = org.name;
-      document.getElementById('orgDesc').innerHTML = org.description || '';
       document.getElementById('topbarTitle').textContent = org.name;
       renderOrgSidebar(org, 'dashboard', { role });
       showOnlyForAdmin(role);
@@ -89,19 +87,20 @@
     async function loadDashboard() {
       const data = await api.get(`/api/organizations/${orgId}/dashboard`);
       document.getElementById('stat-meetings').textContent = data.meetings.length;
-      document.getElementById('stat-members').textContent = data.memberCount;
+      // 회원 수 = organization_members 테이블 기준 (실제 가입한 사용자 수)
+      document.getElementById('stat-members').textContent = (data.userCount != null) ? data.userCount : 0;
       document.getElementById('stat-schedules').textContent = data.upcomingSchedules.length;
       document.getElementById('meetingCount').textContent = `총 ${data.meetings.length}건`;
 
       const list = document.getElementById('meetingList');
       if (!data.meetings.length) {
-        list.innerHTML = `<div class="empty"><div class="empty-title">등록된 회의가 없습니다</div><div class="empty-sub">‘새 회의 등록’ 버튼으로 회의를 만들어 시작하세요.</div></div>`;
+        list.innerHTML = `<div class="empty"><div class="empty-title">등록된 이벤트가 없습니다</div><div class="empty-sub">‘+ 새 이벤트 등록’ 버튼으로 이벤트를 만들어 시작하세요.</div></div>`;
         return;
       }
       list.innerHTML = data.meetings.map(m => `
         <div class="agenda-item" onclick="location.href='/meeting?id=${m.id}'">
           <div class="agenda-no">
-            <div class="small">회의</div>
+            <div class="small">이벤트</div>
             <div class="num">${meetingTypeLabel[m.meeting_type] || ''}</div>
           </div>
           <div class="agenda-body">
@@ -178,7 +177,7 @@
     }
 
     function doDelete() {
-      confirmDialog(`<b>${org.name}</b>을(를) 삭제하시겠습니까? 모든 회의·의안·의원 데이터가 함께 삭제됩니다.`, async () => {
+      confirmDialog(`<b>${org.name}</b>을(를) 삭제하시겠습니까? 모든 이벤트·의안·회원 데이터가 함께 삭제됩니다.`, async () => {
         try {
           await api.del(`/api/organizations/${orgId}`);
           toast('삭제되었습니다.', 'success');
@@ -189,17 +188,17 @@
 
     function openNewMeeting() {
       modal({
-        title: '새 회의 등록',
+        title: '새 이벤트 등록',
         size: 'lg',
         body: meetingFormHtml({}),
         confirmText: '등록',
         onConfirm: async () => {
           const payload = readMeetingFormPayload();
-          if (!payload.title) { toast('회의 제목을 입력하세요.', 'error'); return false; }
+          if (!payload.title) { toast('이벤트 제목을 입력하세요.', 'error'); return false; }
           payload.organization_id = Number(orgId);
           try {
             const data = await api.post('/api/meetings', payload);
-            toast('회의가 등록되었습니다.', 'success');
+            toast('이벤트가 등록되었습니다.', 'success');
             location.href = `/meeting?id=${data.meeting.id}`;
           } catch (e) { toast(e.message, 'error'); return false; }
         }
