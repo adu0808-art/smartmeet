@@ -292,6 +292,31 @@ try { db.exec("ALTER TABLE schedules ADD COLUMN meeting_id INTEGER REFERENCES me
 // Schedules: 종료 일자 (선택) — 여러 날 걸치는 일정 표시용
 try { db.exec("ALTER TABLE schedules ADD COLUMN end_date TEXT"); } catch (e) {}
 
+// Backfill: 다일 이벤트 → 일정의 end_date 가 비어있고 연결된 meeting 의 end_date 가 다른 날이면 채워넣기
+//   (end_date 컬럼 추가 이전에 만들어진 일정들이 일자 범위로 표시되도록 보정)
+try {
+  const orphanSchedules = db.prepare(`
+    SELECT s.id, s.schedule_date, m.end_date AS meeting_end
+    FROM schedules s
+    INNER JOIN meetings m ON m.id = s.meeting_id
+    WHERE s.meeting_id IS NOT NULL
+      AND (s.end_date IS NULL OR s.end_date = '')
+      AND m.end_date IS NOT NULL
+      AND m.end_date != ''
+  `).all();
+  const updEnd = db.prepare('UPDATE schedules SET end_date = ? WHERE id = ?');
+  let backfilled = 0;
+  orphanSchedules.forEach(row => {
+    const endDate = String(row.meeting_end).slice(0, 10);
+    // 같은 날짜면 단일 일정 — backfill 안 함
+    if (endDate && endDate !== row.schedule_date) {
+      updEnd.run(endDate, row.id);
+      backfilled++;
+    }
+  });
+  if (backfilled) console.log(`[DB] 다일 이벤트 일정 ${backfilled}건 end_date 채움`);
+} catch (e) { console.warn('[DB] schedule end_date backfill:', e.message); }
+
 // 마이그레이션: 기존 회의(meeting_id 가 일정에 없는) → 일정에 자동 등록 (한 번만)
 try {
   const orphanMeetings = db.prepare(`
