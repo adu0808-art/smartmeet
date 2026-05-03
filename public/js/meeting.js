@@ -857,7 +857,7 @@ function renderMembers() {
             <td>${m.seq || ''}</td>
             <td>${m.position || ''}</td>
             <td><b>${m.name}</b>${m.email ? `<div class="text-sm text-muted">${m.email}</div>` : ''}</td>
-            <td>${m.phone || ''}</td>
+            <td>${m.phone ? formatPhone(m.phone) : ''}</td>
             <td>${statusChip(m.attendance_status)}</td>
             <td style="text-align:center;">
               <input type="checkbox" class="check"

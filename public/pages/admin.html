@@ -36,8 +36,8 @@
           <div class="grid-cards" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr));margin-bottom:24px;">
             <div class="card"><div class="text-sm text-muted mb-8">전체 사용자</div><div style="font-size:28px;font-weight:800;" id="s-users">-</div></div>
             <div class="card"><div class="text-sm text-muted mb-8">등록 기관</div><div style="font-size:28px;font-weight:800;" id="s-orgs">-</div></div>
-            <div class="card"><div class="text-sm text-muted mb-8">전체 회의</div><div style="font-size:28px;font-weight:800;" id="s-meetings">-</div></div>
-            <div class="card"><div class="text-sm text-muted mb-8">전체 의원</div><div style="font-size:28px;font-weight:800;" id="s-members">-</div></div>
+            <div class="card"><div class="text-sm text-muted mb-8">전체 이벤트</div><div style="font-size:28px;font-weight:800;" id="s-meetings">-</div></div>
+            <div class="card"><div class="text-sm text-muted mb-8">전체 회원</div><div style="font-size:28px;font-weight:800;" id="s-members">-</div></div>
             <div class="card"><div class="text-sm text-muted mb-8">위임장 발급</div><div style="font-size:28px;font-weight:800;" id="s-proxies">-</div></div>
             <div class="card"><div class="text-sm text-muted mb-8">위임장 제출</div><div style="font-size:28px;font-weight:800;color:var(--success);" id="s-submitted">-</div></div>
           </div>
@@ -113,6 +113,7 @@
 
     let _allUsers = [];
     let _userSearchQ = '';
+    let _userSort = { key: 'created_at', dir: 'desc' };
 
     async function loadUsers() {
       const { users } = await api.get('/api/admin/users');
@@ -134,6 +135,37 @@
       renderUsers();
     }
 
+    // 컬럼 정렬 토글
+    function sortUsers(key) {
+      if (_userSort.key === key) _userSort.dir = _userSort.dir === 'asc' ? 'desc' : 'asc';
+      else _userSort = { key, dir: 'asc' };
+      renderUsers();
+    }
+    window.sortUsers = sortUsers;
+
+    function _userCmp(a, b) {
+      const k = _userSort.key;
+      let av, bv;
+      if (k === 'role') {
+        // admin 먼저 (asc), user 나중
+        av = a.role === 'admin' ? 0 : 1;
+        bv = b.role === 'admin' ? 0 : 1;
+      } else if (k === 'orgs') {
+        av = (a.organizations || []).length;
+        bv = (b.organizations || []).length;
+      } else if (k === 'phone') {
+        av = String(a.phone || ''); bv = String(b.phone || '');
+      } else {
+        av = (a[k] || '').toString();
+        bv = (b[k] || '').toString();
+      }
+      let r;
+      if (typeof av === 'number' && typeof bv === 'number') r = av - bv;
+      else r = String(av).localeCompare(String(bv), 'ko');
+      if (r === 0) r = (a.id || 0) - (b.id || 0);
+      return _userSort.dir === 'desc' ? -r : r;
+    }
+
     // 검색·렌더 (서버 재요청 없이 클라이언트 필터)
     function renderUsers() {
       const renderOrgs = (orgs) => {
@@ -148,34 +180,39 @@
         }).join('');
       };
       const normalize = (s) => String(s || '').toLowerCase();
-      const normalizePhone = (s) => String(s || '').replace(/\D/g, '');
+      const stripD = (s) => String(s || '').replace(/\D/g, '');
       const q = normalize(_userSearchQ);
-      const qDigits = normalizePhone(_userSearchQ);
+      const qDigits = stripD(_userSearchQ);
       const filtered = _allUsers.filter(u => {
         if (!q) return true;
         if (normalize(u.name).includes(q)) return true;
         if (normalize(u.email).includes(q)) return true;
         if (normalize(u.workplace).includes(q)) return true;
-        // 전화번호: 숫자만 비교 (하이픈 무시)
-        if (qDigits && normalizePhone(u.phone).includes(qDigits)) return true;
-        // 소속 기관 이름도 검색 대상
+        if (qDigits && stripD(u.phone).includes(qDigits)) return true;
         if (u.organizations && u.organizations.some(o => normalize(o.org_name).includes(q))) return true;
         return false;
       });
+      filtered.sort(_userCmp);
       const total = _allUsers.length;
       const cntEl = document.getElementById('userCount');
       if (cntEl) {
         cntEl.textContent = q ? `검색 결과 ${filtered.length}명 / 전체 ${total}명` : `총 ${total}명`;
       }
+      // 정렬 가능 헤더 화살표
+      const sortIcon = (k) => _userSort.key === k
+        ? `<span style="color:#3b82f6;font-weight:700;margin-left:3px;">${_userSort.dir === 'asc' ? '↑' : '↓'}</span>`
+        : `<span style="color:#cbd5e0;margin-left:3px;font-size:10px;">↕</span>`;
+      const th = (k, label, align) => `<th onclick="sortUsers('${k}')" style="cursor:pointer;user-select:none;${align ? 'text-align:'+align+';' : ''}">${label}${sortIcon(k)}</th>`;
+
       document.getElementById('usersList').innerHTML = filtered.length ? `
         <table class="table">
           <thead><tr>
-            <th>이름</th>
-            <th>이메일</th>
-            <th>전화번호</th>
-            <th>시스템 권한</th>
-            <th>소속 기관</th>
-            <th>가입일</th>
+            ${th('name', '이름')}
+            ${th('email', '이메일')}
+            ${th('phone', '전화번호')}
+            ${th('role', '시스템 권한')}
+            ${th('orgs', '소속 기관')}
+            ${th('created_at', '가입일')}
             <th style="text-align:right;">작업</th>
           </tr></thead>
           <tbody>
@@ -183,7 +220,7 @@
               <tr>
                 <td><b>${escapeHtmlAdmin(u.name)}</b>${u.workplace ? `<div class="text-sm text-muted">${escapeHtmlAdmin(u.workplace)}</div>` : ''}</td>
                 <td>${escapeHtmlAdmin(u.email)}</td>
-                <td>${escapeHtmlAdmin(u.phone) || '<span class="text-sm text-muted">-</span>'}</td>
+                <td>${u.phone ? escapeHtmlAdmin(formatPhone(u.phone)) : '<span class="text-sm text-muted">-</span>'}</td>
                 <td>${u.role === 'admin' ? '<span class="tag tag-status-progress">시스템 관리자</span>' : '<span class="tag tag-status-prep">일반 사용자</span>'}</td>
                 <td>${renderOrgs(u.organizations)}</td>
                 <td class="text-sm text-muted">${fmtDateOnly(u.created_at)}</td>
@@ -364,25 +401,46 @@
       };
       document.getElementById('orgsList').innerHTML = `
         <table class="table">
-          <thead><tr><th>기관명</th><th>소유자</th><th>도메인</th><th>회의</th><th>의원</th><th>등록일</th><th style="text-align:right;">작업</th></tr></thead>
+          <thead><tr><th>기관명</th><th>소유자</th><th>도메인</th><th>이벤트</th><th>회원</th><th>등록일</th><th style="text-align:right;">작업</th></tr></thead>
           <tbody>
-            ${organizations.map(o => `
+            ${organizations.map(o => {
+              const userCount = (o.user_count != null) ? o.user_count : 0;
+              return `
               <tr>
-                <td><b>${o.name}</b></td>
-                <td>${o.owner_name || '-'}<div class="text-sm text-muted">${o.owner_email||''}</div></td>
+                <td><b>${escapeHtmlAdmin(o.name)}</b></td>
+                <td>${escapeHtmlAdmin(o.owner_name || '-')}<div class="text-sm text-muted">${escapeHtmlAdmin(o.owner_email||'')}</div></td>
                 <td>${domainCell(o)}</td>
                 <td>${o.meeting_count}건</td>
-                <td>${o.member_count}명</td>
+                <td>
+                  <a href="javascript:void(0)" onclick="goToUsersByOrg('${escapeHtmlAdmin(o.name).replace(/'/g, '&#39;')}')" style="color:var(--accent);font-weight:700;text-decoration:none;cursor:pointer;" title="이 기관의 사용자 관리로 이동">${userCount}명</a>
+                </td>
                 <td class="text-sm text-muted">${fmtDateOnly(o.created_at)}</td>
                 <td style="text-align:right;white-space:nowrap;">
                   <a class="btn btn-sm" href="/organization?id=${o.id}">진입</a>
                   <button class="btn btn-sm" onclick="editOrgDomain(${o.id})">🌐 도메인</button>
                   <button class="btn btn-sm btn-danger" onclick="delOrg(${o.id})">🗑</button>
                 </td>
-              </tr>`).join('')}
+              </tr>`;
+            }).join('')}
           </tbody>
         </table>`;
     }
+
+    // 기관의 회원수를 클릭하면 사용자 관리 페이지로 이동 + 그 기관 이름으로 자동 검색
+    function goToUsersByOrg(orgName) {
+      switchPage('users');
+      // 약간의 지연 후 (loadUsers 가 채워지기 전이라도) 검색창에 기관명 입력
+      setTimeout(() => {
+        const searchEl = document.getElementById('userSearch');
+        if (searchEl) {
+          searchEl.value = orgName;
+          // input 이벤트로 필터 트리거
+          searchEl.dispatchEvent(new Event('input'));
+          searchEl.focus();
+        }
+      }, 50);
+    }
+    window.goToUsersByOrg = goToUsersByOrg;
     function delOrg(id) {
       confirmDialog('기관과 모든 데이터를 삭제하시겠습니까? 되돌릴 수 없습니다.', async () => {
         try { await api.del(`/api/organizations/${id}`); toast('삭제되었습니다.', 'success'); loadOrgs(); }

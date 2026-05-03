@@ -140,6 +140,22 @@ function confirmDialog(message, onConfirm) {
   });
 }
 
+// ========== Phone format ==========
+//   서버는 숫자만 저장 → 표시는 한국식 하이픈 형식 (010-1234-5678 등)
+function normalizePhone(s) { return String(s == null ? '' : s).replace(/\D/g, ''); }
+function formatPhone(s) {
+  const d = normalizePhone(s);
+  if (!d) return '';
+  if (d.length === 11) return `${d.slice(0,3)}-${d.slice(3,7)}-${d.slice(7)}`;
+  if (d.length === 10) {
+    if (d.startsWith('02')) return `${d.slice(0,2)}-${d.slice(2,6)}-${d.slice(6)}`;
+    return `${d.slice(0,3)}-${d.slice(3,6)}-${d.slice(6)}`;
+  }
+  if (d.length === 9 && d.startsWith('02')) return `${d.slice(0,2)}-${d.slice(2,5)}-${d.slice(5)}`;
+  if (d.length === 8) return `${d.slice(0,4)}-${d.slice(4)}`;
+  return d;
+}
+
 // ========== Date format ==========
 function fmtDate(s) {
   if (!s) return '-';

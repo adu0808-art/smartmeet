@@ -62,8 +62,9 @@ function findDuplicatePhone(orgId, generation, phone, excludeId) {
 router.post('/', requireOrg(req => req.body.organization_id, 'write'), (req, res) => {
   const { seq, position, name, phone, email, major, workplace, generation, photo } = req.body || {};
   if (!name) return res.status(400).json({ error: '성명을 입력하세요.' });
-  if (!phone || !normalizePhone(phone)) return res.status(400).json({ error: '전화번호는 필수입니다.' });
-  const dup = findDuplicatePhone(req.orgId, generation, phone);
+  const phoneDigits = normalizePhone(phone);
+  if (!phoneDigits) return res.status(400).json({ error: '전화번호는 필수입니다.' });
+  const dup = findDuplicatePhone(req.orgId, generation, phoneDigits);
   if (dup) {
     return res.status(400).json({ error: `같은 기수에 이미 등록된 전화번호입니다 — ${dup.name} (${dup.phone || ''})` });
   }
@@ -74,7 +75,7 @@ router.post('/', requireOrg(req => req.body.organization_id, 'write'), (req, res
   const result = db.prepare(`
     INSERT INTO members (organization_id, seq, position, name, phone, email, major, workplace, generation, photo)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(req.orgId, newSeq, position || '', name, phone || '', email || '', major || '', workplace || '', generation || '', photo || '');
+  `).run(req.orgId, newSeq, position || '', name, phoneDigits, email || '', major || '', workplace || '', generation || '', photo || '');
   normalizeSeqInGeneration(req.orgId, generation);
   const member = db.prepare('SELECT * FROM members WHERE id = ?').get(result.lastInsertRowid);
   res.json({ member });
@@ -124,7 +125,7 @@ router.post('/bulk', requireOrg(req => req.body.organization_id, 'write'), (req,
   const ins = db.prepare(`INSERT INTO members (organization_id, seq, position, name, phone, email, major, workplace, generation, photo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   const tx = db.transaction((arr) => arr.forEach((it, idx) => {
     if (!it.name) return;
-    ins.run(req.orgId, it.seq || idx + 1, it.position || '', it.name, it.phone || '', it.email || '', it.major || '', it.workplace || '', it.generation || '', it.photo || '');
+    ins.run(req.orgId, it.seq || idx + 1, it.position || '', it.name, normalizePhone(it.phone), it.email || '', it.major || '', it.workplace || '', it.generation || '', it.photo || '');
   }));
   tx(validItems);
   normalizeAllSeq(req.orgId);
@@ -135,17 +136,18 @@ router.put('/:id', requireOrg(req => getOrgIdFromMember(req.params.id), 'write')
   const { seq, position, name, phone, email, major, workplace, generation, photo } = req.body || {};
   const orgId = getOrgIdFromMember(req.params.id);
   if (!name) return res.status(400).json({ error: '성명을 입력하세요.' });
-  if (!phone || !normalizePhone(phone)) return res.status(400).json({ error: '전화번호는 필수입니다.' });
+  const phoneDigits = normalizePhone(phone);
+  if (!phoneDigits) return res.status(400).json({ error: '전화번호는 필수입니다.' });
   const before = db.prepare('SELECT generation FROM members WHERE id = ?').get(req.params.id);
   const oldGen = before ? (before.generation || '') : '';
   const newGen = generation || '';
   // 같은 기수 내에서만 전화번호 중복 검사
-  const dup = findDuplicatePhone(orgId, generation, phone, Number(req.params.id));
+  const dup = findDuplicatePhone(orgId, generation, phoneDigits, Number(req.params.id));
   if (dup) {
     return res.status(400).json({ error: `같은 기수에 이미 등록된 전화번호입니다 — ${dup.name} (${dup.phone || ''})` });
   }
   db.prepare(`UPDATE members SET seq=?, position=?, name=?, phone=?, email=?, major=?, workplace=?, generation=?, photo=? WHERE id = ?`)
-    .run(seq || null, position || '', name, phone || '', email || '', major || '', workplace || '', generation || '', photo || '', req.params.id);
+    .run(seq || null, position || '', name, phoneDigits, email || '', major || '', workplace || '', generation || '', photo || '', req.params.id);
   // 기수가 바뀌었으면 양쪽 모두 정규화, 같으면 한 번만
   normalizeSeqInGeneration(orgId, newGen);
   if (oldGen !== newGen) normalizeSeqInGeneration(orgId, oldGen);

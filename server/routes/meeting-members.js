@@ -90,9 +90,10 @@ router.post('/', authRequired, (req, res) => {
   if (!orgId) return res.status(404).json({ error: '회의를 찾을 수 없습니다.' });
   if (!isAdmin(getOrgRole(req.user, orgId))) return res.status(403).json({ error: '관리자 권한이 필요합니다.' });
   if (!name) return res.status(400).json({ error: '성명을 입력하세요.' });
-  if (!phone || !normalizePhone(phone)) return res.status(400).json({ error: '전화번호는 필수입니다.' });
+  const phoneDigits = normalizePhone(phone);
+  if (!phoneDigits) return res.status(400).json({ error: '전화번호는 필수입니다.' });
   // 같은 회의 내 전화번호 중복 차단
-  const dup = findDupPhoneInMeeting(meeting_id, phone);
+  const dup = findDupPhoneInMeeting(meeting_id, phoneDigits);
   if (dup) {
     return res.status(400).json({ error: `이 회의에 이미 등록된 전화번호입니다 — ${dup.name} (${dup.phone || ''})` });
   }
@@ -100,7 +101,7 @@ router.post('/', authRequired, (req, res) => {
   const result = db.prepare(`
     INSERT INTO meeting_members (meeting_id, seq, position, name, phone, email, major, workplace, photo, source_member_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(meeting_id, lastSeq + 1, position || '', name, phone || '', email || '', major || '', workplace || '', photo || '', source_member_id || null);
+  `).run(meeting_id, lastSeq + 1, position || '', name, phoneDigits, email || '', major || '', workplace || '', photo || '', source_member_id || null);
   normalizeSeqInMeeting(meeting_id);
   const row = db.prepare('SELECT * FROM meeting_members WHERE id = ?').get(result.lastInsertRowid);
   res.json({ member: row });
@@ -115,8 +116,9 @@ router.put('/:id', authRequired, (req, res) => {
   if (!isAdmin(getOrgRole(req.user, orgId))) return res.status(403).json({ error: '관리자 권한이 필요합니다.' });
   const { seq, position, name, phone, email, major, workplace, photo } = req.body || {};
   if (!name) return res.status(400).json({ error: '성명을 입력하세요.' });
-  if (!phone || !normalizePhone(phone)) return res.status(400).json({ error: '전화번호는 필수입니다.' });
-  const dup = findDupPhoneInMeeting(existing.meeting_id, phone, id);
+  const phoneDigits = normalizePhone(phone);
+  if (!phoneDigits) return res.status(400).json({ error: '전화번호는 필수입니다.' });
+  const dup = findDupPhoneInMeeting(existing.meeting_id, phoneDigits, id);
   if (dup) {
     return res.status(400).json({ error: `이 회의에 이미 등록된 전화번호입니다 — ${dup.name} (${dup.phone || ''})` });
   }
@@ -124,7 +126,7 @@ router.put('/:id', authRequired, (req, res) => {
     UPDATE meeting_members
     SET seq = ?, position = ?, name = ?, phone = ?, email = ?, major = ?, workplace = ?, photo = ?
     WHERE id = ?
-  `).run(seq || null, position || '', name, phone || '', email || '', major || '', workplace || '', photo || '', id);
+  `).run(seq || null, position || '', name, phoneDigits, email || '', major || '', workplace || '', photo || '', id);
   normalizeSeqInMeeting(existing.meeting_id);
   const row = db.prepare('SELECT * FROM meeting_members WHERE id = ?').get(id);
   res.json({ member: row });

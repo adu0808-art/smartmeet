@@ -488,6 +488,30 @@ try { db.exec("ALTER TABLE users ADD COLUMN workplace TEXT"); } catch (e) {}
 try { db.exec("ALTER TABLE users ADD COLUMN profile_image TEXT"); } catch (e) {}
 try { db.exec("ALTER TABLE users ADD COLUMN bio TEXT"); } catch (e) {}
 
+// 전화번호 정규화 1회성 backfill — 모든 phone 컬럼을 숫자만으로 변환 (저장 정책 일관화)
+//   기존 '010-1234-5678' → '01012345678'. 표시는 프론트에서 formatPhone() 으로 처리
+try {
+  const stripDigits = (s) => String(s == null ? '' : s).replace(/\D/g, '');
+  const tables = [
+    { tbl: 'users', col: 'phone' },
+    { tbl: 'members', col: 'phone' },
+    { tbl: 'meeting_members', col: 'phone' },
+    { tbl: 'proxies', col: 'submitter_phone' }
+  ];
+  let total = 0;
+  tables.forEach(({ tbl, col }) => {
+    try {
+      const rows = db.prepare(`SELECT id, ${col} AS p FROM ${tbl} WHERE ${col} IS NOT NULL AND ${col} != ''`).all();
+      const upd = db.prepare(`UPDATE ${tbl} SET ${col} = ? WHERE id = ?`);
+      rows.forEach(r => {
+        const norm = stripDigits(r.p);
+        if (norm !== r.p) { upd.run(norm, r.id); total++; }
+      });
+    } catch (e) { /* 테이블 없거나 컬럼 없으면 패스 */ }
+  });
+  if (total) console.log(`[DB] 전화번호 정규화 backfill: ${total}건`);
+} catch (e) { console.warn('[DB] phone normalize backfill:', e.message); }
+
 // Migration: ensure org owners have an organization_members row with admin role
 try {
   const orgs = db.prepare('SELECT id, owner_id FROM organizations WHERE owner_id IS NOT NULL').all();

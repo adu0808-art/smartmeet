@@ -4,6 +4,7 @@ const db = require('../db');
 const { adminRequired } = require('../auth-mw');
 const passwordPolicy = require('../password-policy');
 const emailModule = require('../email');
+const { normalizePhone } = require('../utils/phone');
 
 const router = express.Router();
 router.use(adminRequired);
@@ -124,6 +125,8 @@ router.get('/users', (req, res) => {
 
 router.put('/users/:id', (req, res) => {
   const { name, role, password, phone, major, workplace, bio } = req.body || {};
+  // 전화번호는 숫자만 저장
+  const normalizedPhone = phone !== undefined ? normalizePhone(phone) : undefined;
   if (password) {
     const pwErr = passwordPolicy.validate(password);
     if (pwErr) return res.status(400).json({ error: pwErr });
@@ -134,14 +137,14 @@ router.put('/users/:id', (req, res) => {
         phone = COALESCE(?, phone), major = COALESCE(?, major),
         workplace = COALESCE(?, workplace), bio = COALESCE(?, bio)
       WHERE id = ?`)
-      .run(name, role, hash, phone, major, workplace, bio, req.params.id);
+      .run(name, role, hash, normalizedPhone, major, workplace, bio, req.params.id);
   } else {
     db.prepare(`UPDATE users SET
         name = COALESCE(?, name), role = COALESCE(?, role),
         phone = COALESCE(?, phone), major = COALESCE(?, major),
         workplace = COALESCE(?, workplace), bio = COALESCE(?, bio)
       WHERE id = ?`)
-      .run(name, role, phone, major, workplace, bio, req.params.id);
+      .run(name, role, normalizedPhone, major, workplace, bio, req.params.id);
   }
   res.json({ ok: true });
 });
@@ -195,7 +198,8 @@ router.get('/organizations', (req, res) => {
   const rows = db.prepare(`
     SELECT o.*, u.name AS owner_name, u.email AS owner_email,
       (SELECT COUNT(*) FROM meetings m WHERE m.organization_id = o.id) AS meeting_count,
-      (SELECT COUNT(*) FROM members me WHERE me.organization_id = o.id) AS member_count
+      (SELECT COUNT(*) FROM members me WHERE me.organization_id = o.id) AS member_count,
+      (SELECT COUNT(*) FROM organization_members om WHERE om.organization_id = o.id) AS user_count
     FROM organizations o
     LEFT JOIN users u ON u.id = o.owner_id
     ORDER BY o.created_at DESC

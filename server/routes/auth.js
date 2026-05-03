@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const db = require('../db');
 const { sign, authRequired } = require('../auth-mw');
 const passwordPolicy = require('../password-policy');
+const { normalizePhone } = require('../utils/phone');
 
 const router = express.Router();
 
@@ -39,7 +40,7 @@ router.post('/register', (req, res) => {
 
   const hash = bcrypt.hashSync(password, 10);
   const result = db.prepare('INSERT INTO users (email, password_hash, name, role, phone, workplace) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(email, hash, name, 'user', phone || '', workplace || '');
+    .run(email, hash, name, 'user', normalizePhone(phone), workplace || '');
   const userId = result.lastInsertRowid;
 
   // 기관 자동 소속
@@ -90,6 +91,8 @@ router.get('/me', authRequired, (req, res) => {
 router.put('/profile', authRequired, (req, res) => {
   const { name, phone, major, workplace, bio, profile_image } = req.body || {};
   if (name && !name.trim()) return res.status(400).json({ error: '이름은 비울 수 없습니다.' });
+  // 전화번호는 숫자만 저장 (사용자가 어떤 형식으로 입력하든)
+  const normalizedPhone = phone !== undefined ? normalizePhone(phone) : undefined;
   db.prepare(`UPDATE users SET
     name = COALESCE(?, name),
     phone = COALESCE(?, phone),
@@ -98,7 +101,7 @@ router.put('/profile', authRequired, (req, res) => {
     bio = COALESCE(?, bio),
     profile_image = COALESCE(?, profile_image)
     WHERE id = ?`)
-    .run(name, phone, major, workplace, bio, profile_image, req.user.id);
+    .run(name, normalizedPhone, major, workplace, bio, profile_image, req.user.id);
   const user = db.prepare('SELECT id, email, name, role, phone, major, workplace, profile_image, bio FROM users WHERE id = ?').get(req.user.id);
   res.json({ user });
 });

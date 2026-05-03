@@ -73,7 +73,7 @@ router.post('/submit/:token', (req, res) => {
   const result = db.prepare(`
     INSERT INTO meeting_members (meeting_id, seq, position, name, phone, email, major, workplace, photo, source_member_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(meeting.id, lastSeq + 1, '', trimmedName, String(phone || ''), '', '', String(workplace || '').trim(), '', null);
+  `).run(meeting.id, lastSeq + 1, '', trimmedName, phoneNorm, '', '', String(workplace || '').trim(), '', null);
 
   console.log(`[public-register] event #${meeting.id} - new registrant: ${trimmedName} / ${phone}`);
   res.json({ ok: true, member_id: result.lastInsertRowid });

@@ -104,14 +104,14 @@ router.post('/submit/:token', (req, res) => {
     if (exists) return res.status(400).json({ error: '이미 위임장을 제출하셨습니다.' });
     const newToken = uuidv4();
     db.prepare(`INSERT INTO proxies (meeting_id, member_id, token, submitter_name, submitter_phone, signature_data, status, submitted_at) VALUES (?, ?, ?, ?, ?, ?, 'submitted', ?)`)
-      .run(proxy.meeting_id, matchedId, newToken, submitterName, submitter_phone, signature_data, now);
+      .run(proxy.meeting_id, matchedId, newToken, submitterName, submitterPhoneNorm, signature_data, now);
     return res.json({ ok: true, matched: true });
   }
 
   // 특정인 지정 토큰: 이미 제출됐으면 거부
   if (proxy.status === 'submitted') return res.status(400).json({ error: '이미 제출된 위임장입니다.' });
   db.prepare(`UPDATE proxies SET submitter_name=?, submitter_phone=?, signature_data=?, status='submitted', submitted_at=?, member_id=? WHERE token = ?`)
-    .run(submitterName, submitter_phone, signature_data, now, matchedId, req.params.token);
+    .run(submitterName, submitterPhoneNorm, signature_data, now, matchedId, req.params.token);
   res.json({ ok: true, matched: true });
 });
 
