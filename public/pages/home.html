@@ -4529,79 +4529,188 @@
     }
 
     function showImportPreview(items) {
-      // 통계: 이름 누락, 전화 누락 — 둘 다 등록 차단됨
-      const gens = [...new Set(items.map(i => i.generation || '(없음)'))];
-      const noNameCount = items.filter(i => !i.name).length;
-      const noPhoneCount = items.filter(i => i.name && !String(i.phone || '').replace(/\D/g, '')).length;
-      const noGenCount = items.filter(i => !i.generation).length;
-      const validCount = items.filter(i => i.name && String(i.phone || '').replace(/\D/g, '')).length;
-      modal({
-        title: `엑셀 일괄등록 미리보기 — ${items.length}명`,
-        size: 'xl',
-        body: `
+      // 사용자가 미리보기에서 행을 삭제할 수 있도록 mutable 사본 사용
+      let working = items.slice();
+      const root = { modalRef: null };
+
+      const refresh = () => {
+        const stripD = (s) => String(s || '').replace(/\D/g, '');
+        const gens = [...new Set(working.map(i => i.generation || '(없음)'))];
+        const noPhoneCount = working.filter(i => i.name && !stripD(i.phone)).length;
+        const noEmailCount = working.filter(i => i.name && !String(i.email || '').trim()).length;
+        const noGenCount = working.filter(i => !i.generation).length;
+        const noNameCount = working.filter(i => !i.name).length;
+        // Excel 내 전화번호 중복 그룹 — gen + normPhone 기준
+        const phoneGroups = new Map();
+        working.forEach((it, idx) => {
+          const norm = stripD(it.phone);
+          if (!norm || !it.name) return;
+          const key = `${it.generation || ''}|${norm}`;
+          if (!phoneGroups.has(key)) phoneGroups.set(key, []);
+          phoneGroups.get(key).push({ idx, it });
+        });
+        const dupGroups = [...phoneGroups.entries()].filter(([k, arr]) => arr.length > 1);
+        const dupRowIdx = new Set();
+        dupGroups.forEach(([k, arr]) => arr.forEach(x => dupRowIdx.add(x.idx)));
+
+        const validCount = working.filter(i => i.name).length;
+
+        const dupSummary = dupGroups.length ? `
+          <div style="background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:10px 12px;margin-top:8px;font-size:12.5px;color:#9a3412;line-height:1.7;">
+            <b>⚠️ Excel 내 중복 전화번호 ${dupGroups.length}건:</b><br>
+            ${dupGroups.slice(0, 5).map(([k, arr]) => {
+              const phone = arr[0].it.phone;
+              const names = arr.map(x => escapeHtml(x.it.name)).join(', ');
+              return `• ${escapeHtml(phone)} → ${names}`;
+            }).join('<br>')}
+            ${dupGroups.length > 5 ? `<br>... 그 외 ${dupGroups.length - 5}건` : ''}
+            <div style="margin-top:6px;color:#7c2d12;">→ 첫 번째 항목만 등록되고 나머지는 자동 스킵됩니다. 원치 않으면 🗑 로 직접 제거하세요.</div>
+          </div>` : '';
+
+        const headerHtml = `
           <div style="background:var(--surface-2);border-radius:8px;padding:14px 16px;margin-bottom:14px;">
-            <div class="flex gap-16" style="flex-wrap:wrap;font-size:13px;">
-              <div><b style="color:var(--accent);">${items.length}</b> 명</div>
+            <div class="flex gap-16" style="flex-wrap:wrap;font-size:13px;align-items:center;">
+              <div><b style="color:var(--accent);font-size:18px;">${working.length}</b> 명</div>
               <div>기수 <b>${gens.length}</b> 종류 · ${gens.slice(0, 4).map(g => escapeHtml(g)).join(', ')}${gens.length > 4 ? ', …' : ''}</div>
               ${noGenCount ? `<div style="color:var(--warning);">기수 없음 <b>${noGenCount}</b> 명</div>` : ''}
               ${noNameCount ? `<div style="color:var(--danger);">⚠️ 이름 없음 <b>${noNameCount}</b> 명 (제외됨)</div>` : ''}
-              ${noPhoneCount ? `<div style="color:var(--danger);">⚠️ 전화번호 없음 <b>${noPhoneCount}</b> 명 (제외됨)</div>` : ''}
-              <div style="color:var(--success);font-weight:700;">✓ 등록 가능 <b>${validCount}</b> 명</div>
+              ${noPhoneCount ? `<div style="color:#9a3412;">📞 전화 없음 <b>${noPhoneCount}</b> 명 (등록 가능)</div>` : ''}
+              ${noEmailCount ? `<div style="color:#9a3412;">✉ 이메일 없음 <b>${noEmailCount}</b> 명 (등록 가능)</div>` : ''}
+              ${dupGroups.length ? `<div style="color:#dc2626;">🔁 중복 전화 <b>${dupGroups.length}</b>건</div>` : ''}
+              <div style="color:var(--success);font-weight:700;margin-left:auto;">✓ 등록 대상 <b>${validCount}</b> 명</div>
             </div>
             <div class="text-sm text-muted mt-8">
-              💡 이름·전화번호는 필수입니다. 같은 기관 내 동일한 전화번호는 중복 등록 차단됩니다.
+              💡 이름만 있으면 등록 가능합니다. 전화·이메일은 선택. 기수+전화 중복은 첫 항목만 등록됩니다.
             </div>
-          </div>
+            ${dupSummary}
+          </div>`;
+
+        const bodyHtml = `
+          ${headerHtml}
           <div style="max-height:520px;overflow:auto;border:1px solid var(--border);border-radius:8px;">
             <table class="exec-table" style="border-radius:0;border:none;">
-              <thead style="position:sticky;top:0;z-index:1;">
+              <thead style="position:sticky;top:0;z-index:1;background:var(--surface);">
                 <tr>
+                  <th style="width:36px;"></th>
                   <th style="width:42px;">#</th>
-                  <th style="width:100px;">기수</th>
+                  <th style="width:90px;">기수</th>
                   <th style="width:60px;">순번</th>
                   <th style="width:120px;">직책</th>
-                  <th>이름</th>
-                  <th style="width:130px;">전화 *</th>
+                  <th>이름 *</th>
+                  <th style="width:140px;">전화</th>
                   <th style="width:120px;">전공</th>
                   <th style="width:160px;">직장</th>
                   <th style="width:200px;">이메일</th>
                 </tr>
               </thead>
-              <tbody>
-                ${items.map((it, i) => {
+              <tbody id="impPrevBody">
+                ${working.map((it, i) => {
+                  const stripD = (s) => String(s || '').replace(/\D/g, '');
                   const noName = !it.name;
-                  const noPhone = it.name && !String(it.phone || '').replace(/\D/g, '');
-                  const invalid = noName || noPhone;
+                  const noPhone = !!it.name && !stripD(it.phone);
+                  const noEmail = !!it.name && !String(it.email || '').trim();
+                  const isDup = dupRowIdx.has(i);
+                  const rowStyle = noName ? 'background:#fef2f2;' : isDup ? 'background:#fff7ed;' : '';
                   return `
-                  <tr ${invalid ? 'style="background:#fef2f2;"' : ''}>
+                  <tr style="${rowStyle}">
+                    <td style="text-align:center;"><button class="btn btn-sm btn-danger" data-imp-rm="${i}" title="목록에서 제거" style="padding:2px 7px;">🗑</button></td>
                     <td class="text-muted text-center">${i + 1}</td>
                     <td>${escapeHtml(it.generation || '-')}</td>
                     <td class="text-muted">${it.seq || ''}</td>
                     <td>${escapeHtml(it.position || '-')}</td>
-                    <td>${noName ? '<span style="color:var(--danger);">⚠️ 이름 없음</span>' : `<b>${escapeHtml(it.name)}</b>`}</td>
-                    <td>${noPhone ? '<span style="color:var(--danger);">⚠️ 전화 없음</span>' : `<span class="text-muted">${escapeHtml(it.phone)}</span>`}</td>
+                    <td>${noName ? '<span style="color:var(--danger);">⚠️ 이름 없음</span>' : `<b>${escapeHtml(it.name)}</b>`}${isDup ? ' <span class="tag tag-status-prep" style="background:#fef3c7;color:#92400e;font-size:10px;">🔁 중복</span>' : ''}</td>
+                    <td>${noPhone ? '<span style="color:#92400e;">— (선택)</span>' : `<span class="text-muted">${escapeHtml(it.phone)}</span>`}</td>
                     <td class="text-muted">${escapeHtml(it.major || '-')}</td>
                     <td class="text-muted">${escapeHtml(it.workplace || '-')}</td>
-                    <td class="text-muted">${escapeHtml(it.email || '-')}</td>
+                    <td>${noEmail ? '<span style="color:#92400e;">— (선택)</span>' : `<span class="text-muted">${escapeHtml(it.email)}</span>`}</td>
                   </tr>`;
                 }).join('')}
               </tbody>
             </table>
-          </div>`,
-        confirmText: `${validCount}명 등록`,
+          </div>`;
+        // body 갱신
+        const bodyEl = root.modalRef ? root.modalRef.querySelector('.modal-body') : null;
+        if (bodyEl) {
+          bodyEl.innerHTML = bodyHtml;
+          bindRowDelete();
+        }
+        // 확인 버튼 라벨 갱신
+        const confirmBtn = root.modalRef ? root.modalRef.querySelector('[data-confirm]') : null;
+        if (confirmBtn) confirmBtn.textContent = `${validCount}명 등록`;
+      };
+
+      const bindRowDelete = () => {
+        const tbody = document.getElementById('impPrevBody');
+        if (!tbody) return;
+        tbody.querySelectorAll('[data-imp-rm]').forEach(btn => {
+          btn.onclick = () => {
+            const idx = Number(btn.dataset.impRm);
+            working.splice(idx, 1);
+            refresh();
+          };
+        });
+      };
+
+      const m = modal({
+        title: `엑셀 일괄등록 미리보기`,
+        size: 'xl',
+        body: '<div>로딩 중...</div>',
+        confirmText: '등록',
         onConfirm: async () => {
-          // 이름 + 전화번호 둘 다 있는 행만 등록
-          const validItems = items.filter(i => i.name && String(i.phone || '').replace(/\D/g, ''));
-          if (!validItems.length) { toast('등록 가능한 데이터가 없습니다 (이름·전화 필수).', 'error'); return false; }
+          const validItems = working.filter(i => i.name);
+          if (!validItems.length) { toast('등록 가능한 데이터가 없습니다 (이름 필수).', 'error'); return false; }
           try {
-            await api.post('/api/members/bulk', {
+            const r = await api.post('/api/members/bulk', {
               organization_id: Number(orgId),
               items: validItems
             });
-            toast(`${validItems.length}명이 등록되었습니다.`, 'success');
             await reloadMembers();
+            // 결과 요약 모달
+            showImportResultSummary(r);
           } catch (e) { toast(e.message, 'error'); return false; }
         }
+      });
+      root.modalRef = m.root;
+      refresh();
+    }
+
+    // 등록 결과 요약 모달
+    function showImportResultSummary(r) {
+      const dupList = (r.skippedDuplicates || []).slice(0, 20).map(d =>
+        `<li>${escapeHtml(d.name)} <span class="text-muted">(${escapeHtml(d.phone || '')}, 기수: ${escapeHtml(d.gen)})</span> — ${escapeHtml(d.reason)}</li>`
+      ).join('');
+      const more = (r.skippedDuplicates || []).length > 20 ? `<li class="text-muted">... 그 외 ${(r.skippedDuplicates).length - 20}건</li>` : '';
+      const missingPhoneList = (r.missingPhoneNames || []).slice(0, 10).map(n => escapeHtml(n)).join(', ');
+      const missingEmailList = (r.missingEmailNames || []).slice(0, 10).map(n => escapeHtml(n)).join(', ');
+      modal({
+        title: '✅ 일괄 등록 결과',
+        size: 'lg',
+        body: `
+          <div style="text-align:center;padding:14px 0;">
+            <div style="font-size:48px;">${r.count > 0 ? '🎉' : '⚠️'}</div>
+            <div style="font-size:22px;font-weight:800;margin:10px 0 6px;color:${r.count > 0 ? '#10b981' : '#ef4444'};">
+              ${r.count}명이 등록되었습니다
+            </div>
+            ${r.skipped ? `<div class="text-muted">${r.skipped}건은 등록되지 않음</div>` : ''}
+          </div>
+          ${r.missingPhone ? `
+            <div style="background:#fff7ed;border-left:3px solid #f59e0b;padding:10px 14px;border-radius:6px;margin-bottom:10px;font-size:13px;line-height:1.7;color:#92400e;">
+              📞 <b>전화번호 없는 회원: ${r.missingPhone}명</b>
+              <div class="text-sm" style="color:#7c2d12;">${missingPhoneList}${(r.missingPhoneNames||[]).length > 10 ? ` 외 ${r.missingPhoneNames.length - 10}명` : ''}</div>
+            </div>` : ''}
+          ${r.missingEmail ? `
+            <div style="background:#fff7ed;border-left:3px solid #f59e0b;padding:10px 14px;border-radius:6px;margin-bottom:10px;font-size:13px;line-height:1.7;color:#92400e;">
+              ✉ <b>이메일 없는 회원: ${r.missingEmail}명</b>
+              <div class="text-sm" style="color:#7c2d12;">${missingEmailList}${(r.missingEmailNames||[]).length > 10 ? ` 외 ${r.missingEmailNames.length - 10}명` : ''}</div>
+            </div>` : ''}
+          ${dupList ? `
+            <div style="background:#fef2f2;border-left:3px solid #ef4444;padding:10px 14px;border-radius:6px;margin-bottom:10px;font-size:13px;line-height:1.7;color:#991b1b;">
+              🔁 <b>중복 전화번호로 스킵된 ${(r.skippedDuplicates || []).length}건:</b>
+              <ul style="margin:8px 0 0;padding-left:20px;">${dupList}${more}</ul>
+            </div>` : ''}
+        `,
+        confirmText: '닫기',
+        onConfirm: () => {}
       });
     }
 

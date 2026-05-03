@@ -86,50 +86,70 @@ router.post('/', requireOrg(req => req.body.organization_id, 'write'), (req, res
 router.post('/bulk', requireOrg(req => req.body.organization_id, 'write'), (req, res) => {
   const { items } = req.body || {};
   if (!Array.isArray(items)) return res.status(400).json({ error: '필수값 누락' });
-  // 검증: 이름·전화 필수, 같은 기수 내 중복 차단
-  const seen = new Map();  // key = "generation|normalizedPhone"
-  const errors = [];
+  // 정책:
+  //   - 이름 없음 → 제외 (등록 불가, 의미 없음)
+  //   - 전화번호 없음 → 등록 허용 (선택값)
+  //   - 동일 기수 내 같은 전화번호 (Excel 내 또는 DB 기존) → 첫 항목만 등록, 나머지는 스킵 + 보고
+  const seen = new Map();              // "gen|normalizedPhone" → 첫 등록 이름
+  const skippedDuplicates = [];        // 중복 전화로 스킵된 항목 정보
+  const missingPhoneNames = [];        // 등록은 했지만 전화번호가 비어있는 사람
+  const missingEmailNames = [];        // 등록은 했지만 이메일이 비어있는 사람
+  const skippedNoName = [];            // 이름 없어서 제외된 행 번호
   const validItems = [];
-  for (const it of items) {
-    if (!it.name) continue;
+
+  items.forEach((it, idx) => {
+    const name = String(it.name || '').trim();
+    if (!name) { skippedNoName.push(idx + 1); return; }
     const phone = String(it.phone || '').trim();
     const normalized = normalizePhone(phone);
-    if (!normalized) {
-      errors.push(`전화번호 누락: ${it.name}`);
-      continue;
-    }
     const gen = it.generation || '';
-    const key = `${gen}|${normalized}`;
-    if (seen.has(key)) {
-      errors.push(`엑셀 내 중복: ${it.name} / ${phone} (기수 ${gen || '없음'}) — ${seen.get(key)} 와 중복`);
-      continue;
+
+    if (normalized) {
+      // 전화번호 있음 → 중복 검사
+      const key = `${gen}|${normalized}`;
+      if (seen.has(key)) {
+        skippedDuplicates.push({
+          name, phone, gen: gen || '없음',
+          reason: `엑셀 내 중복 — "${seen.get(key)}" 와 동일 전화`
+        });
+        return;
+      }
+      const dbDup = findDuplicatePhone(req.orgId, gen, phone);
+      if (dbDup) {
+        skippedDuplicates.push({
+          name, phone, gen: gen || '없음',
+          reason: `기존 DB 와 중복 — 이미 "${dbDup.name}" 으로 등록됨`
+        });
+        return;
+      }
+      seen.set(key, name);
+    } else {
+      // 전화번호 없음 — 등록 진행 + 통계 누적 (중복 검사 대상 아님)
+      missingPhoneNames.push(name);
     }
-    const dbDup = findDuplicatePhone(req.orgId, gen, phone);
-    if (dbDup) {
-      errors.push(`기존 데이터와 중복: ${it.name} / ${phone} (기수 ${gen || '없음'}) — 이미 ${dbDup.name} 으로 등록됨`);
-      continue;
-    }
-    seen.set(key, it.name);
-    validItems.push(it);
-  }
-  if (errors.length && validItems.length === 0) {
-    return res.status(400).json({
-      error: `등록 가능한 데이터가 없습니다:\n` + errors.slice(0, 10).join('\n') + (errors.length > 10 ? `\n... 그 외 ${errors.length - 10}건` : '')
-    });
-  }
-  if (errors.length) {
-    return res.status(400).json({
-      error: `다음 항목에 문제가 있습니다 (모두 수정 후 다시 시도):\n` + errors.slice(0, 10).join('\n') + (errors.length > 10 ? `\n... 그 외 ${errors.length - 10}건` : '')
-    });
-  }
+    if (!String(it.email || '').trim()) missingEmailNames.push(name);
+    validItems.push({ ...it, name });
+  });
+
+  // INSERT
   const ins = db.prepare(`INSERT INTO members (organization_id, seq, position, name, phone, email, major, workplace, generation, photo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   const tx = db.transaction((arr) => arr.forEach((it, idx) => {
-    if (!it.name) return;
     ins.run(req.orgId, it.seq || idx + 1, it.position || '', it.name, normalizePhone(it.phone), it.email || '', it.major || '', it.workplace || '', it.generation || '', it.photo || '');
   }));
   tx(validItems);
   normalizeAllSeq(req.orgId);
-  res.json({ ok: true, count: validItems.length });
+
+  res.json({
+    ok: true,
+    count: validItems.length,
+    skipped: skippedDuplicates.length + skippedNoName.length,
+    skippedDuplicates,
+    skippedNoNameRows: skippedNoName,
+    missingPhone: missingPhoneNames.length,
+    missingPhoneNames,
+    missingEmail: missingEmailNames.length,
+    missingEmailNames
+  });
 });
 
 router.put('/:id', requireOrg(req => getOrgIdFromMember(req.params.id), 'write'), (req, res) => {
