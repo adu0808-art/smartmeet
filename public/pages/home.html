@@ -1461,16 +1461,30 @@
     // ====== Hero rendering (org name + sub + teaser + slogan bar) ======
     function renderHeroContent() {
       document.getElementById('orgName').textContent = organization.name;
-      document.getElementById('orgSub').textContent =
-        organization.hero_sub || '함께 만들어가는 우리의 이야기';
+      // 부제목: 입력값이 있을 때만 표시, 없으면 숨김
+      const subEl = document.getElementById('orgSub');
+      const subText = (organization.hero_sub || '').trim();
+      if (subText) {
+        subEl.textContent = subText;
+        subEl.style.display = '';
+      } else {
+        subEl.textContent = '';
+        subEl.style.display = 'none';
+      }
       const teaserSrc = organization.intro_html || organization.description || '';
       const descPlain = stripHtml(teaserSrc);
       document.getElementById('orgDescTeaser').textContent =
         descPlain.slice(0, 180) + (descPlain.length > 180 ? '…' : '');
-      // 슬로건 바: 사용자 정의 또는 기본값
+      // 슬로건 바: 입력값이 있을 때만 표시, 없으면 숨김
       const sloganEl = document.getElementById('sloganBar');
-      const slogan = organization.slogan || '<span class="accent">우리가 함께 만드는</span> 미래';
-      sloganEl.innerHTML = slogan;
+      const sloganVal = (organization.slogan || '').trim();
+      if (sloganVal) {
+        sloganEl.innerHTML = sloganVal;
+        sloganEl.style.display = '';
+      } else {
+        sloganEl.innerHTML = '';
+        sloganEl.style.display = 'none';
+      }
       // Hero 배경 이미지
       if (organization.hero_image_url) {
         document.getElementById('hero').style.backgroundImage =
