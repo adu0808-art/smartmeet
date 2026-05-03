@@ -88,10 +88,10 @@
 
     async function load() {
       const all = await api.get(`/api/members?organization_id=${orgId}`);
-      // Filter for 회장 (exact match preferred; also includes 명예회장 etc. that contain "회장" but exclude 부회장/이사)
+      // 직책에 "회장" 이 포함되되 "부회장" 은 정확히 제외 — 기관홈의 역대회장 섹션과 동일 로직
       presidents = all.members.filter(m => {
         const p = (m.position || '').trim();
-        return p === '회장' || p.includes('회장') && !p.startsWith('부') && !p.startsWith('이');
+        return /회장/.test(p) && !/부회장/.test(p);
       }).sort((a, b) => (b.generation || '').localeCompare(a.generation || ''));
 
       document.getElementById('cnt').textContent = `총 ${presidents.length}명`;
