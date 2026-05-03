@@ -106,7 +106,7 @@ router.get('/stats', (req, res) => {
 });
 
 router.get('/users', (req, res) => {
-  const users = db.prepare('SELECT id, email, name, role, created_at FROM users ORDER BY created_at DESC').all();
+  const users = db.prepare('SELECT id, email, name, role, phone, workplace, created_at FROM users ORDER BY created_at DESC').all();
   // Attach organization memberships per user
   const memStmt = db.prepare(`
     SELECT om.member_role, o.id AS org_id, o.name AS org_name,

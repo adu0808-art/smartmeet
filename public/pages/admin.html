@@ -54,8 +54,14 @@
         <!-- Users -->
         <div id="page-users" class="admin-page hidden">
           <div class="page-header">
-            <h1 class="page-title">사용자 관리</h1>
-            <span class="text-sm text-muted" id="userCount"></span>
+            <div>
+              <h1 class="page-title">사용자 관리</h1>
+              <div class="page-sub" id="userCount"></div>
+            </div>
+            <div class="flex gap-8 items-center" style="flex-wrap:wrap;">
+              <input class="input" id="userSearch" placeholder="이름·이메일·전화번호·소속 검색" style="width:300px;">
+              <button class="btn btn-sm" id="userSearchClear" title="검색어 지우기">✕</button>
+            </div>
           </div>
           <div id="usersList"></div>
         </div>
@@ -105,44 +111,97 @@
       document.getElementById('s-submitted').textContent = s.submittedProxyCount;
     }
 
+    let _allUsers = [];
+    let _userSearchQ = '';
+
     async function loadUsers() {
       const { users } = await api.get('/api/admin/users');
-      document.getElementById('userCount').textContent = `(총 ${users.length}명)`;
+      _allUsers = users;
+      // 검색 입력 핸들러 (1회만 바인딩)
+      const searchEl = document.getElementById('userSearch');
+      const clearEl = document.getElementById('userSearchClear');
+      if (searchEl && !searchEl._bound) {
+        searchEl._bound = true;
+        searchEl.addEventListener('input', () => {
+          _userSearchQ = searchEl.value.trim();
+          renderUsers();
+        });
+      }
+      if (clearEl && !clearEl._bound) {
+        clearEl._bound = true;
+        clearEl.onclick = () => { searchEl.value = ''; _userSearchQ = ''; renderUsers(); searchEl.focus(); };
+      }
+      renderUsers();
+    }
+
+    // 검색·렌더 (서버 재요청 없이 클라이언트 필터)
+    function renderUsers() {
       const renderOrgs = (orgs) => {
         if (!orgs || !orgs.length) return '<span class="text-sm text-muted">소속 없음</span>';
         return orgs.map(o => {
           const role = o.is_owner ? '🏛 소유자'
                      : (o.member_role === 'admin' ? '🔑 관리자' : '👤 회원');
           return `<div class="text-sm" style="display:flex;align-items:center;gap:6px;margin:2px 0;">
-            <span class="fw-700">${o.org_name}</span>
+            <span class="fw-700">${escapeHtmlAdmin(o.org_name)}</span>
             <span class="text-muted" style="font-size:11px;">${role}</span>
           </div>`;
         }).join('');
       };
-      document.getElementById('usersList').innerHTML = `
+      const normalize = (s) => String(s || '').toLowerCase();
+      const normalizePhone = (s) => String(s || '').replace(/\D/g, '');
+      const q = normalize(_userSearchQ);
+      const qDigits = normalizePhone(_userSearchQ);
+      const filtered = _allUsers.filter(u => {
+        if (!q) return true;
+        if (normalize(u.name).includes(q)) return true;
+        if (normalize(u.email).includes(q)) return true;
+        if (normalize(u.workplace).includes(q)) return true;
+        // 전화번호: 숫자만 비교 (하이픈 무시)
+        if (qDigits && normalizePhone(u.phone).includes(qDigits)) return true;
+        // 소속 기관 이름도 검색 대상
+        if (u.organizations && u.organizations.some(o => normalize(o.org_name).includes(q))) return true;
+        return false;
+      });
+      const total = _allUsers.length;
+      const cntEl = document.getElementById('userCount');
+      if (cntEl) {
+        cntEl.textContent = q ? `검색 결과 ${filtered.length}명 / 전체 ${total}명` : `총 ${total}명`;
+      }
+      document.getElementById('usersList').innerHTML = filtered.length ? `
         <table class="table">
-          <thead><tr><th>이름</th><th>이메일</th><th>시스템 권한</th><th>소속 기관</th><th>가입일</th><th style="text-align:right;">작업</th></tr></thead>
+          <thead><tr>
+            <th>이름</th>
+            <th>이메일</th>
+            <th>전화번호</th>
+            <th>시스템 권한</th>
+            <th>소속 기관</th>
+            <th>가입일</th>
+            <th style="text-align:right;">작업</th>
+          </tr></thead>
           <tbody>
-            ${users.map(u => `
+            ${filtered.map(u => `
               <tr>
-                <td><b>${u.name}</b></td>
-                <td>${u.email}</td>
+                <td><b>${escapeHtmlAdmin(u.name)}</b>${u.workplace ? `<div class="text-sm text-muted">${escapeHtmlAdmin(u.workplace)}</div>` : ''}</td>
+                <td>${escapeHtmlAdmin(u.email)}</td>
+                <td>${escapeHtmlAdmin(u.phone) || '<span class="text-sm text-muted">-</span>'}</td>
                 <td>${u.role === 'admin' ? '<span class="tag tag-status-progress">시스템 관리자</span>' : '<span class="tag tag-status-prep">일반 사용자</span>'}</td>
                 <td>${renderOrgs(u.organizations)}</td>
                 <td class="text-sm text-muted">${fmtDateOnly(u.created_at)}</td>
-                <td style="text-align:right;">
+                <td style="text-align:right;white-space:nowrap;">
                   <button class="btn btn-sm" data-edit="${u.id}">수정</button>
                   ${u.id === me.id ? '' : `<button class="btn btn-sm btn-danger" onclick="delUser(${u.id})">🗑</button>`}
                 </td>
               </tr>`).join('')}
           </tbody>
-        </table>`;
+        </table>`
+        : `<div class="empty"><div class="empty-title">검색 결과가 없습니다</div><div class="empty-sub">다른 키워드로 검색하거나 ✕ 로 지우세요.</div></div>`;
       // Bind edit buttons safely
       document.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => {
-        const u = users.find(x => x.id === Number(b.dataset.edit));
+        const u = _allUsers.find(x => x.id === Number(b.dataset.edit));
         if (u) editUser(u);
       });
     }
+    function escapeHtmlAdmin(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
     async function editUser(u) {
       // 전체 기관 목록을 미리 받아두면 모달 안에서 즉시 사용 가능
