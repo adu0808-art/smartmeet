@@ -33,9 +33,8 @@ function renderOrgSidebar(org, currentKey, opts = {}) {
     { key: 'orgchart', label: '조직도', icon: '🏛️', href: `/orgchart?org=${orgId}` },
   ];
 
-  // Admin-only items
+  // Admin-only items — 관리 대시보드는 제거 (기관관리에서 ⚙️ 관리 버튼 사용)
   const adminItems = isAdmin ? [
-    { key: 'dashboard', label: '관리 대시보드', icon: '📊', href: `/organization?id=${orgId}` },
     { key: 'org-members', label: '구성원·초대', icon: '🔑', href: `/org-members?org=${orgId}` },
   ] : [];
 
@@ -66,10 +65,8 @@ function renderOrgSidebar(org, currentKey, opts = {}) {
       </div>
     </div>
     <a href="/dashboard" class="nav-item" data-shell-skip="1" style="font-size:12px;color:var(--text-muted);">← 기관 목록</a>
-    <div class="nav-section-title">기관</div>
     ${orgItems.map(it => `<a href="${it.href}" data-shell-key="${it.key}" class="nav-item ${currentKey === it.key ? 'active' : ''}"><span class="icon">${it.icon}</span> ${it.label}</a>`).join('')}
     ${adminItems.length ? `
-      <div class="nav-section-title">관리자</div>
       ${adminItems.map(it => `<a href="${it.href}" data-shell-key="${it.key}" class="nav-item ${currentKey === it.key ? 'active' : ''}"><span class="icon">${it.icon}</span> ${it.label}</a>`).join('')}
     ` : ''}
     ${meetingItems.length ? `
