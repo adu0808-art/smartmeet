@@ -416,7 +416,8 @@
                 </td>
                 <td class="text-sm text-muted">${fmtDateOnly(o.created_at)}</td>
                 <td style="text-align:right;white-space:nowrap;">
-                  <a class="btn btn-sm" href="/organization?id=${o.id}">진입</a>
+                  <a class="btn btn-sm btn-primary" href="/home?org=${o.id}" title="기관 홈으로 이동">진입 →</a>
+                  <a class="btn btn-sm" href="/organization?id=${o.id}" title="기관 관리 화면으로 이동">⚙️ 관리</a>
                   <button class="btn btn-sm" onclick="editOrgDomain(${o.id})">🌐 도메인</button>
                   <button class="btn btn-sm btn-danger" onclick="delOrg(${o.id})">🗑</button>
                 </td>
