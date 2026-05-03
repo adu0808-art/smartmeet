@@ -152,6 +152,45 @@ router.delete('/users/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// 사용자의 소속 기관 추가/변경 — 시스템 관리자 전용
+//   body: { org_id, member_role }  (member_role: 'admin' | 'staff')
+router.post('/users/:id/orgs', (req, res) => {
+  const userId = Number(req.params.id);
+  const { org_id, member_role } = req.body || {};
+  const orgId = Number(org_id);
+  const role = (member_role === 'admin') ? 'admin' : 'staff';
+  if (!userId || !orgId) return res.status(400).json({ error: '필수값 누락 (user_id, org_id)' });
+  const userExists = db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
+  if (!userExists) return res.status(404).json({ error: '사용자를 찾을 수 없습니다.' });
+  const orgExists = db.prepare('SELECT id FROM organizations WHERE id = ?').get(orgId);
+  if (!orgExists) return res.status(404).json({ error: '기관을 찾을 수 없습니다.' });
+  // 이미 소속이면 권한만 갱신, 없으면 INSERT
+  const existing = db.prepare(
+    'SELECT id FROM organization_members WHERE organization_id = ? AND user_id = ?'
+  ).get(orgId, userId);
+  if (existing) {
+    db.prepare('UPDATE organization_members SET member_role = ? WHERE id = ?').run(role, existing.id);
+  } else {
+    db.prepare(
+      'INSERT INTO organization_members (organization_id, user_id, member_role) VALUES (?, ?, ?)'
+    ).run(orgId, userId, role);
+  }
+  res.json({ ok: true });
+});
+
+// 사용자의 소속 기관 제거 — 시스템 관리자 전용
+router.delete('/users/:id/orgs/:orgId', (req, res) => {
+  const userId = Number(req.params.id);
+  const orgId = Number(req.params.orgId);
+  if (!userId || !orgId) return res.status(400).json({ error: '필수값 누락' });
+  // 기관 소유자(owner)는 organization_members 삭제로는 권한 변동되지 않음
+  // — 소유권 이전이 아닌 단순 멤버십 제거이므로 owner_id 와 무관하게 row 만 제거
+  db.prepare(
+    'DELETE FROM organization_members WHERE organization_id = ? AND user_id = ?'
+  ).run(orgId, userId);
+  res.json({ ok: true });
+});
+
 router.get('/organizations', (req, res) => {
   const rows = db.prepare(`
     SELECT o.*, u.name AS owner_name, u.email AS owner_email,

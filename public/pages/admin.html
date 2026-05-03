@@ -144,18 +144,45 @@
       });
     }
 
-    function editUser(u) {
+    async function editUser(u) {
+      // 전체 기관 목록을 미리 받아두면 모달 안에서 즉시 사용 가능
+      let allOrgs = [];
+      try {
+        const r = await api.get('/api/admin/organizations');
+        allOrgs = r.organizations || [];
+      } catch { /* 무시 — 빈 목록으로 폴백 */ }
+
       modal({
         title: '사용자 수정',
+        size: 'lg',
         body: `
           <div class="field"><label class="label">이름</label><input class="input" id="u_name" value="${u.name}"></div>
-          <div class="field"><label class="label">권한</label>
+          <div class="field"><label class="label">시스템 권한</label>
             <select class="select" id="u_role">
               <option value="user" ${u.role==='user'?'selected':''}>일반 사용자</option>
-              <option value="admin" ${u.role==='admin'?'selected':''}>관리자</option>
+              <option value="admin" ${u.role==='admin'?'selected':''}>시스템 관리자</option>
             </select>
           </div>
           <div class="field"><label class="label">새 비밀번호 (변경 시에만 입력)</label><input class="input" id="u_pw" type="password" placeholder="${PASSWORD_POLICY.REQUIREMENTS_TEXT}"></div>
+
+          <div class="field" style="border-top:1px solid var(--border);padding-top:14px;">
+            <label class="label">🏛 소속 기관 관리</label>
+            <div id="u_orgs_list"></div>
+            <div class="flex gap-8 mt-12 items-center" style="background:var(--surface-2);padding:10px;border-radius:8px;flex-wrap:wrap;">
+              <select class="select" id="u_org_pick" style="flex:1;min-width:200px;">
+                <option value="">— 기관 선택 —</option>
+                ${allOrgs.map(o => `<option value="${o.id}">${o.name}</option>`).join('')}
+              </select>
+              <select class="select" id="u_org_role" style="width:130px;">
+                <option value="staff">👤 일반 회원</option>
+                <option value="admin">🔑 관리자</option>
+              </select>
+              <button type="button" class="btn btn-sm" id="u_org_add">+ 추가</button>
+            </div>
+            <div class="text-sm text-muted mt-8" style="line-height:1.6;">
+              ※ 기관별 권한은 즉시 반영됩니다 (저장 버튼 누르지 않아도 됨).
+            </div>
+          </div>
         `,
         confirmText: '저장',
         onConfirm: async () => {
@@ -172,7 +199,91 @@
       });
       // 비밀번호 입력 필드에 실시간 정책 체크 부착 (모달이 DOM에 추가된 직후)
       setTimeout(() => attachPasswordPolicy(document.getElementById('u_pw')), 30);
+
+      // 소속 기관 리스트 렌더 + 추가/삭제 핸들러
+      function renderUserOrgs() {
+        const list = u.organizations || [];
+        document.getElementById('u_orgs_list').innerHTML = list.length
+          ? list.map(o => `
+              <div class="flex items-center justify-between" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;">
+                <div>
+                  <div class="fw-700 text-sm">${escapeHtml(o.org_name)}</div>
+                  <div class="text-sm text-muted">${o.is_owner ? '🏛 소유자 — 자동 관리자' : (o.member_role === 'admin' ? '🔑 관리자' : '👤 일반 회원')}</div>
+                </div>
+                <div class="flex gap-8">
+                  ${!o.is_owner ? `
+                    <select class="select u-org-role-sel" data-org="${o.org_id}" style="width:140px;font-size:12.5px;">
+                      <option value="staff" ${o.member_role==='staff'?'selected':''}>👤 일반 회원</option>
+                      <option value="admin" ${o.member_role==='admin'?'selected':''}>🔑 관리자</option>
+                    </select>
+                    <button type="button" class="btn btn-sm btn-danger u-org-del" data-org="${o.org_id}">제거</button>
+                  ` : '<span class="text-sm text-muted">소유자 권한 자동 유지</span>'}
+                </div>
+              </div>`).join('')
+          : '<div class="text-sm text-muted" style="padding:10px;text-align:center;">소속된 기관이 없습니다.</div>';
+
+        // 권한 select 변경 → 즉시 반영
+        document.querySelectorAll('.u-org-role-sel').forEach(sel => {
+          sel.onchange = async () => {
+            const orgId = Number(sel.dataset.org);
+            const role = sel.value;
+            try {
+              await api.post(`/api/admin/users/${u.id}/orgs`, { org_id: orgId, member_role: role });
+              const target = (u.organizations || []).find(x => x.org_id === orgId);
+              if (target) target.member_role = role;
+              toast('권한이 변경되었습니다.', 'success');
+              renderUserOrgs();
+            } catch (e) { toast(e.message, 'error'); }
+          };
+        });
+        // 제거 버튼
+        document.querySelectorAll('.u-org-del').forEach(btn => {
+          btn.onclick = async () => {
+            const orgId = Number(btn.dataset.org);
+            const target = (u.organizations || []).find(x => x.org_id === orgId);
+            if (!target) return;
+            confirmDialog(
+              `<b>${escapeHtml(target.org_name)}</b> 에서 이 사용자를 제거하시겠습니까?`,
+              async () => {
+                try {
+                  await api.del(`/api/admin/users/${u.id}/orgs/${orgId}`);
+                  u.organizations = (u.organizations || []).filter(x => x.org_id !== orgId);
+                  toast('제거되었습니다.', 'success');
+                  renderUserOrgs();
+                } catch (e) { toast(e.message, 'error'); }
+              }
+            );
+          };
+        });
+      }
+      renderUserOrgs();
+
+      // 추가 버튼 핸들러
+      document.getElementById('u_org_add').onclick = async () => {
+        const orgId = Number(document.getElementById('u_org_pick').value);
+        const role = document.getElementById('u_org_role').value;
+        if (!orgId) { toast('기관을 선택하세요.', 'error'); return; }
+        const orgInfo = allOrgs.find(o => o.id === orgId);
+        try {
+          await api.post(`/api/admin/users/${u.id}/orgs`, { org_id: orgId, member_role: role });
+          // u.organizations 갱신
+          u.organizations = u.organizations || [];
+          const idx = u.organizations.findIndex(x => x.org_id === orgId);
+          const entry = {
+            org_id: orgId,
+            org_name: orgInfo?.name || '',
+            member_role: role,
+            is_owner: orgInfo?.owner_id === u.id ? 1 : 0
+          };
+          if (idx >= 0) u.organizations[idx] = entry;
+          else u.organizations.push(entry);
+          toast('소속 기관이 추가되었습니다.', 'success');
+          document.getElementById('u_org_pick').value = '';
+          renderUserOrgs();
+        } catch (e) { toast(e.message, 'error'); }
+      };
     }
+    function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
     function delUser(id) {
       confirmDialog('이 사용자를 삭제하시겠습니까? 이 사용자가 소유한 기관은 그대로 유지됩니다.', async () => {
