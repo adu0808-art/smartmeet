@@ -1179,6 +1179,184 @@ select.input, select.select { cursor: pointer; }
 }
 .html-render a { color: var(--info); text-decoration: underline; }
 
+/* ============================================================
+   스마트 블록 (Smart Blocks) — 에디터/렌더링 공용 스타일
+   클래스 prefix: .sb-
+   에디터 contenteditable 안에서도, .html-render 안에서도 동일하게 표시
+   ============================================================ */
+
+/* === 1. 콜아웃 박스 === */
+.sb-callout {
+  display: flex; gap: 14px; align-items: flex-start;
+  padding: 14px 18px; margin: 14px 0;
+  border-radius: 10px; border-left: 4px solid;
+}
+.sb-callout-icon {
+  font-size: 22px; line-height: 1.2; flex: 0 0 auto;
+  user-select: none;
+}
+.sb-callout-body { flex: 1 1 auto; min-width: 0; line-height: 1.6; }
+.sb-callout-body > *:first-child { margin-top: 0; }
+.sb-callout-body > *:last-child { margin-bottom: 0; }
+
+.sb-callout--info {
+  background: #e0f2fe; border-left-color: #0284c7; color: #0c4a6e;
+}
+.sb-callout--warn {
+  background: #fef3c7; border-left-color: #d97706; color: #78350f;
+}
+.sb-callout--tip {
+  background: #ecfdf5; border-left-color: #059669; color: #065f46;
+}
+
+/* === 2. 2단 비교 === */
+.sb-compare {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+  margin: 14px 0;
+}
+.sb-compare-col {
+  background: var(--surface-2, #fafbfc);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px; padding: 14px 16px;
+}
+.sb-compare-col--left { border-top: 3px solid #ef4444; }
+.sb-compare-col--right { border-top: 3px solid #10b981; }
+.sb-compare-head {
+  font-weight: 700; font-size: 15px; margin-bottom: 8px;
+}
+.sb-compare-body { line-height: 1.6; font-size: 14px; }
+.sb-compare-body > *:first-child { margin-top: 0; }
+.sb-compare-body > *:last-child { margin-bottom: 0; }
+@media (max-width: 640px) {
+  .sb-compare { grid-template-columns: 1fr; }
+}
+
+/* === 3. 체크리스트 === */
+.sb-checklist {
+  background: var(--surface-2, #fafbfc);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px; padding: 14px 18px;
+  margin: 14px 0;
+}
+.sb-checklist-title {
+  font-weight: 700; font-size: 15px; margin-bottom: 10px;
+}
+.sb-checklist ul {
+  list-style: none; padding: 0; margin: 0;
+}
+.sb-checklist li {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 6px 0; line-height: 1.6;
+}
+.sb-checklist li input[type="checkbox"] {
+  margin-top: 4px; width: 16px; height: 16px;
+  cursor: pointer; flex: 0 0 auto;
+  accent-color: var(--accent, #f59e0b);
+}
+.sb-checklist li input[type="checkbox"]:checked + span {
+  text-decoration: line-through; color: var(--text-muted, #64748b);
+}
+
+/* === 4. TL;DR 요약 카드 === */
+.sb-tldr {
+  background: linear-gradient(135deg, #fff7ed 0%, #fef3c7 100%);
+  border: 1px solid #fbbf24;
+  border-radius: 12px;
+  padding: 16px 20px; margin: 14px 0;
+  position: relative;
+}
+.sb-tldr-label {
+  display: inline-block;
+  background: #f59e0b; color: #fff;
+  font-size: 11px; font-weight: 800; letter-spacing: 1px;
+  padding: 3px 10px; border-radius: 999px;
+  margin-bottom: 8px;
+}
+.sb-tldr-body {
+  font-size: 15px; line-height: 1.6; color: #78350f; font-weight: 500;
+}
+.sb-tldr-body > *:first-child { margin-top: 0; }
+.sb-tldr-body > *:last-child { margin-bottom: 0; }
+
+/* === 5. 인용 + 출처 === */
+.sb-quote {
+  background: var(--surface-2, #fafbfc);
+  border-left: 4px solid var(--accent, #f59e0b);
+  border-radius: 0 10px 10px 0;
+  padding: 16px 22px; margin: 14px 0;
+  font-style: italic;
+  position: relative;
+}
+.sb-quote::before {
+  content: '"'; position: absolute;
+  font-family: Georgia, serif; font-size: 48px; line-height: 1;
+  top: 4px; left: 8px; color: var(--accent, #f59e0b); opacity: 0.3;
+  font-style: normal;
+}
+.sb-quote-text {
+  padding-left: 20px;
+  font-size: 16px; line-height: 1.6; color: var(--text, #1a202c);
+}
+.sb-quote-cite {
+  margin-top: 10px; padding-left: 20px;
+  font-size: 13px; color: var(--text-muted, #64748b);
+  font-style: normal; font-weight: 500;
+}
+.sb-quote-cite::before { content: '— '; }
+
+/* === 6. 이미지 갤러리 === */
+.sb-gallery {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  margin: 14px 0;
+}
+.sb-gallery--2 { grid-template-columns: repeat(2, 1fr); }
+.sb-gallery--4 { grid-template-columns: repeat(4, 1fr); }
+.sb-gallery-item {
+  position: relative; aspect-ratio: 1 / 1; overflow: hidden;
+  background: var(--surface-2, #fafbfc);
+  border: 1px dashed var(--border-strong, #d8dce1);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: border-color 0.12s, background 0.12s;
+}
+.sb-gallery-item:hover {
+  border-color: var(--accent, #f59e0b);
+  background: var(--accent-soft, #fef3c7);
+}
+.sb-gallery-item img {
+  width: 100%; height: 100%; object-fit: cover; border-radius: 8px;
+}
+.sb-gallery-item:not(:has(img))::after {
+  content: '+ 이미지'; color: var(--text-muted, #64748b);
+  font-size: 13px; font-weight: 600;
+}
+@media (max-width: 640px) {
+  .sb-gallery, .sb-gallery--2, .sb-gallery--4 { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* === 7. CTA 버튼 === */
+.sb-cta {
+  text-align: center; margin: 24px 0;
+}
+.sb-cta-button {
+  display: inline-block;
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: #fff !important;
+  text-decoration: none !important;
+  padding: 14px 32px; border-radius: 999px;
+  font-weight: 700; font-size: 15px;
+  box-shadow: 0 4px 14px rgba(217, 119, 6, 0.3);
+  transition: transform 0.12s, box-shadow 0.12s;
+  cursor: pointer;
+}
+.sb-cta-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(217, 119, 6, 0.4);
+}
+.sb-cta-sub {
+  margin-top: 8px; font-size: 12px; color: var(--text-muted, #64748b);
+}
+
 /* ========== 예산·결산 의안 상세 ========== */
 .budget-detail-grid {
   display: grid;

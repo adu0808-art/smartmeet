@@ -130,6 +130,68 @@
         margin-top: 8px; text-align: center; font-size: 12px;
         color: var(--text-muted, #64748b); font-weight: 500;
       }
+
+      /* 스마트 블록 팝오버 */
+      .rt-block-popover {
+        position: absolute; z-index: 100;
+        width: 320px;
+        background: var(--surface, #fff); border: 1px solid var(--border, #e2e8f0);
+        border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+        padding: 10px;
+      }
+      .rt-block-title {
+        font-size: 12px; font-weight: 700; color: var(--text-muted, #64748b);
+        padding: 4px 8px 8px; letter-spacing: 0.4px;
+      }
+      .rt-block-grid {
+        display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px;
+      }
+      .rt-block-item {
+        display: flex; gap: 10px; align-items: flex-start;
+        padding: 10px; border-radius: 8px; cursor: pointer;
+        background: var(--surface-2, #fafbfc); border: 1px solid transparent;
+        transition: background 0.1s, border-color 0.1s;
+        text-align: left;
+      }
+      .rt-block-item:hover {
+        background: var(--accent-soft, #fef3c7);
+        border-color: var(--accent, #f59e0b);
+      }
+      .rt-block-item-icon {
+        font-size: 20px; flex: 0 0 auto; line-height: 1;
+      }
+      .rt-block-item-text {
+        flex: 1 1 auto; min-width: 0;
+      }
+      .rt-block-item-name {
+        font-size: 13px; font-weight: 700; color: var(--text, #1a202c);
+        margin-bottom: 2px;
+      }
+      .rt-block-item-desc {
+        font-size: 11px; color: var(--text-muted, #64748b); line-height: 1.4;
+      }
+
+      /* 스마트 블록 — 에디터 안에서 살짝 강조 */
+      .rt-content .sb-callout,
+      .rt-content .sb-tldr,
+      .rt-content .sb-checklist,
+      .rt-content .sb-compare,
+      .rt-content .sb-quote,
+      .rt-content .sb-gallery,
+      .rt-content .sb-cta {
+        outline: 1px dashed transparent;
+        transition: outline-color 0.15s;
+      }
+      .rt-content .sb-callout:hover,
+      .rt-content .sb-tldr:hover,
+      .rt-content .sb-checklist:hover,
+      .rt-content .sb-compare:hover,
+      .rt-content .sb-quote:hover,
+      .rt-content .sb-gallery:hover,
+      .rt-content .sb-cta:hover {
+        outline-color: var(--accent, #f59e0b);
+      }
+      .rt-content .sb-cta-button { user-select: none; }
     `;
     document.head.appendChild(css);
   }
@@ -211,6 +273,7 @@
       else if (action === 'redo') exec('redo');
       else if (action === 'table') toggleTablePopover(t);
       else if (action === 'image') toggleImagePopover(t);
+      else if (action === 'block') toggleBlockPopover(t);
       else if (action === 'quote') exec('formatBlock', 'blockquote');
     });
 
@@ -325,6 +388,85 @@
       exec('insertHTML', html);
     }
 
+    // ===== 스마트 블록 팝오버 =====
+    let blockPopoverEl = null;
+    function toggleBlockPopover(anchorBtn) {
+      if (blockPopoverEl) { closeBlockPopover(); return; }
+      blockPopoverEl = buildBlockPopover((kind) => {
+        insertSmartBlock(kind);
+        closeBlockPopover();
+      });
+      const rect = anchorBtn.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      blockPopoverEl.style.top = (rect.bottom - containerRect.top + 4) + 'px';
+      // 팝오버는 320px — 오른쪽으로 넘치지 않게 보정
+      const idealLeft = rect.left - containerRect.left;
+      const maxLeft = container.clientWidth - 320 - 8;
+      blockPopoverEl.style.left = Math.max(8, Math.min(idealLeft, maxLeft)) + 'px';
+      container.appendChild(blockPopoverEl);
+      setTimeout(() => {
+        document.addEventListener('mousedown', _closeBlkOutside, { once: true });
+      }, 10);
+    }
+    function _closeBlkOutside(e) {
+      if (blockPopoverEl && !blockPopoverEl.contains(e.target) && !e.target.closest('[data-action="block"]')) {
+        closeBlockPopover();
+      } else if (blockPopoverEl) {
+        document.addEventListener('mousedown', _closeBlkOutside, { once: true });
+      }
+    }
+    function closeBlockPopover() {
+      if (blockPopoverEl) { blockPopoverEl.remove(); blockPopoverEl = null; }
+    }
+
+    function insertSmartBlock(kind) {
+      content.focus();
+      const html = renderSmartBlockHtml(kind);
+      if (!html) return;
+      // 블록 뒤에 빈 단락을 추가해 커서 이동 여지 확보
+      exec('insertHTML', html + '<p><br></p>');
+    }
+
+    // 갤러리 placeholder 클릭 → 파일 선택 → 이미지로 교체
+    content.addEventListener('click', (e) => {
+      const galleryItem = e.target.closest('.sb-gallery-item');
+      if (!galleryItem || galleryItem.querySelector('img')) return;
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = 'image/*';
+      fileInput.style.display = 'none';
+      document.body.appendChild(fileInput);
+      fileInput.addEventListener('change', () => {
+        const f = fileInput.files && fileInput.files[0];
+        fileInput.remove();
+        if (!f) return;
+        if (f.size > 4 * 1024 * 1024) {
+          (window.toast || alert)('이미지는 4MB 이하만 첨부 가능합니다.', 'error');
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+          galleryItem.innerHTML = `<img src="${escapeHtml(reader.result)}" alt="">`;
+        };
+        reader.readAsDataURL(f);
+      });
+      fileInput.click();
+    });
+
+    // CTA 버튼 클릭 → 링크 URL 편집 프롬프트 (Ctrl+클릭으로 호출)
+    content.addEventListener('click', (e) => {
+      const cta = e.target.closest('.sb-cta-button');
+      if (!cta) return;
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const newUrl = prompt('CTA 버튼 링크 URL', cta.getAttribute('href') || '');
+        if (newUrl !== null) cta.setAttribute('href', newUrl);
+      } else {
+        // 편집 모드에서는 링크 동작 차단 (편집 가능하도록)
+        e.preventDefault();
+      }
+    });
+
     // 초기 상태
     updateToolbarState();
 
@@ -341,6 +483,7 @@
       destroy: () => {
         closeImagePopover();
         closeTablePopover();
+        closeBlockPopover();
         container.replaceChildren();
       },
       focus: () => content.focus()
@@ -427,8 +570,9 @@
       </div>
       <div class="rt-tb-sep"></div>
       <div class="rt-tb-group">
-        <button type="button" class="rt-btn" data-action="table" title="표 삽입 (행x열)">표 삽입</button>
+        <button type="button" class="rt-btn" data-action="table" title="표 삽입">표 삽입</button>
         <button type="button" class="rt-btn" data-action="image" title="이미지 삽입 — 파일 업로드 또는 URL">이미지</button>
+        <button type="button" class="rt-btn" data-action="block" title="스마트 블록 — 콜아웃·요약·CTA 등">＋ 블록</button>
       </div>
       <div class="rt-tb-sep"></div>
       <div class="rt-tb-group">
@@ -525,6 +669,73 @@
     });
     root.addEventListener('mousedown', (e) => e.stopPropagation());
     return root;
+  }
+
+  // ===== 스마트 블록 팝오버 빌더 =====
+  const SMART_BLOCKS = [
+    { kind: 'callout-info', icon: '💡', name: '정보 콜아웃', desc: '강조하고 싶은 정보 박스' },
+    { kind: 'callout-warn', icon: '⚠️', name: '주의 콜아웃', desc: '주의·경고 박스' },
+    { kind: 'callout-tip',  icon: '✨', name: '팁 콜아웃', desc: '팁·노하우 박스' },
+    { kind: 'tldr',         icon: '📌', name: 'TL;DR 요약', desc: '글 시작에 한 줄 요약' },
+    { kind: 'compare',      icon: '⚖️', name: '2단 비교', desc: 'Before/After · 장단점' },
+    { kind: 'checklist',    icon: '✅', name: '체크리스트', desc: '체크박스 항목 묶음' },
+    { kind: 'quote',        icon: '❝',  name: '인용 + 출처', desc: '강조 인용문과 출처' },
+    { kind: 'gallery',      icon: '🖼️', name: '이미지 갤러리', desc: '3장 그리드 — 클릭해 업로드' },
+    { kind: 'cta',          icon: '🔘', name: 'CTA 버튼', desc: '클릭 유도 버튼 (Ctrl+클릭=링크 편집)' }
+  ];
+
+  function buildBlockPopover(onPick) {
+    const root = document.createElement('div');
+    root.className = 'rt-block-popover';
+    const titleEl = document.createElement('div');
+    titleEl.className = 'rt-block-title';
+    titleEl.textContent = '스마트 블록 — 클릭해 삽입';
+    const grid = document.createElement('div');
+    grid.className = 'rt-block-grid';
+    SMART_BLOCKS.forEach(b => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'rt-block-item';
+      item.dataset.kind = b.kind;
+      item.innerHTML = `
+        <div class="rt-block-item-icon">${b.icon}</div>
+        <div class="rt-block-item-text">
+          <div class="rt-block-item-name">${escapeHtml(b.name)}</div>
+          <div class="rt-block-item-desc">${escapeHtml(b.desc)}</div>
+        </div>`;
+      item.addEventListener('click', () => onPick(b.kind));
+      grid.appendChild(item);
+    });
+    root.appendChild(titleEl);
+    root.appendChild(grid);
+    root.addEventListener('mousedown', (e) => e.stopPropagation());
+    return root;
+  }
+
+  // ===== 스마트 블록 HTML 템플릿 =====
+  function renderSmartBlockHtml(kind) {
+    switch (kind) {
+      case 'callout-info':
+        return `<div class="sb-callout sb-callout--info"><div class="sb-callout-icon">💡</div><div class="sb-callout-body">정보 — 여기에 강조하고 싶은 내용을 입력하세요.</div></div>`;
+      case 'callout-warn':
+        return `<div class="sb-callout sb-callout--warn"><div class="sb-callout-icon">⚠️</div><div class="sb-callout-body">주의 — 꼭 확인해야 할 내용을 입력하세요.</div></div>`;
+      case 'callout-tip':
+        return `<div class="sb-callout sb-callout--tip"><div class="sb-callout-icon">✨</div><div class="sb-callout-body">팁 — 알아두면 좋은 노하우를 입력하세요.</div></div>`;
+      case 'tldr':
+        return `<div class="sb-tldr"><div class="sb-tldr-label">TL;DR</div><div class="sb-tldr-body">한 줄 요약을 입력하세요. 독자가 글을 끝까지 읽지 않아도 핵심을 알 수 있게.</div></div>`;
+      case 'compare':
+        return `<div class="sb-compare"><div class="sb-compare-col sb-compare-col--left"><div class="sb-compare-head">Before</div><div class="sb-compare-body">변경 전 또는 단점을 입력하세요.</div></div><div class="sb-compare-col sb-compare-col--right"><div class="sb-compare-head">After</div><div class="sb-compare-body">변경 후 또는 장점을 입력하세요.</div></div></div>`;
+      case 'checklist':
+        return `<div class="sb-checklist"><div class="sb-checklist-title">체크리스트</div><ul><li><input type="checkbox"><span>첫 번째 항목</span></li><li><input type="checkbox"><span>두 번째 항목</span></li><li><input type="checkbox"><span>세 번째 항목</span></li></ul></div>`;
+      case 'quote':
+        return `<blockquote class="sb-quote"><div class="sb-quote-text">여기에 인용문을 입력하세요. 강조하고 싶은 문장을 그대로 옮겨오면 됩니다.</div><div class="sb-quote-cite">출처를 입력하세요</div></blockquote>`;
+      case 'gallery':
+        return `<div class="sb-gallery"><div class="sb-gallery-item" contenteditable="false"></div><div class="sb-gallery-item" contenteditable="false"></div><div class="sb-gallery-item" contenteditable="false"></div></div>`;
+      case 'cta':
+        return `<div class="sb-cta"><a href="#" class="sb-cta-button">지금 신청하기</a><div class="sb-cta-sub">Ctrl+클릭 으로 링크 URL 을 편집할 수 있습니다.</div></div>`;
+      default:
+        return '';
+    }
   }
 
   // 호환 — 외부에서 사용하는 helper 들
