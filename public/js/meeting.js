@@ -272,7 +272,7 @@ async function openTocForm(existing) {
 
   modal({
     title: existing ? '목차 항목 수정' : '목차 항목 추가',
-    size: 'lg',
+    size: 'ed',
     body: `
       ${!existing && isFormalMeeting(meeting.meeting_type) ? `
       <div class="field">
@@ -354,7 +354,7 @@ async function openAgendaForm(existing) {
   let agendaEditor = null;
   modal({
     title: existing ? '의안 수정' : '새 의안 추가',
-    size: 'lg',
+    size: 'ed',
     body: `
       <div class="flex gap-12">
         <div class="field flex-1">

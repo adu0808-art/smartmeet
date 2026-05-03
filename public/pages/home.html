@@ -2472,7 +2472,7 @@
       let editor = null;
       modal({
         title: '하단 정보 수정',
-        size: 'lg',
+        size: 'ed',
         body: `
           <div class="text-sm text-muted mb-12">주소, 사업자번호, 대표자, 연락처 등 기관 하단에 표시할 정보를 작성하세요.</div>
           <div id="footer_editor_host"></div>`,
@@ -2497,7 +2497,7 @@
     function openIntroEditor() {
       let editor = null;
       modal({
-        title: '기관 소개 수정', size: 'lg',
+        title: '기관 소개 수정', size: 'ed',
         body: `
           <div class="text-sm text-muted mb-12">기관에 대한 일반적인 소개를 작성하세요. (인사말과는 별개)</div>
           <div id="intro_editor_host"></div>`,
@@ -2525,7 +2525,7 @@
     function openGreetingEditor() {
       let editor = null;
       modal({
-        title: '인사말 수정', size: 'lg',
+        title: '인사말 수정', size: 'ed',
         body: `
           <div class="text-sm text-muted mb-12">기관장의 인사말을 작성하세요. (기관 소개와는 별개)</div>
           <div id="greet_editor_host"></div>`,
@@ -2888,7 +2888,7 @@
       let editor = null;
       modal({
         title: existing ? '공지 수정' : '공지 작성',
-        size: 'lg',
+        size: 'ed',
         body: `
           <div class="field"><label class="label">제목 *</label><input class="input" id="nt_title" value="${(n.title||'').replace(/"/g,'&quot;')}"></div>
           <div class="field"><label class="flex items-center gap-8"><input type="checkbox" id="nt_pin" ${n.is_pinned ? 'checked' : ''}> <span>📌 상단 고정</span></label></div>
@@ -2935,7 +2935,7 @@
       let editor = null;
       modal({
         title: existing ? '글 수정' : '글쓰기',
-        size: 'lg',
+        size: 'ed',
         body: `
           <div class="field"><label class="label">분류</label>
             <select class="select" id="po_cat">
@@ -2994,7 +2994,7 @@
       const isAllDay = !s.start_time && !s.end_time;
       modal({
         title: isEdit ? '일정 수정' : '일정 추가',
-        size: 'lg',
+        size: 'ed',
         body: `
           <div class="field"><label class="label">일정명 *</label><input class="input" id="sd_t" value="${(s.title||'').replace(/"/g,'&quot;')}"></div>
           <div class="field"><label class="label">일시 *</label>

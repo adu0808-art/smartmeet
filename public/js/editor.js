@@ -1,8 +1,8 @@
 // SmartMeet 커스텀 리치 에디터 (vanilla, contenteditable 기반)
 //   - HTML 모드 제거 — 항상 WYSIWYG
-//   - 툴바: 본문 / H1·H2·H3 / 폰트·크기 / B·I·U·S / 정렬 / 색상 / 목록 / 표 / 이미지 / 되돌리기·다시하기 / 마법사
+//   - 툴바: 본문 / H1·H2·H3 / 폰트·크기 / B·I·U·S / 정렬 / 색상 / 목록 / 표 / 이미지 / 되돌리기·다시하기
 //   - 이미지 삽입은 버튼 아래 floating 팝오버 (파일/URL + 설명)
-//   - 마법사: URL→링크, 글머리 패턴→리스트, 빈 줄로 단락 분리, 헤딩 추정 등
+//   - 표 삽입은 버튼 아래 floating 팝오버 — 그리드에서 마우스 호버로 행/열 선택
 //
 // 호환 API (기존과 동일):
 //   RichEditor.mount(container, { value, placeholder, large?, minimal? }) → Promise<{ getHtml, setHtml, destroy }>
@@ -35,11 +35,6 @@
       .rt-btn-h1 { font-weight: 800; font-size: 13.5px; }
       .rt-btn-h2 { font-weight: 800; font-size: 13px; }
       .rt-btn-h3 { font-weight: 700; font-size: 12.5px; }
-      .rt-btn-magic {
-        background: linear-gradient(135deg, #fbbf24, #f59e0b);
-        color: #fff; font-weight: 700; padding: 0 12px;
-      }
-      .rt-btn-magic:hover { background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; }
       .rt-select {
         height: 30px; padding: 0 8px; border-radius: 5px;
         border: 1px solid var(--border, #e2e8f0); background: var(--surface, #fff);
@@ -110,6 +105,31 @@
         margin-top: 12px;
       }
       .rt-popover-submit:hover { background: linear-gradient(135deg, #f59e0b, #d97706); }
+
+      /* 표 삽입 — 그리드 선택 팝오버 */
+      .rt-table-popover {
+        position: absolute; z-index: 100;
+        background: var(--surface, #fff); border: 1px solid var(--border, #e2e8f0);
+        border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+        padding: 12px;
+      }
+      .rt-table-grid {
+        display: grid; grid-template-columns: repeat(10, 22px); grid-auto-rows: 22px;
+        gap: 3px;
+      }
+      .rt-table-cell {
+        width: 22px; height: 22px; border-radius: 4px;
+        background: var(--surface, #fff); border: 1.5px solid var(--border-strong, #cbd5e0);
+        cursor: pointer; transition: background 0.08s, border-color 0.08s;
+      }
+      .rt-table-cell.is-on {
+        background: var(--accent-soft, #e0e7ff);
+        border-color: var(--accent, #1e40af);
+      }
+      .rt-table-label {
+        margin-top: 8px; text-align: center; font-size: 12px;
+        color: var(--text-muted, #64748b); font-weight: 500;
+      }
     `;
     document.head.appendChild(css);
   }
@@ -189,9 +209,8 @@
       const action = t.dataset.action;
       if (action === 'undo') exec('undo');
       else if (action === 'redo') exec('redo');
-      else if (action === 'table') insertTable();
+      else if (action === 'table') toggleTablePopover(t);
       else if (action === 'image') toggleImagePopover(t);
-      else if (action === 'magic') runMagicFormat();
       else if (action === 'quote') exec('formatBlock', 'blockquote');
     });
 
@@ -259,16 +278,42 @@
       exec('insertHTML', html);
     }
 
-    // ===== 표 삽입 — 행/열 입력 받음 =====
-    function insertTable() {
-      const sizeStr = prompt('표 크기를 입력하세요 (예: 3x4 — 3행 4열):', '3x3');
-      if (!sizeStr) return;
-      const m = sizeStr.match(/(\d+)\s*[xX×]\s*(\d+)/);
-      if (!m) { alert('형식: 행x열 (예: 3x4)'); return; }
-      const rows = Math.min(20, Math.max(1, parseInt(m[1], 10)));
-      const cols = Math.min(10, Math.max(1, parseInt(m[2], 10)));
+    // ===== 표 삽입 — 그리드 호버 선택 팝오버 =====
+    let tablePopoverEl = null;
+    const TABLE_MAX_ROWS = 8;
+    const TABLE_MAX_COLS = 10;
+
+    function toggleTablePopover(anchorBtn) {
+      if (tablePopoverEl) { closeTablePopover(); return; }
+      tablePopoverEl = buildTablePopover((rows, cols) => {
+        insertTable(rows, cols);
+        closeTablePopover();
+      });
+      const rect = anchorBtn.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      tablePopoverEl.style.top = (rect.bottom - containerRect.top + 4) + 'px';
+      tablePopoverEl.style.left = Math.max(8, rect.left - containerRect.left) + 'px';
+      container.appendChild(tablePopoverEl);
+      setTimeout(() => {
+        document.addEventListener('mousedown', _closeTblOutside, { once: true });
+      }, 10);
+    }
+    function _closeTblOutside(e) {
+      if (tablePopoverEl && !tablePopoverEl.contains(e.target) && !e.target.closest('[data-action="table"]')) {
+        closeTablePopover();
+      } else if (tablePopoverEl) {
+        document.addEventListener('mousedown', _closeTblOutside, { once: true });
+      }
+    }
+    function closeTablePopover() {
+      if (tablePopoverEl) { tablePopoverEl.remove(); tablePopoverEl = null; }
+    }
+
+    function insertTable(rows, cols) {
+      rows = Math.min(TABLE_MAX_ROWS, Math.max(1, rows | 0));
+      cols = Math.min(TABLE_MAX_COLS, Math.max(1, cols | 0));
       let html = '<table><thead><tr>';
-      for (let c = 0; c < cols; c++) html += '<th>제목</th>';
+      for (let c = 0; c < cols; c++) html += '<th>&nbsp;</th>';
       html += '</tr></thead><tbody>';
       for (let r = 0; r < rows - 1; r++) {
         html += '<tr>';
@@ -278,29 +323,6 @@
       html += '</tbody></table><p><br></p>';
       content.focus();
       exec('insertHTML', html);
-    }
-
-    // ===== 마법사 — 자동 서식 정리 =====
-    function runMagicFormat() {
-      if (!content.innerText.trim()) {
-        if (window.toast) window.toast('정리할 내용이 없습니다.', 'error');
-        return;
-      }
-      const ok = confirm('현재 내용을 자동으로 정리합니다.\n\n' +
-        '• 빈 줄로 단락 구분\n' +
-        '• "•" / "-" 로 시작하는 줄 → 글머리 기호 목록\n' +
-        '• "1." / "2." 로 시작하는 줄 → 번호 매기기 목록\n' +
-        '• "#" / "##" / "###" → 제목으로 변환\n' +
-        '• http(s):// URL → 링크로 변환\n' +
-        '• 과도한 공백/줄바꿈 정리\n\n' +
-        '계속하시겠습니까?');
-      if (!ok) return;
-      const text = content.innerText.replace(/ /g, ' ');
-      const formatted = magicFormat(text);
-      content.innerHTML = formatted;
-      content.focus();
-      if (window.toast) window.toast('✨ 자동 정리 완료!', 'success');
-      updateToolbarState();
     }
 
     // 초기 상태
@@ -318,6 +340,7 @@
       },
       destroy: () => {
         closeImagePopover();
+        closeTablePopover();
         container.replaceChildren();
       },
       focus: () => content.focus()
@@ -411,10 +434,6 @@
       <div class="rt-tb-group">
         <button type="button" class="rt-btn" data-action="undo" title="되돌리기 (Ctrl+Z)">⤺</button>
         <button type="button" class="rt-btn" data-action="redo" title="다시하기 (Ctrl+Y)">⤻</button>
-      </div>
-      <div class="rt-tb-sep"></div>
-      <div class="rt-tb-group">
-        <button type="button" class="rt-btn rt-btn-magic" data-action="magic" title="자동 서식 정리 — 빈줄·목록·제목·URL 등을 자동으로 예쁘게 변환">✨ 마법사</button>
       </div>`;
   }
 
@@ -462,98 +481,50 @@
     return root;
   }
 
-  // ===== 마법사: 자동 서식 정리 =====
-  function magicFormat(text) {
-    // 1) 줄바꿈 정규화
-    text = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    // 2) 과도한 공백 줄임 (행 끝 공백 제거)
-    text = text.split('\n').map(l => l.replace(/[ \t]+$/g, '')).join('\n');
-    // 3) 3줄 이상 빈 줄 → 2줄로
-    text = text.replace(/\n{3,}/g, '\n\n');
-    // 4) 라인별 처리
-    const lines = text.split('\n');
-    const blocks = [];   // { type: 'p'|'h1'|'h2'|'h3'|'ul'|'ol'|'empty', content: string|string[] }
-    let curList = null;  // { type: 'ul'|'ol', items: [] }
-
-    const flushList = () => {
-      if (curList) { blocks.push(curList); curList = null; }
-    };
-
-    for (let raw of lines) {
-      const line = raw.trim();
-      if (!line) {
-        flushList();
-        blocks.push({ type: 'empty' });
-        continue;
-      }
-      // 헤딩 (# ## ###)
-      const hMatch = line.match(/^(#{1,3})\s+(.+)$/);
-      if (hMatch) {
-        flushList();
-        blocks.push({ type: 'h' + hMatch[1].length, content: hMatch[2] });
-        continue;
-      }
-      // 글머리 (•, -, *, ·)
-      const ulMatch = line.match(/^[•\-\*·]\s+(.+)$/);
-      if (ulMatch) {
-        if (!curList || curList.type !== 'ul') {
-          flushList();
-          curList = { type: 'ul', items: [] };
-        }
-        curList.items.push(ulMatch[1]);
-        continue;
-      }
-      // 번호 (1. 2. ...)
-      const olMatch = line.match(/^(\d+)[.)]\s+(.+)$/);
-      if (olMatch) {
-        if (!curList || curList.type !== 'ol') {
-          flushList();
-          curList = { type: 'ol', items: [] };
-        }
-        curList.items.push(olMatch[2]);
-        continue;
-      }
-      // 일반 단락 (현재 리스트가 있으면 그 항목의 연속행으로 추가)
-      flushList();
-      blocks.push({ type: 'p', content: line });
-    }
-    flushList();
-
-    // 5) 연속된 p 블록을 같은 단락으로 묶지 않음 (각 줄이 의도한 줄바꿈일 수 있음 → 보존)
-    // 6) 빈 블록은 단락 구분자로만 사용 — 이미 블록 단위로 끊어졌으므로 무시
-    const html = [];
-    for (const b of blocks) {
-      if (b.type === 'empty') continue;
-      if (b.type === 'h1' || b.type === 'h2' || b.type === 'h3') {
-        html.push(`<${b.type}>${linkifyAndEscape(b.content)}</${b.type}>`);
-      } else if (b.type === 'ul' || b.type === 'ol') {
-        const items = b.items.map(i => `<li>${linkifyAndEscape(i)}</li>`).join('');
-        html.push(`<${b.type}>${items}</${b.type}>`);
-      } else if (b.type === 'p') {
-        html.push(`<p>${linkifyAndEscape(b.content)}</p>`);
+  // ===== 표 그리드 팝오버 빌더 (마우스 호버로 행/열 선택) =====
+  function buildTablePopover(onPick, maxRows = 8, maxCols = 10) {
+    const root = document.createElement('div');
+    root.className = 'rt-table-popover';
+    const grid = document.createElement('div');
+    grid.className = 'rt-table-grid';
+    grid.style.gridTemplateColumns = `repeat(${maxCols}, 22px)`;
+    const cells = [];
+    for (let r = 1; r <= maxRows; r++) {
+      for (let c = 1; c <= maxCols; c++) {
+        const cell = document.createElement('div');
+        cell.className = 'rt-table-cell';
+        cell.dataset.r = r;
+        cell.dataset.c = c;
+        grid.appendChild(cell);
+        cells.push(cell);
       }
     }
-    return html.join('\n') || '<p><br></p>';
-  }
+    const label = document.createElement('div');
+    label.className = 'rt-table-label';
+    label.textContent = '크기를 선택하세요';
+    root.appendChild(grid);
+    root.appendChild(label);
 
-  // URL 자동 링크 + escape
-  function linkifyAndEscape(text) {
-    const urlRe = /(https?:\/\/[^\s<>"]+)/g;
-    // 먼저 URL 위치를 분리해서 escape 와 링크 처리
-    const parts = [];
-    let last = 0;
-    text.replace(urlRe, (url, _, idx) => {
-      if (idx > last) parts.push({ t: 'text', v: text.slice(last, idx) });
-      parts.push({ t: 'url', v: url });
-      last = idx + url.length;
-      return url;
+    function paint(rows, cols) {
+      cells.forEach(cell => {
+        const r = +cell.dataset.r, c = +cell.dataset.c;
+        cell.classList.toggle('is-on', r <= rows && c <= cols);
+      });
+      label.textContent = (rows && cols) ? `${rows} × ${cols}` : '크기를 선택하세요';
+    }
+    grid.addEventListener('mousemove', (e) => {
+      const cell = e.target.closest('.rt-table-cell');
+      if (!cell) return;
+      paint(+cell.dataset.r, +cell.dataset.c);
     });
-    if (last < text.length) parts.push({ t: 'text', v: text.slice(last) });
-    return parts.map(p =>
-      p.t === 'url'
-        ? `<a href="${escapeHtml(p.v)}" target="_blank" rel="noopener">${escapeHtml(p.v)}</a>`
-        : escapeHtml(p.v)
-    ).join('');
+    grid.addEventListener('mouseleave', () => paint(0, 0));
+    grid.addEventListener('click', (e) => {
+      const cell = e.target.closest('.rt-table-cell');
+      if (!cell) return;
+      onPick(+cell.dataset.r, +cell.dataset.c);
+    });
+    root.addEventListener('mousedown', (e) => e.stopPropagation());
+    return root;
   }
 
   // 호환 — 외부에서 사용하는 helper 들

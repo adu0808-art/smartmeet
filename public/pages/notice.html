@@ -66,7 +66,7 @@
     function openEdit() {
       let editor = null;
       modal({
-        title: '공지 수정', size: 'lg',
+        title: '공지 수정', size: 'ed',
         body: `
           <div class="field"><label class="label">제목 *</label><input class="input" id="nt_title" value="${notice.title}"></div>
           <div class="field"><label class="flex items-center gap-8"><input type="checkbox" id="nt_pin" ${notice.is_pinned ? 'checked' : ''}> 📌 상단 고정</label></div>

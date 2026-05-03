@@ -103,7 +103,7 @@ function modal(opts) {
   const root = document.createElement('div');
   root.className = 'modal-backdrop active';
   root.innerHTML = `
-    <div class="modal ${size === 'lg' ? 'modal-lg' : size === 'xl' ? 'modal-xl' : ''}">
+    <div class="modal ${size === 'lg' ? 'modal-lg' : size === 'ed' ? 'modal-ed' : size === 'xl' ? 'modal-xl' : ''}">
       <div class="modal-head">
         <div class="modal-title">${title}</div>
         <div class="modal-close" data-close>✕</div>
