@@ -11,7 +11,7 @@ router.get('/', requireOrg(req => req.query.organization_id, 'read'), (req, res)
   res.json({ meetings: rows });
 });
 
-// 이벤트 정보를 일정 항목으로 변환 (제목·시작일·종료일·설명)
+// 이벤트 정보를 일정 항목으로 변환 (제목·시작/종료 일자·시각·설명)
 //   meeting_type 별 아이콘 + 시작/종료 시각 + 장소 포함
 //   여러 날 걸친 이벤트는 endDate 도 반환되어 일정 캘린더에 day 범위로 표시됨
 function meetingToScheduleFields(meeting) {
@@ -20,6 +20,11 @@ function meetingToScheduleFields(meeting) {
   const endDate = meeting.end_date ? String(meeting.end_date).slice(0, 10) : '';
   // end_date 가 시작일과 같거나 비어있으면 단일 일정 (endDate 비움)
   const finalEndDate = (endDate && endDate !== date) ? endDate : '';
+  // 시각 추출 (datetime-local 'YYYY-MM-DDTHH:MM' 에서 HH:MM)
+  const startMatch = String(meeting.meeting_date || '').match(/T(\d{2}:\d{2})/);
+  const endMatch   = String(meeting.end_date     || '').match(/T(\d{2}:\d{2})/);
+  const startTime = startMatch ? startMatch[1] : '';
+  const endTime   = endMatch   ? endMatch[1]   : '';
   const typeIcon = { board: '📋', general: '📋', regular: '📋', event: '🎉' };
   const typeLabel = { board: '이사회', general: '총회', regular: '일반', event: '행사' };
   const icon = typeIcon[meeting.meeting_type] || '📋';
@@ -27,23 +32,17 @@ function meetingToScheduleFields(meeting) {
   const title = `${icon} ${meeting.title}`;
   const parts = [];
   if (tlabel) parts.push(`<p><strong>구분:</strong> ${tlabel}</p>`);
-  // 시작 시간 (datetime-local 형식이면 시간 추출)
-  const startMatch = String(meeting.meeting_date || '').match(/T(\d{2}:\d{2})/);
-  if (startMatch) parts.push(`<p><strong>시작:</strong> ${startMatch[1]}</p>`);
-  // 종료 일시 (있을 때)
+  if (startTime) parts.push(`<p><strong>시작:</strong> ${startTime}</p>`);
   if (meeting.end_date) {
-    const endMatch = String(meeting.end_date).match(/T(\d{2}:\d{2})/);
     if (endDate === date) {
-      // 같은 날짜면 시간만
-      if (endMatch) parts.push(`<p><strong>종료:</strong> ${endMatch[1]}</p>`);
+      if (endTime) parts.push(`<p><strong>종료:</strong> ${endTime}</p>`);
     } else {
-      // 다른 날짜면 날짜 + 시간
-      parts.push(`<p><strong>종료:</strong> ${endDate}${endMatch ? ' ' + endMatch[1] : ''}</p>`);
+      parts.push(`<p><strong>종료:</strong> ${endDate}${endTime ? ' ' + endTime : ''}</p>`);
     }
   }
   if (meeting.location) parts.push(`<p><strong>장소:</strong> ${escape(meeting.location)}</p>`);
   parts.push(`<p style="color:#64748b;font-size:13px;margin-top:8px;">※ 이 일정은 이벤트 등록 시 자동 생성되었습니다. 수정·삭제는 이벤트 관리에서 진행해주세요.</p>`);
-  return { title, date, endDate: finalEndDate, description: parts.join('') };
+  return { title, date, endDate: finalEndDate, startTime, endTime, description: parts.join('') };
 }
 
 router.post('/', requireOrg(req => req.body.organization_id, 'write'), (req, res) => {
@@ -70,8 +69,8 @@ router.post('/', requireOrg(req => req.body.organization_id, 'write'), (req, res
     try {
       const sf = meetingToScheduleFields(meeting);
       if (sf.date) {
-        db.prepare('INSERT INTO schedules (organization_id, title, schedule_date, end_date, description, meeting_id) VALUES (?, ?, ?, ?, ?, ?)')
-          .run(req.orgId, sf.title, sf.date, sf.endDate || null, sf.description, meeting.id);
+        db.prepare('INSERT INTO schedules (organization_id, title, schedule_date, end_date, start_time, end_time, description, meeting_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(req.orgId, sf.title, sf.date, sf.endDate || null, sf.startTime || null, sf.endTime || null, sf.description, meeting.id);
       }
     } catch (e) { console.warn('[meetings] auto schedule insert failed:', e.message); }
   }
@@ -116,21 +115,18 @@ router.put('/:id', requireOrg(req => getOrgIdFromMeeting(req.params.id), 'write'
     meeting.public_register_token = token;
   }
 
-  // ★ 연결된 일정 동기화 (제목·시작/종료 일자·장소 변경 시 일정도 갱신)
+  // ★ 연결된 일정 동기화 (제목·시작/종료 일자·시각·장소 변경 시 일정도 갱신)
   try {
     const sf = meetingToScheduleFields(meeting);
     const linked = db.prepare('SELECT id FROM schedules WHERE meeting_id = ?').get(req.params.id);
     if (linked && sf.date) {
-      // 기존 연결 일정 갱신
-      db.prepare('UPDATE schedules SET title = ?, schedule_date = ?, end_date = ?, description = ? WHERE id = ?')
-        .run(sf.title, sf.date, sf.endDate || null, sf.description, linked.id);
+      db.prepare('UPDATE schedules SET title = ?, schedule_date = ?, end_date = ?, start_time = ?, end_time = ?, description = ? WHERE id = ?')
+        .run(sf.title, sf.date, sf.endDate || null, sf.startTime || null, sf.endTime || null, sf.description, linked.id);
     } else if (linked && !sf.date) {
-      // 이벤트 날짜가 비워졌으면 연결 일정 제거
       db.prepare('DELETE FROM schedules WHERE id = ?').run(linked.id);
     } else if (!linked && sf.date) {
-      // 처음 날짜가 들어온 경우 (이전엔 이벤트 날짜가 비어있었음) → 신규 일정 생성
-      db.prepare('INSERT INTO schedules (organization_id, title, schedule_date, end_date, description, meeting_id) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(meeting.organization_id, sf.title, sf.date, sf.endDate || null, sf.description, meeting.id);
+      db.prepare('INSERT INTO schedules (organization_id, title, schedule_date, end_date, start_time, end_time, description, meeting_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(meeting.organization_id, sf.title, sf.date, sf.endDate || null, sf.startTime || null, sf.endTime || null, sf.description, meeting.id);
     }
   } catch (e) { console.warn('[meetings] auto schedule sync failed:', e.message); }
 

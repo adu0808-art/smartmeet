@@ -101,36 +101,73 @@
         list.innerHTML = `<div class="empty"><div class="empty-title">등록된 일정이 없습니다</div><div class="empty-sub">‘+ 일정 추가’ 버튼으로 일정을 등록하세요.</div></div>`;
         return;
       }
+      const isAdmin = role === 'system_admin' || role === 'admin';
       const todayStr = new Date().toISOString().slice(0, 10);
       list.innerHTML = schedules.map(s => {
         const stat = statusOf(s, todayStr);
         const tag = stat === 'past' ? '<span class="tag tag-status-done">지난 일정</span>'
                   : stat === 'today' ? '<span class="tag tag-status-progress">오늘 진행 중</span>'
                   : '<span class="tag tag-status-prep">예정</span>';
-        // 날짜 표시 — 단일이면 1줄, 다일이면 시작 ~ 종료
+        // 날짜 칩
         const startShort = s.schedule_date.slice(5).replace('-','/');
         const endShort = s.end_date ? s.end_date.slice(5).replace('-','/') : '';
         const dateNum = s.end_date && s.end_date !== s.schedule_date
           ? `<div class="num" style="font-size:11px;line-height:1.4;">${startShort}<br>~<br>${endShort}</div>`
           : `<div class="num" style="font-size:13px;">${startShort}</div>`;
-        const dateLabel = s.end_date && s.end_date !== s.schedule_date
-          ? `<span style="font-size:11.5px;color:var(--text-muted);margin-left:6px;">📅 ${s.schedule_date} ~ ${s.end_date}</span>` : '';
+        // 일시 라벨 — 시간 포함
+        const allDay = !s.start_time && !s.end_time;
+        let dateLabel;
+        if (s.end_date && s.end_date !== s.schedule_date) {
+          dateLabel = `📅 ${s.schedule_date}${s.start_time ? ' ' + s.start_time : ''} ~ ${s.end_date}${s.end_time ? ' ' + s.end_time : ''}`;
+        } else {
+          dateLabel = `📅 ${s.schedule_date}` + (allDay ? ' (종일)' : ` ${s.start_time || ''}${s.end_time ? ' ~ ' + s.end_time : ''}`);
+        }
+        const isMeetingLinked = !!s.meeting_id;
+        const meetingBadge = isMeetingLinked ? ' <span class="tag tag-board" style="font-size:10px;">이벤트 연동</span>' : '';
+        // 행 클릭 → 상세 모달 (액션 버튼은 stopPropagation)
+        const rowClick = `onclick='openDetail(${JSON.stringify(s).replace(/'/g,"&#39;")})'`;
         return `
-          <div class="agenda-item">
+          <div class="agenda-item" style="cursor:pointer;" ${rowClick}>
             <div class="agenda-no">
               <div class="small">DATE</div>
               ${dateNum}
             </div>
             <div class="agenda-body">
-              <div class="agenda-title">${tag} ${s.title}${dateLabel}</div>
-              <div class="agenda-summary">${s.description || ''}</div>
+              <div class="agenda-title">${tag} ${escapeHtml(s.title)}${meetingBadge}</div>
+              <div class="agenda-summary" style="font-size:12.5px;">${dateLabel}</div>
             </div>
-            <div class="agenda-actions">
-              <button class="btn btn-sm" onclick='openForm(${JSON.stringify(s)})'>수정</button>
-              <button class="btn btn-sm btn-danger" onclick="del(${s.id})">🗑</button>
+            <div class="agenda-actions" onclick="event.stopPropagation();">
+              ${!isMeetingLinked && isAdmin ? `<button class="btn btn-sm" onclick='openForm(${JSON.stringify(s).replace(/'/g,"&#39;")})'>수정</button>` : ''}
+              ${!isMeetingLinked && isAdmin ? `<button class="btn btn-sm btn-danger" onclick="del(${s.id})">🗑</button>` : ''}
             </div>
           </div>`;
       }).join('');
+    }
+    function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+    // 다일 일정에 트랙 번호 할당 — 같은 일정이 여러 날에서 같은 row 에 위치하도록
+    //   다일 일정끼리 시간 충돌 안 하면 같은 트랙 재사용 (greedy)
+    function assignTracks() {
+      const multis = schedules.filter(s => s.end_date && s.end_date !== s.schedule_date);
+      // 시작 일자 ASC → 종료 일자 DESC (긴 일정 먼저)
+      multis.sort((a, b) => {
+        const sd = a.schedule_date.localeCompare(b.schedule_date);
+        if (sd !== 0) return sd;
+        return b.end_date.localeCompare(a.end_date);
+      });
+      const tracks = []; // each track is array of events (no overlap within a track)
+      const trackMap = {};
+      multis.forEach(e => {
+        for (let i = 0; i < tracks.length; i++) {
+          const conflict = tracks[i].some(other =>
+            !((e.end_date || e.schedule_date) < other.schedule_date ||
+              e.schedule_date > (other.end_date || other.schedule_date))
+          );
+          if (!conflict) { tracks[i].push(e); trackMap[e.id] = i; return; }
+        }
+        tracks.push([e]); trackMap[e.id] = tracks.length - 1;
+      });
+      return { trackMap, totalTracks: tracks.length };
     }
 
     function renderCalendar() {
@@ -144,6 +181,9 @@
       const dows = ['일','월','화','수','목','금','토'];
       const grid = document.getElementById('calGrid');
       let html = dows.map((d, i) => `<div class="cal-dow ${i===0?'sun':''}${i===6?'sat':''}">${d}</div>`).join('');
+
+      // 트랙 사전 계산 — 다일 일정이 모든 날에서 같은 row 에 머무르도록
+      const { trackMap, totalTracks } = assignTracks();
 
       const totalCells = Math.ceil((startDow + daysInMonth) / 7) * 7;
       for (let i = 0; i < totalCells; i++) {
@@ -165,61 +205,105 @@
         const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
         const dow = i % 7;
         const isToday = dateStr === todayStr;
-        // 이 날짜에 걸치는 모든 이벤트 — schedule_date <= dateStr <= (end_date || schedule_date)
-        const events = schedules.filter(s => {
+        // 이 날짜에 걸치는 모든 이벤트
+        const dayEvents = schedules.filter(s => {
           const start = s.schedule_date;
           const end = s.end_date || s.schedule_date;
           return start <= dateStr && dateStr <= end;
         });
+        // 트랙 슬롯 배치 — 다일은 자기 트랙에, 단일은 빈 슬롯 채우거나 끝에 추가
+        const slots = new Array(totalTracks).fill(null);
+        dayEvents.forEach(e => {
+          const isMulti = e.end_date && e.end_date !== e.schedule_date;
+          if (isMulti) {
+            const t = trackMap[e.id];
+            if (t != null) slots[t] = e;
+          }
+        });
+        const singles = dayEvents.filter(e => !e.end_date || e.end_date === e.schedule_date);
+        singles.forEach(e => {
+          const idx = slots.findIndex(x => x === null);
+          if (idx >= 0) slots[idx] = e;
+          else slots.push(e);
+        });
+
+        const slotsHtml = slots.map(e => {
+          if (e === null) return `<div class="cal-event-spacer" aria-hidden="true">&nbsp;</div>`;
+          const start = e.schedule_date;
+          const end = e.end_date || e.schedule_date;
+          const cls = todayStr > end ? 'past' : (todayStr >= start && todayStr <= end) ? 'today' : '';
+          const isMulti = e.end_date && e.end_date !== e.schedule_date;
+          const posCls = isMulti
+            ? (dateStr === start ? ' multi-start' : dateStr === end ? ' multi-end' : ' multi-mid')
+            : '';
+          // 첫날(또는 단일): 시간(있으면) + 제목 / 중간: 빈 바 / 끝: ▸
+          let label;
+          if (!isMulti) {
+            const t = e.start_time ? `<span style="opacity:0.85;">${e.start_time}</span> ` : '';
+            label = `${t}${escapeHtml(e.title)}`;
+          } else if (dateStr === start) {
+            const t = e.start_time ? `<span style="opacity:0.85;">${e.start_time}</span> ` : '';
+            label = `${t}${escapeHtml(e.title)}`;
+          } else if (dateStr === end) {
+            label = '<span style="opacity:0.7;">▸</span>';
+          } else {
+            label = '&nbsp;';
+          }
+          const titleAttr = `${e.title}${isMulti ? ` (${e.schedule_date} ~ ${e.end_date})` : ''}${e.start_time ? ` ${e.start_time}` : ''}${e.end_time ? ' ~ ' + e.end_time : ''}`;
+          return `<div class="cal-event ${cls}${posCls}" title="${escapeHtml(titleAttr)}" onclick="event.stopPropagation();openDetail(${JSON.stringify(e).replace(/"/g,'&quot;')})">${label}</div>`;
+        }).join('');
+
         html += `
           <div class="cal-cell ${muted?'muted':''} ${isToday?'today':''}" onclick="onCellClick('${dateStr}')">
             <div class="cal-day ${dow===0?'sun':''}${dow===6?'sat':''}">${day}</div>
-            ${events.map(e => {
-              const start = e.schedule_date;
-              const end = e.end_date || e.schedule_date;
-              // 진행/지남/예정 상태
-              const cls = todayStr > end ? 'past' : (todayStr >= start && todayStr <= end) ? 'today' : '';
-              // 다일 일정 위치 — 첫날엔 제목, 중간/마지막엔 빈 바 (연속된 띠로 표시)
-              const isMulti = e.end_date && e.end_date !== e.schedule_date;
-              const posCls = isMulti
-                ? (dateStr === start ? ' multi-start' : dateStr === end ? ' multi-end' : ' multi-mid')
-                : '';
-              // 첫날: 전체 제목 / 마지막 날: 우측 끝 표시 / 중간: 빈 바
-              let label;
-              if (!isMulti) label = e.title;
-              else if (dateStr === start) label = e.title;
-              else if (dateStr === end) label = '<span style="opacity:0.6;">▸</span>';
-              else label = '&nbsp;';
-              return `<div class="cal-event ${cls}${posCls}" title="${e.title}${isMulti ? ` (${e.schedule_date} ~ ${e.end_date})` : ''}" onclick="event.stopPropagation();openForm(${JSON.stringify(e).replace(/"/g,'&quot;')})">${label}</div>`;
-            }).join('')}
+            ${slotsHtml}
           </div>`;
       }
       grid.innerHTML = html;
     }
 
-    function onCellClick(date) { openForm({ schedule_date: date }); }
+    function onCellClick(date) {
+      // 비관리자라도 셀 클릭 시 "그 날짜에 등록된 첫 일정" 상세를 보여주거나,
+      // 관리자면 빠른 추가 폼을 연다 (관리 권한이 없으면 추가 모달은 막힘 — 백엔드에서 거부)
+      const isAdmin = role === 'system_admin' || role === 'admin';
+      if (isAdmin) openForm({ schedule_date: date });
+    }
 
     function openForm(s) {
       s = s || {};
+      const isAllDay = !s.start_time && !s.end_time;
       modal({
         title: s.id ? '일정 수정' : '일정 추가',
+        size: 'lg',
         body: `
           <div class="field"><label class="label">일정명 *</label><input class="input" id="sd_t" value="${(s.title||'').replace(/"/g,'&quot;')}"></div>
-          <div class="flex gap-12">
-            <div class="field flex-1"><label class="label">시작일 *</label><input class="input" id="sd_d" type="date" value="${s.schedule_date||''}"></div>
-            <div class="field flex-1"><label class="label">종료일 <span class="text-sm text-muted">(여러 날인 경우)</span></label><input class="input" id="sd_e" type="date" value="${s.end_date||''}"></div>
+          <div class="field"><label class="label">일시 *</label>
+            <div class="flex gap-8 items-center" style="flex-wrap:wrap;">
+              <input class="input" id="sd_d"  type="date" value="${s.schedule_date||''}" style="width:155px;">
+              <input class="input" id="sd_st" type="time" value="${s.start_time||''}" step="600" style="width:115px;" ${isAllDay ? 'disabled' : ''}>
+              <span style="opacity:0.7;">~</span>
+              <input class="input" id="sd_e"  type="date" value="${s.end_date||''}" style="width:155px;" placeholder="종료일">
+              <input class="input" id="sd_et" type="time" value="${s.end_time||''}" step="600" style="width:115px;" ${isAllDay ? 'disabled' : ''}>
+              <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;">
+                <input type="checkbox" id="sd_ad" ${isAllDay ? 'checked' : ''}> 종일
+              </label>
+            </div>
+            <div class="text-sm text-muted mt-8" style="line-height:1.6;">
+              ※ 시작일과 다른 종료일을 입력하면 달력에 여러 날에 걸쳐 표시됩니다.
+            </div>
           </div>
           <div class="field"><label class="label">설명</label><textarea class="textarea" id="sd_desc">${s.description||''}</textarea></div>
-          <div class="text-sm text-muted" style="background:var(--surface-2);padding:8px 10px;border-radius:6px;line-height:1.6;">
-            💡 시작일과 다른 날짜의 종료일을 입력하면 달력에 여러 날에 걸쳐 표시됩니다.
-          </div>
         `,
         confirmText: '저장',
         onConfirm: async () => {
+          const allDay = document.getElementById('sd_ad').checked;
           const payload = {
             title: document.getElementById('sd_t').value.trim(),
             schedule_date: document.getElementById('sd_d').value,
             end_date: document.getElementById('sd_e').value || '',
+            start_time: allDay ? '' : (document.getElementById('sd_st').value || ''),
+            end_time:   allDay ? '' : (document.getElementById('sd_et').value || ''),
+            all_day: allDay,
             description: document.getElementById('sd_desc').value
           };
           if (!payload.title || !payload.schedule_date) { toast('필수값을 입력하세요.', 'error'); return false; }
@@ -227,7 +311,67 @@
           catch (e) { toast(e.message, 'error'); return false; }
         }
       });
+      // 종일 체크박스 → 시간 입력 토글
+      const adEl = document.getElementById('sd_ad');
+      const stEl = document.getElementById('sd_st');
+      const etEl = document.getElementById('sd_et');
+      adEl.onchange = () => {
+        const ck = adEl.checked;
+        stEl.disabled = ck; etEl.disabled = ck;
+        if (ck) { stEl.value = ''; etEl.value = ''; }
+      };
     }
+
+    // 일정 상세 모달 — 모든 사용자 클릭 시 (이벤트 연동이면 "이벤트로 가기" 버튼 노출)
+    function openDetail(s) {
+      const isAdmin = role === 'system_admin' || role === 'admin';
+      const isMeetingLinked = !!s.meeting_id;
+      const allDay = !s.start_time && !s.end_time;
+      const dowName = ['일','월','화','수','목','금','토'];
+      const dowOf = (str) => { try { const d = new Date(str); return isNaN(d) ? '' : ` (${dowName[d.getDay()]})`; } catch { return ''; } };
+      // 일시 표시 — 단일/다일 + 종일/시간 4가지 케이스
+      let dateLine;
+      if (s.end_date && s.end_date !== s.schedule_date) {
+        dateLine = `${s.schedule_date}${dowOf(s.schedule_date)}${s.start_time ? ' ' + s.start_time : ''} ~ ${s.end_date}${dowOf(s.end_date)}${s.end_time ? ' ' + s.end_time : ''}`;
+      } else {
+        dateLine = `${s.schedule_date}${dowOf(s.schedule_date)}` + (allDay ? ' (종일)' : ` ${s.start_time || ''}${s.end_time ? ' ~ ' + s.end_time : ''}`);
+      }
+      // 진행/지난/예정 태그
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const start = s.schedule_date;
+      const end = s.end_date || s.schedule_date;
+      const tag = todayStr > end ? '<span class="tag tag-status-done">지난 일정</span>'
+                : (todayStr >= start && todayStr <= end) ? '<span class="tag tag-status-progress">' + (start === end ? '오늘' : '진행 중') + '</span>'
+                : '<span class="tag tag-status-prep">예정</span>';
+
+      const eventBtn = isMeetingLinked
+        ? `<button class="btn btn-primary" onclick="location.href='/meeting?id=${s.meeting_id}'">↗ 이벤트로 가기</button>` : '';
+      const editBtn  = (!isMeetingLinked && isAdmin)
+        ? `<button class="btn btn-sm" onclick="document.querySelectorAll('.modal-backdrop.active').forEach(m=>m.remove());openForm(${JSON.stringify(s).replace(/"/g,'&quot;')})">✏️ 수정</button>` : '';
+      const delBtn   = (!isMeetingLinked && isAdmin)
+        ? `<button class="btn btn-sm btn-danger" onclick="document.querySelectorAll('.modal-backdrop.active').forEach(m=>m.remove());del(${s.id})">🗑 삭제</button>` : '';
+
+      modal({
+        title: '📅 ' + (s.title || '일정'),
+        size: 'lg',
+        body: `
+          <div class="flex items-center gap-8 mb-12" style="flex-wrap:wrap;">
+            ${tag}
+            <span class="text-sm text-muted">${dateLine}</span>
+            ${isMeetingLinked ? '<span class="tag tag-board" style="font-size:11px;">이벤트 연동</span>' : ''}
+          </div>
+          <div class="html-render" style="min-height:80px;padding:14px;background:var(--surface-2);border-radius:8px;line-height:1.7;">
+            ${s.description ? s.description : '<span class="text-muted">등록된 설명이 없습니다.</span>'}
+          </div>
+          <div class="flex gap-8 mt-16" style="flex-wrap:wrap;">
+            ${eventBtn}${editBtn}${delBtn}
+          </div>
+        `,
+        confirmText: '닫기',
+        onConfirm: () => {}
+      });
+    }
+    window.openDetail = openDetail;
 
     function del(id) {
       confirmDialog('삭제하시겠습니까?', async () => {

@@ -122,15 +122,30 @@ router.get('/schedules/:orgId', requireOrg(req => req.params.orgId, 'read'), (re
   res.json({ schedules: rows });
 });
 
+// HH:MM 검증 (간단)
+function _normTime(t) {
+  if (!t) return '';
+  const m = String(t).trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return '';
+  const hh = String(Math.min(23, parseInt(m[1], 10))).padStart(2, '0');
+  const mm = String(Math.min(59, parseInt(m[2], 10))).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
 router.post('/schedules/:orgId', requireOrg(req => req.params.orgId, 'write'), (req, res) => {
-  const { title, schedule_date, end_date, description } = req.body || {};
+  const { title, schedule_date, end_date, start_time, end_time, all_day, description } = req.body || {};
   if (!title || !schedule_date) return res.status(400).json({ error: '필수값 누락' });
-  // end_date 가 schedule_date 보다 이전이면 정규화 (서로 바꾸기)
+  // 날짜: end < start 면 swap
   let s = String(schedule_date).slice(0, 10);
   let e = end_date ? String(end_date).slice(0, 10) : '';
   if (e && e < s) { const t = s; s = e; e = t; }
-  const result = db.prepare('INSERT INTO schedules (organization_id, title, schedule_date, end_date, description) VALUES (?, ?, ?, ?, ?)')
-    .run(req.params.orgId, title, s, e || null, description || '');
+  // 시간: 종일이면 비움
+  const isAllDay = !!all_day;
+  const st = isAllDay ? '' : _normTime(start_time);
+  const et = isAllDay ? '' : _normTime(end_time);
+  const result = db.prepare(
+    'INSERT INTO schedules (organization_id, title, schedule_date, end_date, start_time, end_time, description) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(req.params.orgId, title, s, e || null, st || null, et || null, description || '');
   const schedule = db.prepare('SELECT * FROM schedules WHERE id = ?').get(result.lastInsertRowid);
   res.json({ schedule });
 });
@@ -139,18 +154,23 @@ router.put('/schedules/:id', authRequired, (req, res) => {
   const sched = db.prepare('SELECT id, organization_id, meeting_id FROM schedules WHERE id = ?').get(req.params.id);
   if (!sched) return res.status(404).json({ error: '일정 없음' });
   if (!isAdmin(getOrgRole(req.user, sched.organization_id))) return res.status(403).json({ error: '관리자 권한이 필요합니다.' });
-  // ★ 회의에서 자동 생성된 일정은 직접 수정 차단 (회의 자체를 수정해야 함)
+  // ★ 이벤트에서 자동 생성된 일정은 직접 수정 차단 (이벤트 자체를 수정해야 함)
   if (sched.meeting_id) {
     return res.status(400).json({
       error: '이 일정은 이벤트에서 자동 생성된 항목입니다.\n수정하려면 이벤트 관리에서 해당 이벤트를 수정하세요.',
       meetingId: sched.meeting_id
     });
   }
-  const { title, schedule_date, end_date, description } = req.body || {};
+  const { title, schedule_date, end_date, start_time, end_time, all_day, description } = req.body || {};
   let s = String(schedule_date || '').slice(0, 10);
   let e = end_date ? String(end_date).slice(0, 10) : '';
   if (e && s && e < s) { const t = s; s = e; e = t; }
-  db.prepare('UPDATE schedules SET title = ?, schedule_date = ?, end_date = ?, description = ? WHERE id = ?').run(title, s, e || null, description || '', req.params.id);
+  const isAllDay = !!all_day;
+  const st = isAllDay ? '' : _normTime(start_time);
+  const et = isAllDay ? '' : _normTime(end_time);
+  db.prepare(
+    'UPDATE schedules SET title = ?, schedule_date = ?, end_date = ?, start_time = ?, end_time = ?, description = ? WHERE id = ?'
+  ).run(title, s, e || null, st || null, et || null, description || '', req.params.id);
   res.json({ ok: true });
 });
 

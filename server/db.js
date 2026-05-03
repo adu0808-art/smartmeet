@@ -291,31 +291,47 @@ try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_org_custom_domain ON organi
 try { db.exec("ALTER TABLE schedules ADD COLUMN meeting_id INTEGER REFERENCES meetings(id) ON DELETE CASCADE"); } catch (e) {}
 // Schedules: 종료 일자 (선택) — 여러 날 걸치는 일정 표시용
 try { db.exec("ALTER TABLE schedules ADD COLUMN end_date TEXT"); } catch (e) {}
+// Schedules: 시작/종료 시각 (선택, HH:MM) — null 이면 종일 일정
+try { db.exec("ALTER TABLE schedules ADD COLUMN start_time TEXT"); } catch (e) {}
+try { db.exec("ALTER TABLE schedules ADD COLUMN end_time TEXT"); } catch (e) {}
 
-// Backfill: 다일 이벤트 → 일정의 end_date 가 비어있고 연결된 meeting 의 end_date 가 다른 날이면 채워넣기
-//   (end_date 컬럼 추가 이전에 만들어진 일정들이 일자 범위로 표시되도록 보정)
+// Backfill: 이벤트 연결 일정의 end_date / start_time / end_time 채우기
+//   end_date·start_time·end_time 컬럼 추가 이전에 만들어진 일정들이 풍부한 정보로 표시되도록 보정
 try {
   const orphanSchedules = db.prepare(`
-    SELECT s.id, s.schedule_date, m.end_date AS meeting_end
+    SELECT s.id, s.schedule_date, s.end_date AS s_end, s.start_time AS s_st, s.end_time AS s_et,
+           m.meeting_date AS m_start, m.end_date AS m_end
     FROM schedules s
     INNER JOIN meetings m ON m.id = s.meeting_id
     WHERE s.meeting_id IS NOT NULL
-      AND (s.end_date IS NULL OR s.end_date = '')
-      AND m.end_date IS NOT NULL
-      AND m.end_date != ''
   `).all();
-  const updEnd = db.prepare('UPDATE schedules SET end_date = ? WHERE id = ?');
+  const upd = db.prepare('UPDATE schedules SET end_date = ?, start_time = ?, end_time = ? WHERE id = ?');
   let backfilled = 0;
   orphanSchedules.forEach(row => {
-    const endDate = String(row.meeting_end).slice(0, 10);
-    // 같은 날짜면 단일 일정 — backfill 안 함
-    if (endDate && endDate !== row.schedule_date) {
-      updEnd.run(endDate, row.id);
+    // 시작 시각 추출
+    const startMatch = String(row.m_start || '').match(/T(\d{2}:\d{2})/);
+    const endMatchM  = String(row.m_end   || '').match(/T(\d{2}:\d{2})/);
+    const newStartTime = startMatch ? startMatch[1] : null;
+    const newEndTime   = endMatchM  ? endMatchM[1]  : null;
+    // 종료 일자
+    const newEndDate = (row.m_end && String(row.m_end).slice(0,10) !== row.schedule_date)
+      ? String(row.m_end).slice(0, 10) : null;
+    // 변경 필요 여부
+    const needsEnd  = newEndDate !== (row.s_end || null);
+    const needsSt   = newStartTime !== (row.s_st || null);
+    const needsEt   = newEndTime !== (row.s_et || null);
+    if (needsEnd || needsSt || needsEt) {
+      upd.run(
+        newEndDate,
+        newStartTime,
+        newEndTime,
+        row.id
+      );
       backfilled++;
     }
   });
-  if (backfilled) console.log(`[DB] 다일 이벤트 일정 ${backfilled}건 end_date 채움`);
-} catch (e) { console.warn('[DB] schedule end_date backfill:', e.message); }
+  if (backfilled) console.log(`[DB] 이벤트 연결 일정 ${backfilled}건 end_date/start_time/end_time 채움`);
+} catch (e) { console.warn('[DB] schedule fields backfill:', e.message); }
 
 // 마이그레이션: 기존 회의(meeting_id 가 일정에 없는) → 일정에 자동 등록 (한 번만)
 try {

@@ -1511,6 +1511,16 @@ select.input, select.select { cursor: pointer; }
   padding-right: 10px;
   text-align: right;
 }
+/* 트랙 placeholder — 같은 다일 일정이 다른 날과 같은 row 에 위치하도록 빈 슬롯 채움 */
+.cal-event-spacer {
+  height: 18px;
+  margin: 0 4px;
+  visibility: hidden;
+  font-size: 11px;
+  padding: 2px 6px;
+  box-sizing: border-box;
+  min-height: 18px;
+}
 
 /* ========== 조직도 핸들/도구 ========== */
 /* 보기 모드와 동일하게 보이도록 — 호버 시에만 박스 위쪽에 액션 툴바를 띄워 노출 (제목 가리지 않음).
