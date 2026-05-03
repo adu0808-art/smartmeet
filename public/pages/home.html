@@ -2980,12 +2980,14 @@
     }
 
     // ====== 일정 CRUD ======
+    //   existing 이 id 를 가진 객체일 때만 "수정" 모드 — { schedule_date: '...' } 만 들어와도 "추가" 모드 유지
     function openScheduleEditor(existing) {
       const s = existing || {};
       let editor = null;
+      const isEdit = !!(existing && existing.id);
       const isAllDay = !s.start_time && !s.end_time;
       modal({
-        title: existing ? '일정 수정' : '일정 추가',
+        title: isEdit ? '일정 수정' : '일정 추가',
         size: 'lg',
         body: `
           <div class="field"><label class="label">일정명 *</label><input class="input" id="sd_t" value="${(s.title||'').replace(/"/g,'&quot;')}"></div>
@@ -3018,7 +3020,7 @@
           };
           if (!payload.title || !payload.schedule_date) { toast('필수값을 입력하세요.', 'error'); return false; }
           try {
-            if (existing) await api.put(`/api/schedules/${existing.id}`, payload);
+            if (isEdit) await api.put(`/api/schedules/${existing.id}`, payload);
             else await api.post(`/api/schedules/${orgId}`, payload);
             toast('저장되었습니다.', 'success');
             await reloadSchedules();
