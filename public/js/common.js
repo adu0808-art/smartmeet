@@ -603,8 +603,12 @@ async function copyText(text, successMsg = '복사되었습니다.') {
 async function smartRedirect(user) {
   user = user || await getMe();
   if (!user) { location.href = '/login'; return; }
-  // System admin → admin console
-  if (user.role === 'admin') { location.href = '/admin'; return; }
+  // 시스템 관리자 → 루트(랜딩) 로 시작 — 단, 이미 루트에 있으면 관리 콘솔로 (중복 리다이렉트 방지)
+  if (user.role === 'admin') {
+    const isAtRoot = location.pathname === '/' || location.pathname === '/index.html';
+    location.href = isAtRoot ? '/admin' : '/';
+    return;
+  }
   // Regular user → check their orgs
   try {
     const { organizations } = await api.get('/api/organizations');
