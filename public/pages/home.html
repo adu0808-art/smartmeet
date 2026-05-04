@@ -1879,16 +1879,24 @@
         </table>`;
     }
     // 기간 필터에 따라 일정을 추리는 함수
-    //   recent: 다가오는 일정 최근 10건
-    //   1m/3m/6m/1y: 오늘부터 N개월 이내 (다가오는 일정)
-    //   all: 다가오는 모든 일정
+    //   recent: 진행중·다가오는 일정 최근 10건
+    //   1m/3m/6m/1y: 오늘부터 N개월 이내 (진행중·다가오는 일정)
+    //   all: 모든 일정 (과거 포함) — 캘린더와 동일하게 전체 표시
     function getFilteredSchedules() {
       const today = new Date().toISOString().slice(0, 10);
+      // 진행중(시작은 과거지만 end_date가 오늘 이후) + 미래 일정
+      const isOngoingOrUpcoming = (s) => {
+        const endsOn = s.end_date || s.schedule_date;
+        return endsOn >= today;
+      };
+      // '전체' 는 과거 일정까지 모두 — 캘린더 뷰와 동일
+      if (schedPeriod === 'all') {
+        return [...dataSchedules].sort((a, b) => a.schedule_date.localeCompare(b.schedule_date));
+      }
       const upcoming = dataSchedules
-        .filter(s => s.schedule_date >= today)
+        .filter(isOngoingOrUpcoming)
         .sort((a, b) => a.schedule_date.localeCompare(b.schedule_date));
       if (schedPeriod === 'recent') return upcoming.slice(0, 10);
-      if (schedPeriod === 'all') return upcoming;
       const monthsMap = { '1m': 1, '3m': 3, '6m': 6, '1y': 12 };
       const months = monthsMap[schedPeriod] || 1;
       const cutoff = new Date();
