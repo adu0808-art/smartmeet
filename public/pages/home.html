@@ -1878,31 +1878,50 @@
           </tbody>
         </table>`;
     }
-    // 기간 필터에 따라 일정을 추리는 함수
-    //   recent: 진행중·다가오는 일정 최근 10건
-    //   1m/3m/6m/1y: 오늘부터 N개월 이내 (진행중·다가오는 일정)
-    //   all: 모든 일정 (과거 포함) — 캘린더와 동일하게 전체 표시
+    // 기간 필터에 따라 일정을 추리는 함수 — 캘린더 뷰와 동일하게 과거 일정도 표시
+    //   recent: 오늘에 가장 가까운 10건 (과거+미래 혼합)
+    //   1m/3m/6m/1y: 오늘 ±N개월 윈도우 (과거 N개월 + 미래 N개월)
+    //   all: 모든 일정
     function getFilteredSchedules() {
       const today = new Date().toISOString().slice(0, 10);
-      // 진행중(시작은 과거지만 end_date가 오늘 이후) + 미래 일정
-      const isOngoingOrUpcoming = (s) => {
-        const endsOn = s.end_date || s.schedule_date;
-        return endsOn >= today;
-      };
-      // '전체' 는 과거 일정까지 모두 — 캘린더 뷰와 동일
+
+      // '전체' — 모든 일정 (캘린더 뷰와 동일)
       if (schedPeriod === 'all') {
         return [...dataSchedules].sort((a, b) => a.schedule_date.localeCompare(b.schedule_date));
       }
-      const upcoming = dataSchedules
-        .filter(isOngoingOrUpcoming)
-        .sort((a, b) => a.schedule_date.localeCompare(b.schedule_date));
-      if (schedPeriod === 'recent') return upcoming.slice(0, 10);
+
+      // '최근 10건' — 오늘에 가장 가까운 10건 (진행중인 일정은 distance=0 우선)
+      if (schedPeriod === 'recent') {
+        const todayMs = new Date(today).getTime();
+        const distance = (s) => {
+          const start = new Date(s.schedule_date).getTime();
+          const end = s.end_date ? new Date(s.end_date).getTime() : start;
+          if (isNaN(start)) return Infinity;
+          // 오늘이 일정 기간 안이면 0
+          if (todayMs >= start && todayMs <= end) return 0;
+          return Math.min(Math.abs(todayMs - start), Math.abs(todayMs - end));
+        };
+        return [...dataSchedules]
+          .sort((a, b) => distance(a) - distance(b))
+          .slice(0, 10)
+          .sort((a, b) => a.schedule_date.localeCompare(b.schedule_date));
+      }
+
+      // 1m / 3m / 6m / 1y — 오늘 ±N개월 윈도우
       const monthsMap = { '1m': 1, '3m': 3, '6m': 6, '1y': 12 };
       const months = monthsMap[schedPeriod] || 1;
-      const cutoff = new Date();
-      cutoff.setMonth(cutoff.getMonth() + months);
-      const cutoffStr = cutoff.toISOString().slice(0, 10);
-      return upcoming.filter(s => s.schedule_date <= cutoffStr);
+      const past = new Date(); past.setMonth(past.getMonth() - months);
+      const future = new Date(); future.setMonth(future.getMonth() + months);
+      const pastStr = past.toISOString().slice(0, 10);
+      const futureStr = future.toISOString().slice(0, 10);
+      return dataSchedules
+        .filter(s => {
+          const start = s.schedule_date;
+          const end = s.end_date || s.schedule_date;
+          // 일정 기간이 윈도우와 겹치는지
+          return end >= pastStr && start <= futureStr;
+        })
+        .sort((a, b) => a.schedule_date.localeCompare(b.schedule_date));
     }
 
     // 일정 목록(리스트) 렌더 — 카드 대신 깔끔한 행 형태
@@ -1911,7 +1930,7 @@
       const host = document.getElementById('scheduleFeed');
       if (!host) return;
       if (!list.length) {
-        host.innerHTML = '<div class="list-empty" style="padding:40px;text-align:center;color:var(--text-muted);">선택한 기간에 예정된 일정이 없습니다.</div>';
+        host.innerHTML = '<div class="list-empty" style="padding:40px;text-align:center;color:var(--text-muted);">선택한 기간에 등록된 일정이 없습니다.</div>';
         // Re-render calendar if it's currently shown
         if (schedView === 'calendar') renderScheduleCalendar();
         return;
