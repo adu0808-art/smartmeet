@@ -2263,10 +2263,11 @@
       else if (pbFilter === 'member') list = list.filter(u => u.member_role !== 'admin' && !u.is_owner);
       if (pbSearchQ) {
         const q = pbSearchQ.toLowerCase();
+        const qDigits = normalizePhone(pbSearchQ);
         list = list.filter(u =>
           (u.name || '').toLowerCase().includes(q) ||
           (u.email || '').toLowerCase().includes(q) ||
-          (u.phone || '').includes(q) ||
+          (qDigits && normalizePhone(u.phone || '').includes(qDigits)) ||
           (u.major || '').toLowerCase().includes(q) ||
           (u.workplace || '').toLowerCase().includes(q)
         );
@@ -2346,7 +2347,7 @@
             </div>
           </div>
           ${u.email ? `<div class="pb-row"><span class="ic">✉️</span><a href="mailto:${u.email}" class="val">${escapeHtml(u.email)}</a></div>` : ''}
-          ${u.phone ? `<div class="pb-row"><span class="ic">📞</span><a href="tel:${u.phone}" class="val">${escapeHtml(u.phone)}</a></div>` : ''}
+          ${u.phone ? `<div class="pb-row"><span class="ic">📞</span><a href="tel:${u.phone}" class="val">${escapeHtml(formatPhone(u.phone))}</a></div>` : ''}
           ${u.major ? `<div class="pb-row"><span class="ic">🎓</span><span class="val">${escapeHtml(u.major)}</span></div>` : ''}
           ${u.workplace ? `<div class="pb-row"><span class="ic">🏢</span><span class="val">${escapeHtml(u.workplace)}</span></div>` : ''}
           ${u.bio ? `<div class="pb-bio">${escapeHtml(u.bio)}</div>` : ''}
@@ -2376,7 +2377,7 @@
                 <td><b>${escapeHtml(u.name)}</b>${u.bio ? `<div class="text-sm text-muted" style="margin-top:2px;">${escapeHtml(u.bio)}</div>` : ''}</td>
                 <td>${pbRoleLabel(u)}</td>
                 <td>${u.email ? `<a href="mailto:${u.email}">${escapeHtml(u.email)}</a>` : '-'}</td>
-                <td>${u.phone ? `<a href="tel:${u.phone}">${escapeHtml(u.phone)}</a>` : '-'}</td>
+                <td>${u.phone ? `<a href="tel:${u.phone}">${escapeHtml(formatPhone(u.phone))}</a>` : '-'}</td>
                 <td>${u.major ? escapeHtml(u.major) : '-'}</td>
                 <td>${u.workplace ? escapeHtml(u.workplace) : '-'}</td>
                 ${pbIsSysAdmin() ? `<td style="text-align:right;"><button class="btn btn-sm" data-pbedit="${u.id}">✏️ 수정</button></td>` : ''}
@@ -2396,7 +2397,7 @@
         성명: u.name || '',
         이메일: u.email || '',
         권한: u.is_owner ? '소유자' : (u.member_role === 'admin' ? '관리자' : '회원'),
-        전화: u.phone || '',
+        전화: formatPhone(u.phone || ''),
         전공: u.major || '',
         직장: u.workplace || ''
       }));
@@ -3920,13 +3921,14 @@
       }
       if (execSearchQ) {
         const q = execSearchQ;
+        const qDigits = normalizePhone(execSearchQ);
         list = list.filter(m =>
           (m.name || '').toLowerCase().includes(q) ||
           (m.position || '').toLowerCase().includes(q) ||
           (m.major || '').toLowerCase().includes(q) ||
           (m.workplace || '').toLowerCase().includes(q) ||
           (m.generation || '').toLowerCase().includes(q) ||
-          (m.phone || '').includes(q) ||
+          (qDigits && normalizePhone(m.phone || '').includes(qDigits)) ||
           (m.email || '').toLowerCase().includes(q)
         );
       }
@@ -3998,7 +4000,7 @@
             <td><b>${escapeHtml(m.name)}</b></td>
             <td class="text-muted">${escapeHtml(m.major || '-')}</td>
             <td class="text-muted">${escapeHtml(m.workplace || '-')}</td>
-            ${isAdmin ? `<td class="text-muted">${m.phone ? `<a href="tel:${escapeHtml(m.phone)}">${escapeHtml(m.phone)}</a>` : '-'}</td>` : ''}
+            ${isAdmin ? `<td class="text-muted">${m.phone ? `<a href="tel:${escapeHtml(m.phone)}">${escapeHtml(formatPhone(m.phone))}</a>` : '-'}</td>` : ''}
             ${isAdmin ? `<td class="text-muted">${m.email ? `<a href="mailto:${escapeHtml(m.email)}">${escapeHtml(m.email)}</a>` : '-'}</td>` : ''}
             <td class="text-muted">${escapeHtml(m.generation || '-')}</td>
             ${isAdmin ? `<td style="text-align:right;">
@@ -4471,13 +4473,15 @@
 
     function getIfuFiltered() {
       const searchEl = document.getElementById('ifu_search');
-      const q = (searchEl && searchEl.value || '').trim().toLowerCase();
+      const raw = (searchEl && searchEl.value || '').trim();
+      const q = raw.toLowerCase();
+      const qDigits = normalizePhone(raw);
       let list = _ifuUsers.slice();
       if (q) {
         list = list.filter(u =>
           (u.name || '').toLowerCase().includes(q) ||
           (u.email || '').toLowerCase().includes(q) ||
-          (u.phone || '').includes(q)
+          (qDigits && normalizePhone(u.phone || '').includes(qDigits))
         );
       }
       return list;
@@ -4525,7 +4529,7 @@
                   <td>${photoCell}</td>
                   <td><b>${escapeHtml(u.name)}</b></td>
                   <td class="text-muted">${escapeHtml(u.email || '')}</td>
-                  <td class="text-muted">${escapeHtml(u.phone || '-')}</td>
+                  <td class="text-muted">${u.phone ? escapeHtml(formatPhone(u.phone)) : '-'}</td>
                   <td>${roleBadge}</td>
                 </tr>`;
             }).join('')}
@@ -4790,7 +4794,7 @@
         이름: m.name || '',
         전공: m.major || '',
         직장: m.workplace || '',
-        전화: m.phone || '',
+        전화: formatPhone(m.phone || ''),
         이메일: m.email || ''
       }));
       const ws = XLSX.utils.json_to_sheet(data);

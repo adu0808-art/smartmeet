@@ -141,7 +141,7 @@
                 <td><input type="checkbox" class="check row-check" data-id="${m.id}" ${selected.has(m.id)?'checked':''}></td>
                 <td>${m.position || ''}</td>
                 <td><b>${m.name}</b></td>
-                <td>${m.phone || ''}</td>
+                <td>${formatPhone(m.phone || '')}</td>
                 <td>${m.email || ''}</td>
                 <td>${m.major || ''}</td>
                 <td>${m.workplace || ''}</td>
@@ -310,7 +310,7 @@
         기수: m.generation || '',
         직책: m.position || '',
         성명: m.name || '',
-        전화: m.phone || '',
+        전화: formatPhone(m.phone || ''),
         이메일: m.email || '',
         전공: m.major || '',
         직장: m.workplace || '',

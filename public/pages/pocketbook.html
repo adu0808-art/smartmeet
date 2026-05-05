@@ -183,10 +183,11 @@
       else if (filter === 'member') list = list.filter(u => u.member_role !== 'admin' && !u.is_owner);
       if (searchQ) {
         const q = searchQ.toLowerCase();
+        const qDigits = normalizePhone(searchQ);
         list = list.filter(u =>
           (u.name || '').toLowerCase().includes(q) ||
           (u.email || '').toLowerCase().includes(q) ||
-          (u.phone || '').includes(q) ||
+          (qDigits && normalizePhone(u.phone || '').includes(qDigits)) ||
           (u.major || '').toLowerCase().includes(q) ||
           (u.workplace || '').toLowerCase().includes(q)
         );
@@ -238,7 +239,7 @@
             </div>
           </div>
           ${u.email ? `<div class="pb-row"><span class="ic">✉️</span><a href="mailto:${u.email}" class="val">${u.email}</a></div>` : ''}
-          ${u.phone ? `<div class="pb-row"><span class="ic">📞</span><a href="tel:${u.phone}" class="val">${u.phone}</a></div>` : ''}
+          ${u.phone ? `<div class="pb-row"><span class="ic">📞</span><a href="tel:${u.phone}" class="val">${formatPhone(u.phone)}</a></div>` : ''}
           ${u.major ? `<div class="pb-row"><span class="ic">🎓</span><span class="val">${u.major}</span></div>` : ''}
           ${u.workplace ? `<div class="pb-row"><span class="ic">🏢</span><span class="val">${u.workplace}</span></div>` : ''}
           ${u.bio ? `<div class="pb-bio">${u.bio}</div>` : ''}
@@ -266,7 +267,7 @@
                 <td><b>${u.name}</b>${u.bio ? `<div class="text-sm text-muted" style="margin-top:2px;">${u.bio}</div>` : ''}</td>
                 <td>${roleLabel(u)}</td>
                 <td>${u.email ? `<a href="mailto:${u.email}">${u.email}</a>` : '-'}</td>
-                <td>${u.phone ? `<a href="tel:${u.phone}">${u.phone}</a>` : '-'}</td>
+                <td>${u.phone ? `<a href="tel:${u.phone}">${formatPhone(u.phone)}</a>` : '-'}</td>
                 <td>${u.major || '-'}</td>
                 <td>${u.workplace || '-'}</td>
                 ${isSysAdmin() ? `<td style="text-align:right;"><button class="btn btn-sm" data-edit="${u.id}">✏️ 수정</button></td>` : ''}
@@ -353,7 +354,7 @@
         성명: u.name || '',
         이메일: u.email || '',
         권한: u.is_owner ? '소유자' : (u.member_role === 'admin' ? '관리자' : '회원'),
-        전화: u.phone || '',
+        전화: formatPhone(u.phone || ''),
         전공: u.major || '',
         직장: u.workplace || ''
       }));
