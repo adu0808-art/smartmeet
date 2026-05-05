@@ -275,6 +275,7 @@ const pages = {
   '/executives': 'pages/executives.html',
   '/presidents': 'pages/presidents.html',
   '/pocketbook': 'pages/pocketbook.html',
+  '/manual': 'pages/manual.html',
 };
 
 Object.entries(pages).forEach(([route, file]) => {

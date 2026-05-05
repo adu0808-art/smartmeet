@@ -413,6 +413,8 @@ function userMenu(anchor) {
     <a href="/dashboard" id="dashboardLink" style="display:block;padding:8px 12px;border-radius:6px;font-size:13px;">📋 기관 목록</a>
     <div id="inviteCodeMenu" style="padding:8px 12px;border-radius:6px;font-size:13px;cursor:pointer;">🎫 초대코드 입력</div>
     ${currentOrgId ? `<div id="leaveOrgMenu" style="padding:8px 12px;border-radius:6px;font-size:13px;color:var(--danger);cursor:pointer;">🚪 기관 탈퇴하기</div>` : ''}
+    <div style="padding:8px 12px;font-size:11px;color:var(--text-muted);margin-top:4px;border-top:1px solid var(--border);padding-top:10px;">도움말</div>
+    <a href="/manual" target="_blank" id="manualLink" style="display:block;padding:8px 12px;border-radius:6px;font-size:13px;">📘 사용 매뉴얼</a>
     <a href="/admin" id="adminMenu" style="display:none;padding:8px 12px;border-radius:6px;font-size:13px;">⚙️ 관리자 페이지</a>
     <div id="logoutBtn" style="padding:8px 12px;border-radius:6px;font-size:13px;color:var(--danger);cursor:pointer;">🚪 로그아웃</div>
   `;
@@ -423,6 +425,8 @@ function userMenu(anchor) {
   // 기관 목록 / 관리자 페이지 — 링크 이동 직전에도 메뉴 닫기 (네비게이션 중 잔여 표시 방지)
   const dashLink = document.getElementById('dashboardLink');
   if (dashLink) dashLink.onclick = () => { close(); };
+  const manualLink = document.getElementById('manualLink');
+  if (manualLink) manualLink.onclick = () => { close(); };
   const leaveBtn = document.getElementById('leaveOrgMenu');
   if (leaveBtn) leaveBtn.onclick = () => { close(); openLeaveOrgConfirm(currentOrgId); };
   document.getElementById('logoutBtn').onclick = () => { close(); logout(); };

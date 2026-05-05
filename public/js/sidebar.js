@@ -36,6 +36,7 @@ function renderOrgSidebar(org, currentKey, opts = {}) {
   // Admin-only items — 관리 대시보드는 제거 (기관관리에서 ⚙️ 관리 버튼 사용)
   const adminItems = isAdmin ? [
     { key: 'org-members', label: '구성원·초대', icon: '🔑', href: `/org-members?org=${orgId}` },
+    { key: 'manual', label: '사용 매뉴얼', icon: '📘', href: '/manual' },
   ] : [];
 
   const meetingItems = meetingId ? [
