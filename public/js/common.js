@@ -170,6 +170,91 @@ function formatPhone(s) {
   return d;
 }
 
+// 입력 도중 부분 형식화 — 자릿수에 따라 점진적으로 하이픈 추가
+function formatPhoneTyping(s) {
+  const d = normalizePhone(s);
+  if (!d) return '';
+  // 02 (서울): XX-XXX(X)-XXXX
+  if (d.startsWith('02')) {
+    if (d.length <= 2) return d;
+    if (d.length <= 5) return `${d.slice(0,2)}-${d.slice(2)}`;
+    if (d.length <= 9) return `${d.slice(0,2)}-${d.slice(2,5)}-${d.slice(5)}`;
+    return `${d.slice(0,2)}-${d.slice(2,6)}-${d.slice(6,10)}`;
+  }
+  // 010, 011, 016 등: XXX-XXX(X)-XXXX
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `${d.slice(0,3)}-${d.slice(3)}`;
+  if (d.length <= 10) return `${d.slice(0,3)}-${d.slice(3,6)}-${d.slice(6)}`;
+  return `${d.slice(0,3)}-${d.slice(3,7)}-${d.slice(7,11)}`;
+}
+
+// ========== 전화번호 입력 자동 하이픈 ==========
+//   - input[type="tel"], name/id 에 phone 포함 → 자동 형식화
+//   - data-no-phone-format 속성 있으면 제외
+function _isPhoneInput(t) {
+  if (!t || t.tagName !== 'INPUT') return false;
+  if (t.dataset && t.dataset.noPhoneFormat !== undefined) return false;
+  if (t.type === 'tel') return true;
+  if (t.name === 'phone' || t.name === 'tel') return true;
+  if (t.id && /phone|tel(?!\w)/i.test(t.id)) return true;
+  if (t.className && /\b(phone-input|tel-input)\b/i.test(t.className)) return true;
+  // placeholder 가 한국 휴대전화 패턴이면 자동 적용
+  if (t.placeholder && /010-?\d{3,4}-?\d{4}/.test(t.placeholder)) return true;
+  return false;
+}
+
+function _autoFormatPhoneInput(input) {
+  const oldVal = input.value || '';
+  const oldStart = input.selectionStart != null ? input.selectionStart : oldVal.length;
+  // 커서 앞의 숫자 개수 기억
+  const digitsBefore = (oldVal.slice(0, oldStart).match(/\d/g) || []).length;
+  const newVal = formatPhoneTyping(oldVal);
+  if (newVal === oldVal) return;
+  input.value = newVal;
+  // 같은 숫자 개수 위치로 커서 복원
+  let pos = 0, count = 0;
+  while (pos < newVal.length && count < digitsBefore) {
+    if (/\d/.test(newVal[pos])) count++;
+    pos++;
+  }
+  try { input.setSelectionRange(pos, pos); } catch {}
+}
+
+function _formatPhoneInitialValue(input) {
+  if (!input || !input.value) return;
+  const formatted = formatPhoneTyping(input.value);
+  if (formatted !== input.value) input.value = formatted;
+}
+
+// 전역 위임 — 모든 phone 입력에 자동 하이픈 적용
+(function _wirePhoneAutoFormat() {
+  const apply = () => {
+    document.addEventListener('input', (e) => {
+      if (_isPhoneInput(e.target)) _autoFormatPhoneInput(e.target);
+    });
+    // 페이지 내 기존 phone 입력들 일괄 형식화 (DOM 추가 시점에는 MutationObserver)
+    const initAll = (root) => {
+      (root || document).querySelectorAll('input').forEach(i => {
+        if (_isPhoneInput(i)) _formatPhoneInitialValue(i);
+      });
+    };
+    initAll(document);
+    // 동적 모달·팝오버 안의 phone 입력도 포착
+    const obs = new MutationObserver((muts) => {
+      for (const m of muts) {
+        for (const node of m.addedNodes) {
+          if (node.nodeType !== 1) continue;
+          if (_isPhoneInput(node)) _formatPhoneInitialValue(node);
+          if (node.querySelectorAll) initAll(node);
+        }
+      }
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+  };
+  if (document.body) apply();
+  else document.addEventListener('DOMContentLoaded', apply, { once: true });
+})();
+
 // ========== Date format ==========
 function fmtDate(s) {
   if (!s) return '-';
@@ -320,11 +405,13 @@ function userMenu(anchor) {
     <div style="padding:8px 12px;font-size:11px;color:var(--text-muted);">계정</div>
     <div id="profileMenu" style="padding:8px 12px;border-radius:6px;font-size:13px;cursor:pointer;">✏️ 내 프로필 수정</div>
     <a href="/dashboard" style="display:block;padding:8px 12px;border-radius:6px;font-size:13px;">📋 기관 목록</a>
+    <div id="inviteCodeMenu" style="padding:8px 12px;border-radius:6px;font-size:13px;cursor:pointer;">🎫 초대코드 입력</div>
     <a href="/admin" id="adminMenu" style="display:none;padding:8px 12px;border-radius:6px;font-size:13px;">⚙️ 관리자 페이지</a>
     <div id="logoutBtn" style="padding:8px 12px;border-radius:6px;font-size:13px;color:var(--danger);cursor:pointer;">🚪 로그아웃</div>
   `;
   document.body.appendChild(menu);
   document.getElementById('profileMenu').onclick = () => { menu.remove(); openMyProfile(); };
+  document.getElementById('inviteCodeMenu').onclick = () => { menu.remove(); openInviteCodeModal(); };
   document.getElementById('logoutBtn').onclick = logout;
   getMe().then(u => { if (u && u.role === 'admin') document.getElementById('adminMenu').style.display = 'block'; });
   setTimeout(() => {
@@ -335,6 +422,77 @@ function userMenu(anchor) {
 
 // ========== Query string ==========
 function qs(name) { return new URLSearchParams(location.search).get(name); }
+
+// ========== 초대코드 입력 → 기관 가입 (사용자 메뉴에서 호출) ==========
+function openInviteCodeModal() {
+  modal({
+    title: '🎫 초대코드 입력',
+    body: `
+      <div class="text-sm text-muted mb-12">관리자에게 받은 초대코드를 입력하면 해당 기관에 가입할 수 있습니다.</div>
+      <div class="field">
+        <label class="label">초대코드</label>
+        <input class="input" id="ic_token" placeholder="초대 코드 또는 링크 전체" autocomplete="off">
+        <div class="text-sm text-muted mt-8">초대 링크 전체를 붙여 넣어도 자동으로 코드만 인식합니다.</div>
+      </div>
+    `,
+    confirmText: '확인',
+    onConfirm: async () => {
+      const raw = document.getElementById('ic_token').value.trim();
+      if (!raw) { toast('초대코드를 입력하세요.', 'error'); return false; }
+      // 링크 전체가 들어왔을 수 있으므로 token 파라미터만 추출
+      let token = raw;
+      try {
+        const m = raw.match(/[?&]invite=([A-Za-z0-9_-]+)/);
+        if (m) token = m[1];
+      } catch {}
+      try {
+        const info = await api.get(`/api/auth/invite-info?token=${encodeURIComponent(token)}`);
+        // 초대 정보 확인 모달
+        document.querySelector('.modal-backdrop')?.remove();
+        showInviteJoinPrompt(token, info);
+        return false;
+      } catch (e) {
+        toast(e.message || '유효하지 않은 초대코드입니다.', 'error');
+        return false;
+      }
+    }
+  });
+}
+
+function showInviteJoinPrompt(token, info) {
+  const org = info.organization || {};
+  const logoHtml = org.logo_url
+    ? `<img src="${org.logo_url}" style="width:60px;height:60px;border-radius:8px;object-fit:cover;background:var(--surface-2);">`
+    : `<div style="width:60px;height:60px;border-radius:8px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-size:24px;font-weight:800;">${(org.name||'?').slice(0,1)}</div>`;
+  const desc = org.description ? String(org.description).replace(/<[^>]+>/g, '').slice(0, 200) : '';
+  modal({
+    title: '🤝 기관 가입 확인',
+    body: `
+      <div class="flex items-center gap-16 mb-16" style="padding:14px;background:var(--surface-2);border-radius:10px;">
+        ${logoHtml}
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:18px;font-weight:800;">${escapeHtml(org.name || '')}</div>
+          ${desc ? `<div class="text-sm text-muted mt-4" style="font-size:13px;">${escapeHtml(desc)}${desc.length === 200 ? '…' : ''}</div>` : ''}
+        </div>
+      </div>
+      ${info.already_member
+        ? `<div style="padding:12px;background:#e0f2fe;color:#0c4a6e;border-radius:8px;font-size:14px;">✓ 이미 이 기관의 회원이십니다. 확인을 누르면 해당 기관 홈으로 이동합니다.</div>`
+        : `<div class="text-sm">위 기관에 회원으로 가입하시겠습니까?<br><span class="text-muted" style="font-size:12px;">가입 후에는 해당 기관의 공지·일정·게시판을 이용하실 수 있습니다.</span></div>`}
+    `,
+    confirmText: info.already_member ? '기관 홈으로 이동' : '가입',
+    onConfirm: async () => {
+      try {
+        if (info.already_member) {
+          location.href = `/home?org=${org.id}`;
+          return;
+        }
+        const r = await api.post('/api/auth/join', { invite_token: token });
+        toast('가입이 완료되었습니다. 기관 홈으로 이동합니다.', 'success');
+        setTimeout(() => { location.href = `/home?org=${r.organization_id}`; }, 600);
+      } catch (e) { toast(e.message || '가입에 실패했습니다.', 'error'); return false; }
+    }
+  });
+}
 
 // ========== My profile editor (used from user menu) ==========
 async function openMyProfile() {

@@ -3538,7 +3538,24 @@
 
     // ====== 조직도 편집 모드 토글 (iframe 임베드) ======
     let orgchartEditMode = false;
-    function toggleOrgchartEdit() {
+
+    // iframe(편집 모드)에 보류 중인 autosave 즉시 flush 요청 — 응답 또는 타임아웃까지 대기
+    function _flushOrgchartFrameSave(frame) {
+      return new Promise((resolve) => {
+        if (!frame || !frame.contentWindow) { resolve(); return; }
+        let done = false;
+        const finish = () => { if (!done) { done = true; window.removeEventListener('message', onMsg); resolve(); } };
+        const onMsg = (e) => {
+          if (!e.data || e.data.type !== 'orgchart-save-done') return;
+          finish();
+        };
+        window.addEventListener('message', onMsg);
+        try { frame.contentWindow.postMessage({ type: 'orgchart-flush-save' }, '*'); } catch {}
+        setTimeout(finish, 4000);   // 안전 타임아웃
+      });
+    }
+
+    async function toggleOrgchartEdit() {
       orgchartEditMode = !orgchartEditMode;
       const readView = document.getElementById('orgchartReadView');
       const editView = document.getElementById('orgchartEditView');
@@ -3552,14 +3569,23 @@
         // Lazy-load iframe src
         if (!frame.src) frame.src = `/orgchart?org=${orgId}&embed=1`;
       } else {
+        // 편집 종료 — iframe 안의 보류된 autosave 가 끝날 때까지 대기 후 서버에서 최신 데이터 재조회
+        btn.disabled = true;
+        const oldText = btn.textContent;
+        btn.textContent = '⏳ 저장 중...';
+        try {
+          await _flushOrgchartFrameSave(frame);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = '✏️ 편집 모드';
+          btn.classList.add('btn-primary');
+        }
         readView.style.display = '';
         editView.style.display = 'none';
-        btn.textContent = '✏️ 편집 모드';
-        btn.classList.add('btn-primary');
-        // 편집 종료 시 캐시 무효화 + 서버에서 최신 데이터 강제 재조회 → 보기 모드에 즉시 반영
+        // 캐시 무효화 + 서버에서 최신 데이터 강제 재조회 → 보기 모드에 즉시 반영
         orgchartLoaded = false;
         window._orgchartData = null;
-        loadOrgChart(true);
+        await loadOrgChart(true);
       }
     }
 

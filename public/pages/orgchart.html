@@ -1490,27 +1490,46 @@
       _autosaveTimer = setTimeout(() => doAutosave(), 1500);
     }
 
+    let _autosaveInflight = null;
     async function doAutosave() {
+      // 동시 호출 직렬화 — 진행 중이면 그 promise 를 그대로 반환
+      if (_autosaveInflight) return _autosaveInflight;
       if (!currentChartId) return;
-      try {
-        // 실제 렌더된 사이즈를 nodes 에 반영
-        nodes.forEach(n => {
-          const el = document.querySelector(`.node[data-node-id="${n.id}"]`);
-          if (el) {
-            n.width = el.offsetWidth;
-            n.height = el.offsetHeight;
-          }
-        });
-        const r = await api.put(`/api/orgchart/chart/${currentChartId}`, { data: JSON.stringify({ nodes, edges }) });
-        setAutosaveStatus('saved', '✓ 저장됨');
-        // updated_at 갱신 반영
-        const c = charts.find(c => c.id === currentChartId);
-        if (c && r.chart) c.updated_at = r.chart.updated_at;
-      } catch (e) {
-        console.error('[orgchart autosave]', e);
-        setAutosaveStatus('error', '⚠ 저장 실패');
-      }
+      _autosaveInflight = (async () => {
+        try {
+          // 실제 렌더된 사이즈를 nodes 에 반영
+          nodes.forEach(n => {
+            const el = document.querySelector(`.node[data-node-id="${n.id}"]`);
+            if (el) {
+              n.width = el.offsetWidth;
+              n.height = el.offsetHeight;
+            }
+          });
+          const r = await api.put(`/api/orgchart/chart/${currentChartId}`, { data: JSON.stringify({ nodes, edges }) });
+          setAutosaveStatus('saved', '✓ 저장됨');
+          // updated_at 갱신 반영
+          const c = charts.find(c => c.id === currentChartId);
+          if (c && r.chart) c.updated_at = r.chart.updated_at;
+        } catch (e) {
+          console.error('[orgchart autosave]', e);
+          setAutosaveStatus('error', '⚠ 저장 실패');
+        } finally {
+          _autosaveInflight = null;
+        }
+      })();
+      return _autosaveInflight;
     }
+
+    // 부모 페이지(home)에서 보낸 flush 요청 — 디바운스 취소 + 진행 중 저장까지 끝낸 뒤 ACK
+    window.addEventListener('message', async (e) => {
+      if (!e.data || e.data.type !== 'orgchart-flush-save') return;
+      try {
+        if (_autosaveTimer) { clearTimeout(_autosaveTimer); _autosaveTimer = null; }
+        if (currentChartId) await doAutosave();
+        if (_autosaveInflight) await _autosaveInflight;
+      } catch {}
+      try { e.source.postMessage({ type: 'orgchart-save-done' }, '*'); } catch {}
+    });
 
     // 차트가 없을 때 첫 변경 시 자동으로 기본 차트 생성
     let _ensuringChart = false;

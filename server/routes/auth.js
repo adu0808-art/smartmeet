@@ -387,6 +387,40 @@ router.post('/reset-password', (req, res) => {
   res.json({ ok: true });
 });
 
+// 초대 토큰 미리보기 — 가입 전 기관 정보 조회 (가입 여부 판정 포함)
+router.get('/invite-info', (req, res) => {
+  const token = String(req.query.token || '').trim();
+  if (!token) return res.status(400).json({ error: '초대 코드가 필요합니다.' });
+  const invitation = db.prepare('SELECT * FROM invitations WHERE token = ?').get(token);
+  if (!invitation) return res.status(404).json({ error: '유효하지 않은 초대 코드입니다.' });
+  if (invitation.expires_at && new Date(invitation.expires_at) < new Date()) {
+    return res.status(400).json({ error: '만료된 초대 코드입니다.' });
+  }
+  if (invitation.max_uses > 0 && invitation.used_count >= invitation.max_uses) {
+    return res.status(400).json({ error: '이 초대 코드의 사용 한도를 초과했습니다.' });
+  }
+  const org = db.prepare('SELECT id, name, description, logo_url, hero_image_url FROM organizations WHERE id = ?')
+    .get(invitation.organization_id);
+  if (!org) return res.status(404).json({ error: '기관 정보를 찾을 수 없습니다.' });
+  // 로그인 상태이면 이미 가입했는지 함께 표시
+  let alreadyMember = false;
+  try {
+    const auth = req.headers.authorization || '';
+    if (auth.startsWith('Bearer ')) {
+      const jwt = require('jsonwebtoken');
+      const payload = jwt.verify(auth.slice(7), process.env.JWT_SECRET || 'smartmeet-secret');
+      const m = db.prepare('SELECT id FROM organization_members WHERE organization_id = ? AND user_id = ?')
+        .get(invitation.organization_id, payload.id);
+      alreadyMember = !!m;
+    }
+  } catch {}
+  res.json({
+    organization: org,
+    default_role: invitation.default_role,
+    already_member: alreadyMember
+  });
+});
+
 // Authenticated user joining via invite (already logged in)
 router.post('/join', authRequired, (req, res) => {
   const { invite_token } = req.body || {};
