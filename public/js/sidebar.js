@@ -80,7 +80,84 @@ function renderOrgSidebar(org, currentKey, opts = {}) {
   if (!document.body.classList.contains('embed')) {
     bindShellNav(sb);
   }
+  // 모바일 햄버거 드로어 활성화
+  enableMobileSidebar();
 }
+
+// ====== 모바일 사이드바 (햄버거 드로어) ======
+//   - 토픽바 좌측에 햄버거 버튼 자동 삽입
+//   - 사이드바를 화면 밖에 위치시키고 드로어로 슬라이드 인/아웃
+//   - 백드롭 클릭 또는 nav-item 클릭 시 자동 닫힘
+function enableMobileSidebar() {
+  // embed 모드(부모 shell 안의 iframe)는 자체 사이드바 없음
+  if (document.body && document.body.classList.contains('embed')) return;
+  const sb = document.querySelector('.sidebar');
+  if (!sb) return;
+  // 비어있는 사이드바 (일반 회원·아직 미렌더 등) → 일단 건너뜀, 다음 호출 때 다시 시도
+  const hasContent = sb.children.length > 0 && sb.style.display !== 'none';
+  if (!hasContent) return;
+
+  document.body.classList.add('has-sidebar');
+
+  // 햄버거 버튼이 이미 삽입돼 있으면 skip
+  if (document.querySelector('.topbar-burger')) return;
+
+  const topbar = document.querySelector('.topbar');
+  if (!topbar) return;
+
+  const burger = document.createElement('button');
+  burger.type = 'button';
+  burger.className = 'topbar-burger';
+  burger.setAttribute('aria-label', '메뉴 열기');
+  burger.innerHTML = '☰';
+  topbar.insertBefore(burger, topbar.firstChild);
+
+  let backdrop = document.querySelector('.sidebar-backdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.className = 'sidebar-backdrop';
+    document.body.appendChild(backdrop);
+  }
+
+  const open = () => {
+    sb.classList.add('open');
+    backdrop.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  };
+  const close = () => {
+    sb.classList.remove('open');
+    backdrop.classList.remove('open');
+    document.body.style.overflow = '';
+  };
+
+  burger.addEventListener('click', () => {
+    sb.classList.contains('open') ? close() : open();
+  });
+  backdrop.addEventListener('click', close);
+
+  // 사이드바 안의 nav-item 클릭 시 자동 닫힘
+  sb.addEventListener('click', (e) => {
+    const a = e.target.closest('a.nav-item');
+    if (a) close();
+  });
+
+  // 화면 크기 변경 시 (모바일 → 데스크톱 전환) 드로어 닫기
+  window.addEventListener('resize', () => {
+    if (window.innerWidth > 768 && sb.classList.contains('open')) close();
+  });
+}
+
+// admin/dashboard 등 hardcoded 사이드바 페이지를 위한 자동 초기화
+(function _autoInitMobileSidebar() {
+  const tryInit = () => {
+    try { enableMobileSidebar(); } catch {}
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', tryInit, { once: true });
+  } else {
+    setTimeout(tryInit, 0);
+  }
+})();
 
 // 사이드바 클릭 → iframe 기반으로 우측 콘텐츠만 교체 (전체 페이지 새로고침 없음)
 function bindShellNav(sb) {

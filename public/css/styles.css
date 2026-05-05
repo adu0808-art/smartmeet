@@ -1982,11 +1982,280 @@ select.input, select.select { cursor: pointer; }
   .with-rightpanel { grid-template-columns: 1fr; }
   .rightpanel { order: -1; }
 }
+
+/* === 모바일 햄버거 버튼 — 데스크톱에서는 숨김 === */
+.topbar-burger {
+  display: none;
+  width: 40px; height: 40px;
+  border: none; background: transparent;
+  border-radius: 8px; cursor: pointer;
+  align-items: center; justify-content: center;
+  font-size: 22px; line-height: 1;
+  color: var(--text);
+  flex-shrink: 0;
+}
+.topbar-burger:hover { background: var(--surface-2); }
+
+/* === 사이드바 백드롭 (모바일 드로어 모드) === */
+.sidebar-backdrop {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.4);
+  z-index: 1400;
+  animation: fadeIn 0.18s ease;
+}
+.sidebar-backdrop.open { display: block; }
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 @media (max-width: 768px) {
+  /* 햄버거 노출 — 사이드바가 비어있지 않을 때만 (sidebar.js 가 적용) */
+  body.has-sidebar .topbar-burger { display: inline-flex; }
+
+  /* 앱 그리드 — 풀너비, 사이드바는 드로어로 분리 */
   .app { grid-template-columns: 1fr; }
-  .sidebar { display: none; }
-  .content { padding: 16px; }
-  .topbar { padding: 12px 16px; }
+  .app:has(.sidebar:empty) { grid-template-columns: 1fr; }
+
+  /* 사이드바 — 화면 밖에서 슬라이드 인 */
+  .sidebar {
+    position: fixed !important;
+    top: 0; left: 0; bottom: 0;
+    width: 280px;
+    max-width: 85vw;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    z-index: 1500;
+    box-shadow: 4px 0 20px rgba(0,0,0,0.15);
+    max-height: 100vh;
+    overflow-y: auto;
+  }
+  body.has-sidebar .sidebar { display: block !important; }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar:empty { display: none !important; }
+
+  /* 토픽바 — 좁은 패딩 */
+  .topbar { padding: 10px 14px; gap: 8px; }
+  .topbar-title {
+    font-size: 15px; flex: 1 1 auto; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .content { padding: 14px; }
+
+  /* embed 모드와 has-sidebar 가 충돌하지 않도록 — embed 는 항상 사이드바 숨김 */
+  body.embed.has-sidebar .topbar-burger { display: none !important; }
+
+  /* 페이지 헤더 — 이미 column 으로 처리됨, 추가 보강 */
+  .page-header { padding: 0 0 12px; }
+  .page-title { font-size: 22px !important; }
+
+  /* 테이블 — 가로 스크롤 컨테이너 + 좁은 패딩 */
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table.table {
+    font-size: 12.5px;
+  }
+  table.table th, table.table td {
+    padding: 8px 10px;
+    white-space: nowrap;
+  }
+  table.table .col-title { white-space: normal; min-width: 160px; }
+
+  /* 사용자 메뉴 드롭다운 — 풀너비에 가깝게 */
+  #user-menu {
+    right: 8px !important;
+    left: auto !important;
+    max-width: calc(100vw - 16px);
+  }
+
+  /* 버튼 — 최소 터치 타겟 */
+  .btn { min-height: 36px; }
+  .btn-sm { min-height: 30px; padding: 4px 10px; }
+
+  /* 카드 그리드 — 1열 */
+  .card-grid { grid-template-columns: 1fr !important; }
+
+  /* 사이드바 hidden 상태 강제 처리: app.member-mode 등 */
+  .app.member-mode .sidebar { display: none !important; }
+}
+
+@media (max-width: 640px) {
+  /* 모달 — 화면 하단에서 올라오는 시트 형태 */
+  .modal-backdrop { padding: 0; align-items: flex-end; }
+  .modal,
+  .modal-lg, .modal-ed, .modal-xl {
+    max-width: 100% !important;
+    width: 100%;
+    border-radius: 16px 16px 0 0 !important;
+    max-height: 95vh;
+    margin: 0;
+  }
+  .modal-head { padding: 14px 16px; }
+  .modal-body { padding: 14px 16px; }
+  .modal-foot {
+    padding: 10px 14px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .modal-foot .btn { flex: 1 1 auto; min-width: 100px; }
+
+  /* 기본 모달 애니메이션 — 슬라이드 업 */
+  @keyframes modalIn {
+    from { opacity: 0; transform: translateY(40px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* 폼 필드 행 — 자동 세로 스택 */
+  .flex.gap-12, .flex.gap-16 {
+    flex-wrap: wrap;
+  }
+  .flex.gap-12 > .flex-1, .flex.gap-16 > .flex-1 {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  /* 입력 폰트 16px — iOS zoom 방지 */
+  .input, .select, textarea.textarea {
+    font-size: 16px;
+  }
+
+  /* 캘린더 — 셀 작게 */
+  .cal-cell { min-height: 60px !important; padding: 4px !important; }
+  .cal-cell .cal-day-num { font-size: 12px !important; }
+  .cal-event, .cal-event-title { font-size: 10.5px !important; padding: 2px 4px !important; }
+
+  /* 일정 목록 (sched-row) — 컴팩트 */
+  .sched-list { gap: 8px !important; }
+  .sched-row {
+    padding: 12px !important;
+    gap: 10px !important;
+    flex-wrap: wrap;
+  }
+  .sched-row-date { min-width: 50px !important; }
+  .sched-row-month { font-size: 11px !important; }
+  .sched-row-day { font-size: 22px !important; }
+  .sched-row-dow { font-size: 10px !important; }
+  .sched-row-title { font-size: 14px !important; }
+  .sched-row-meta { font-size: 11.5px !important; gap: 6px !important; flex-wrap: wrap; }
+  .sched-row-actions {
+    width: 100% !important;
+    justify-content: flex-end !important;
+    margin-top: 6px;
+  }
+
+  /* 에디터 툴바 — 가로 스크롤 */
+  .rt-toolbar {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+  }
+  .rt-toolbar::-webkit-scrollbar { height: 3px; }
+  .rt-tb-group { flex-shrink: 0; }
+  .rt-content { min-height: 200px; }
+
+  /* 회의 hero — 모바일 좁은 패딩 */
+  .meeting-hero { padding: 16px; gap: 12px; }
+  .meeting-hero-logo { width: 44px; height: 44px; font-size: 14px; }
+  .meeting-hero-title { font-size: 17px; }
+  .meeting-hero-info { font-size: 12px; gap: 10px; }
+
+  /* 임원 명단 카드 그리드 */
+  .exec-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+  .exec-card { padding: 12px !important; }
+  .exec-card-photo { width: 60px !important; height: 60px !important; }
+  .exec-card-name { font-size: 13px !important; }
+  .exec-card-position { font-size: 11px !important; }
+
+  /* 회원수첩 카드 */
+  .pb-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+  }
+  .pb-card { padding: 14px !important; }
+
+  /* 필터 칩 / 탭 — 가로 스크롤 */
+  .filter-row, .tabs {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+  }
+  .filter-row::-webkit-scrollbar, .tabs::-webkit-scrollbar { height: 3px; }
+  .filter-pill, .tab { flex-shrink: 0; }
+}
+
+@media (max-width: 480px) {
+  /* 더 좁은 화면에서 테이블 텍스트 더 작게 */
+  table.table { font-size: 12px; }
+  table.table th, table.table td { padding: 6px 8px; }
+
+  /* 임원 명단 카드 — 1열 */
+  .exec-grid { grid-template-columns: 1fr !important; }
+  .pb-grid { grid-template-columns: 1fr !important; }
+
+  /* 사용자 chip — 이름 짧게 */
+  .user-chip span { max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .user-chip { padding: 4px 8px; }
+
+  /* 토픽바 — 더 컴팩트 */
+  .topbar { padding: 8px 12px; }
+  .topbar-title { font-size: 14px; }
+
+  /* 콘텐츠 padding */
+  .content { padding: 12px; }
+}
+
+/* === 홈 hero / 탑네브 모바일 보강 === */
+@media (max-width: 768px) {
+  .home-hero {
+    min-height: 320px !important;
+    padding: 50px 20px !important;
+  }
+  .home-hero .hero-text h1 {
+    font-size: 32px !important;
+    letter-spacing: -0.8px !important;
+  }
+  .home-hero .hero-text .sub { font-size: 16px !important; }
+  .home-hero .hero-text .desc { font-size: 13px !important; }
+  .hero-edit-overlay { top: 8px; right: 8px; padding: 6px 10px; font-size: 12px; }
+
+  /* 홈 sticky top nav (게시판·일정·임원 등 탭) — 가로 스크롤 */
+  .org-topnav {
+    padding: 0 12px !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    justify-content: flex-start !important;
+    flex-wrap: nowrap !important;
+  }
+  .org-topnav .nav-tab,
+  .org-topnav > a, .org-topnav > div {
+    flex-shrink: 0;
+  }
+
+  /* 슬로건 바 */
+  .slogan-bar {
+    padding: 16px 16px !important;
+    font-size: 18px !important;
+  }
+
+  /* 홈 summary 섹션 */
+  .home-summary-section {
+    padding: 28px 16px !important;
+  }
+  .summary-head .summary-title {
+    font-size: 18px !important;
+  }
+}
+
+/* === 인증 화면 (로그인/가입) — 모바일 === */
+@media (max-width: 480px) {
+  .auth-shell { padding: 12px; }
+  .auth-card { padding: 24px 20px; }
+  .auth-title { font-size: 22px !important; }
 }
 
 /* ========== Embed 모드 (?embed=1) — iframe 내부에서 사이드바/토픽바 숨김 ========== */
