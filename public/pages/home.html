@@ -228,21 +228,29 @@
     }
     .topnav-dropdown a:hover { background: var(--surface-2); color: var(--accent); }
 
-    /* 모바일 햄버거 버튼 — 데스크톱에서는 숨김 */
-    .topnav-mobile-burger { display: none; }
+    /* === 모바일 전용 요소 — 데스크톱에서는 숨김 === */
+    .topnav-mobile-burger,
+    .topnav-brand-mini,
+    .topnav-mobile-backdrop,
+    .topnav-mobile-header { display: none !important; }
+    /* 데스크톱: items-wrap 자체는 사라지고 자식만 inline 렌더 (display:contents) */
     .topnav-items-wrap { display: contents; }
 
     /* === 모바일 — 햄버거 메뉴 === */
     @media (max-width: 768px) {
+      /* 데스크톱용 inline 렌더 비활성 — 사이드 드로어 모드 */
+      .topnav-items-wrap { display: none !important; }
+
       .org-topnav {
         position: sticky; top: 0;
         padding: 12px 14px !important;
         justify-content: space-between !important;
         flex-wrap: nowrap !important;
         overflow: visible !important;
+        gap: 8px;
       }
       .topnav-mobile-burger {
-        display: inline-flex;
+        display: inline-flex !important;
         align-items: center; justify-content: center;
         width: 42px; height: 42px;
         border: 1px solid var(--border);
@@ -250,16 +258,19 @@
         border-radius: 8px; cursor: pointer;
         font-size: 22px; line-height: 1;
         color: var(--text);
+        flex: 0 0 auto;
       }
       .topnav-mobile-burger:hover { background: var(--surface-2); }
       .topnav-brand-mini {
+        display: block !important;
         font-size: 14px; font-weight: 700;
         flex: 1 1 auto; min-width: 0;
         overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-        text-align: left; padding-left: 10px;
+        text-align: left;
       }
-      .topnav-items-wrap {
-        display: none;
+      /* 드로어 자체 — body 로 옮겨졌으므로 viewport 기준 fixed */
+      .topnav-items-wrap.open {
+        display: flex !important;
         position: fixed;
         top: 0; right: 0; bottom: 0;
         width: 280px; max-width: 85vw;
@@ -268,19 +279,18 @@
         padding: 18px 14px;
         overflow-y: auto;
         box-shadow: -4px 0 20px rgba(0,0,0,0.15);
-        flex-direction: column !important;
+        flex-direction: column;
         gap: 4px;
       }
-      .topnav-items-wrap.open { display: flex; }
-      .topnav-mobile-backdrop {
-        display: none;
+      .topnav-mobile-backdrop.open {
+        display: block !important;
         position: fixed; inset: 0;
         background: rgba(0,0,0,0.4);
         z-index: 1400;
       }
-      .topnav-mobile-backdrop.open { display: block; }
-      .topnav-mobile-header {
-        display: flex; align-items: center; justify-content: space-between;
+      .topnav-items-wrap .topnav-mobile-header {
+        display: flex !important;
+        align-items: center; justify-content: space-between;
         padding-bottom: 12px; margin-bottom: 8px;
         border-bottom: 1px solid var(--border);
       }
@@ -1796,10 +1806,12 @@
             ${dropdown}
           </div>`;
       }).join('');
+
+      // 데스크톱에서는 nav 안에 items-wrap (display: contents 로 자식만 inline 렌더)
+      // 모바일에서는 햄버거+brand 만 nav 에 두고, items-wrap+backdrop 은 body 에 위치
       nav.innerHTML = `
         <button type="button" class="topnav-mobile-burger" aria-label="메뉴 열기" id="topnavBurger">☰</button>
         <div class="topnav-brand-mini">${escapeHtml(organization.name || '')}</div>
-        <div class="topnav-mobile-backdrop" id="topnavBackdrop"></div>
         <div class="topnav-items-wrap" id="topnavItemsWrap">
           <div class="topnav-mobile-header">
             <div class="topnav-mobile-title">메뉴</div>
@@ -1808,12 +1820,26 @@
           ${itemsHtml}
         </div>
       `;
-      // 모바일 드로어 토글
+
+      // 백드롭은 body 에 (z-index/스택 컨텍스트 충돌 방지)
+      let backdrop = document.getElementById('topnavBackdrop');
+      if (!backdrop) {
+        backdrop = document.createElement('div');
+        backdrop.id = 'topnavBackdrop';
+        backdrop.className = 'topnav-mobile-backdrop';
+        document.body.appendChild(backdrop);
+      }
+
+      // 모바일 드로어 토글 — 열 때만 items-wrap 을 body 로 옮기고, 닫을 때 nav 로 복귀
       const burger = document.getElementById('topnavBurger');
       const closeBtn = document.getElementById('topnavClose');
       const wrap = document.getElementById('topnavItemsWrap');
-      const backdrop = document.getElementById('topnavBackdrop');
+
       const openMenu = () => {
+        // items-wrap 을 body 로 이동 → position:fixed 가 viewport 기준 동작
+        if (wrap.parentNode !== document.body) {
+          document.body.appendChild(wrap);
+        }
         wrap.classList.add('open');
         backdrop.classList.add('open');
         document.body.style.overflow = 'hidden';
@@ -1822,14 +1848,23 @@
         wrap.classList.remove('open');
         backdrop.classList.remove('open');
         document.body.style.overflow = '';
+        // 데스크톱 inline 렌더로 복귀하기 위해 nav 안으로 다시 이동
+        if (window.innerWidth > 768 && wrap.parentNode !== nav) {
+          nav.appendChild(wrap);
+        }
       };
       if (burger) burger.onclick = openMenu;
       if (closeBtn) closeBtn.onclick = closeMenu;
       if (backdrop) backdrop.onclick = closeMenu;
-      // 화면 크기 변경 시 자동 닫힘
+
+      // 화면 크기 변경 시: 데스크톱이면 닫고 nav 안으로 복귀
       window.addEventListener('resize', () => {
-        if (window.innerWidth > 768) closeMenu();
+        if (window.innerWidth > 768) {
+          closeMenu();
+          if (wrap.parentNode !== nav) nav.appendChild(wrap);
+        }
       });
+
       nav.querySelectorAll('a[data-target]').forEach(a => {
         a.onclick = (e) => { e.preventDefault(); showSection(a.dataset.target); closeMenu(); };
       });
