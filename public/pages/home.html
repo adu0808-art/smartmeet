@@ -228,6 +228,98 @@
     }
     .topnav-dropdown a:hover { background: var(--surface-2); color: var(--accent); }
 
+    /* 모바일 햄버거 버튼 — 데스크톱에서는 숨김 */
+    .topnav-mobile-burger { display: none; }
+    .topnav-items-wrap { display: contents; }
+
+    /* === 모바일 — 햄버거 메뉴 === */
+    @media (max-width: 768px) {
+      .org-topnav {
+        position: sticky; top: 0;
+        padding: 12px 14px !important;
+        justify-content: space-between !important;
+        flex-wrap: nowrap !important;
+        overflow: visible !important;
+      }
+      .topnav-mobile-burger {
+        display: inline-flex;
+        align-items: center; justify-content: center;
+        width: 42px; height: 42px;
+        border: 1px solid var(--border);
+        background: white;
+        border-radius: 8px; cursor: pointer;
+        font-size: 22px; line-height: 1;
+        color: var(--text);
+      }
+      .topnav-mobile-burger:hover { background: var(--surface-2); }
+      .topnav-brand-mini {
+        font-size: 14px; font-weight: 700;
+        flex: 1 1 auto; min-width: 0;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        text-align: left; padding-left: 10px;
+      }
+      .topnav-items-wrap {
+        display: none;
+        position: fixed;
+        top: 0; right: 0; bottom: 0;
+        width: 280px; max-width: 85vw;
+        background: white;
+        z-index: 1500;
+        padding: 18px 14px;
+        overflow-y: auto;
+        box-shadow: -4px 0 20px rgba(0,0,0,0.15);
+        flex-direction: column !important;
+        gap: 4px;
+      }
+      .topnav-items-wrap.open { display: flex; }
+      .topnav-mobile-backdrop {
+        display: none;
+        position: fixed; inset: 0;
+        background: rgba(0,0,0,0.4);
+        z-index: 1400;
+      }
+      .topnav-mobile-backdrop.open { display: block; }
+      .topnav-mobile-header {
+        display: flex; align-items: center; justify-content: space-between;
+        padding-bottom: 12px; margin-bottom: 8px;
+        border-bottom: 1px solid var(--border);
+      }
+      .topnav-mobile-title { font-size: 14px; font-weight: 700; color: var(--text-muted); letter-spacing: 1px; }
+      .topnav-mobile-close {
+        width: 32px; height: 32px; border: none; background: transparent;
+        border-radius: 6px; cursor: pointer; font-size: 20px;
+      }
+      .topnav-mobile-close:hover { background: var(--surface-2); }
+      /* 모바일 드로어 안 nav-item 스타일 */
+      .topnav-items-wrap .topnav-item {
+        width: 100%;
+      }
+      .topnav-items-wrap .topnav-item > a {
+        padding: 12px 14px;
+        border-bottom: none;
+        border-radius: 8px;
+        font-size: 14px;
+      }
+      .topnav-items-wrap .topnav-item:hover > a { background: var(--surface-2); }
+      .topnav-items-wrap .topnav-item.active > a {
+        background: var(--accent-soft); color: var(--accent);
+      }
+      .topnav-items-wrap .topnav-dropdown {
+        position: static; transform: none;
+        display: block !important;
+        box-shadow: none; border: none;
+        padding: 0 0 0 18px;
+        background: transparent;
+      }
+      .topnav-items-wrap .topnav-dropdown a {
+        padding: 8px 12px; font-size: 13px; color: var(--text-muted);
+        border-radius: 6px;
+      }
+      .topnav-items-wrap .topnav-dropdown a:hover {
+        background: var(--surface-2); color: var(--accent);
+      }
+    }
+
     /* === SLOGAN === */
     .slogan-bar {
       background: linear-gradient(90deg, #1a202c, #2d3748);
@@ -1690,7 +1782,7 @@
         { label: '기관일정', target: 'schedule', children: null }
       ];
       const nav = document.getElementById('orgTopNav');
-      nav.innerHTML = groups.map(g => {
+      const itemsHtml = groups.map(g => {
         const childKeys = (g.children || []).map(c => c.key);
         const allTargets = [g.target, ...childKeys].join(',');
         const dropdown = g.children
@@ -1704,8 +1796,42 @@
             ${dropdown}
           </div>`;
       }).join('');
+      nav.innerHTML = `
+        <button type="button" class="topnav-mobile-burger" aria-label="메뉴 열기" id="topnavBurger">☰</button>
+        <div class="topnav-brand-mini">${escapeHtml(organization.name || '')}</div>
+        <div class="topnav-mobile-backdrop" id="topnavBackdrop"></div>
+        <div class="topnav-items-wrap" id="topnavItemsWrap">
+          <div class="topnav-mobile-header">
+            <div class="topnav-mobile-title">메뉴</div>
+            <button type="button" class="topnav-mobile-close" aria-label="닫기" id="topnavClose">✕</button>
+          </div>
+          ${itemsHtml}
+        </div>
+      `;
+      // 모바일 드로어 토글
+      const burger = document.getElementById('topnavBurger');
+      const closeBtn = document.getElementById('topnavClose');
+      const wrap = document.getElementById('topnavItemsWrap');
+      const backdrop = document.getElementById('topnavBackdrop');
+      const openMenu = () => {
+        wrap.classList.add('open');
+        backdrop.classList.add('open');
+        document.body.style.overflow = 'hidden';
+      };
+      const closeMenu = () => {
+        wrap.classList.remove('open');
+        backdrop.classList.remove('open');
+        document.body.style.overflow = '';
+      };
+      if (burger) burger.onclick = openMenu;
+      if (closeBtn) closeBtn.onclick = closeMenu;
+      if (backdrop) backdrop.onclick = closeMenu;
+      // 화면 크기 변경 시 자동 닫힘
+      window.addEventListener('resize', () => {
+        if (window.innerWidth > 768) closeMenu();
+      });
       nav.querySelectorAll('a[data-target]').forEach(a => {
-        a.onclick = (e) => { e.preventDefault(); showSection(a.dataset.target); };
+        a.onclick = (e) => { e.preventDefault(); showSection(a.dataset.target); closeMenu(); };
       });
     }
 
@@ -2480,13 +2606,28 @@
 
     // ====== Footer ======
     function renderFooter() {
-      const logo = pickLogo(organization, 'combo') || pickLogo(organization, 'logo');
-      if (logo) {
-        const el = document.getElementById('footerLogo');
-        el.src = logo;
-        el.style.display = '';
+      const variant = organization.footer_logo_variant || 'combo';
+      const showName = organization.footer_show_name == null ? true : !!organization.footer_show_name;
+      const el = document.getElementById('footerLogo');
+      // 'none' 이면 로고 숨김
+      if (variant === 'none') {
+        el.style.display = 'none';
+      } else {
+        const logo = pickLogo(organization, variant);
+        if (logo) {
+          el.src = logo;
+          el.style.display = '';
+        } else {
+          el.style.display = 'none';
+        }
       }
-      document.getElementById('footerBrandText').textContent = organization.name;
+      const nameEl = document.getElementById('footerBrandText');
+      if (showName) {
+        nameEl.textContent = organization.name || '';
+        nameEl.style.display = '';
+      } else {
+        nameEl.style.display = 'none';
+      }
       const html = organization.footer_html || '';
       const fa = document.getElementById('footerHtmlArea');
       fa.innerHTML = html || '<p class="text-muted">하단 정보가 등록되지 않았습니다.</p>';
@@ -2498,18 +2639,53 @@
 
     function openFooterEditor() {
       let editor = null;
+      const curVariant = organization.footer_logo_variant || 'combo';
+      const curShowName = organization.footer_show_name == null ? true : !!organization.footer_show_name;
+      const opt = (val, label) =>
+        `<option value="${val}"${curVariant === val ? ' selected' : ''}>${label}</option>`;
       modal({
         title: '하단 정보 수정',
         size: 'ed',
         body: `
           <div class="text-sm text-muted mb-12">주소, 사업자번호, 대표자, 연락처 등 기관 하단에 표시할 정보를 작성하세요.</div>
-          <div id="footer_editor_host"></div>`,
+          <div class="flex gap-12 mb-12">
+            <div class="field flex-1">
+              <label class="label">표시할 로고</label>
+              <select class="select" id="fe_logo_variant">
+                ${opt('combo', '🔤 Logo & Text (심볼+텍스트)')}
+                ${opt('logo',  '🖼 Logo (심볼/마크)')}
+                ${opt('text',  '📝 Text (텍스트만)')}
+                ${opt('none',  '🚫 로고 표시 안 함')}
+              </select>
+              <div class="text-sm text-muted mt-8" style="font-size:11px;">선택한 변형이 없으면 자동으로 다른 로고로 대체됩니다.</div>
+            </div>
+            <div class="field flex-1">
+              <label class="label">기관명 표시</label>
+              <label class="flex items-center gap-8" style="display:flex;align-items:center;gap:8px;cursor:pointer;height:38px;">
+                <input type="checkbox" id="fe_show_name" ${curShowName ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer;">
+                <span>로고 옆에 기관 이름 노출</span>
+              </label>
+              <div class="text-sm text-muted mt-8" style="font-size:11px;">하단 가운데 영역의 본문(주소·연락처)과는 별개입니다.</div>
+            </div>
+          </div>
+          <div class="field">
+            <label class="label">하단 정보 본문</label>
+            <div id="footer_editor_host"></div>
+          </div>`,
         confirmText: '저장',
         onConfirm: async () => {
           const html = editor ? editor.getHtml() : '';
+          const footer_logo_variant = document.getElementById('fe_logo_variant').value;
+          const footer_show_name = document.getElementById('fe_show_name').checked ? 1 : 0;
           try {
-            await api.put(`/api/organizations/${orgId}`, { footer_html: html });
+            await api.put(`/api/organizations/${orgId}`, {
+              footer_html: html,
+              footer_logo_variant,
+              footer_show_name
+            });
             organization.footer_html = html;
+            organization.footer_logo_variant = footer_logo_variant;
+            organization.footer_show_name = footer_show_name;
             renderFooter();
             toast('수정되었습니다.', 'success');
           } catch (e) { toast(e.message, 'error'); return false; }

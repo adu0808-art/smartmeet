@@ -227,6 +227,11 @@ try { db.exec("ALTER TABLE organizations ADD COLUMN summary TEXT"); } catch (e) 
 // Organization: hero sub-title (under org name) and slogan bar text — admin editable on home
 try { db.exec("ALTER TABLE organizations ADD COLUMN hero_sub TEXT"); } catch (e) {}
 try { db.exec("ALTER TABLE organizations ADD COLUMN slogan TEXT"); } catch (e) {}
+// Organization: footer 표시 옵션 — 어떤 로고 변형을 쓸지 + 기관명 표기 여부
+//   footer_logo_variant: 'combo' | 'logo' | 'text' | 'none'  (default: 'combo')
+//   footer_show_name: 1 (보임) | 0 (숨김)                     (default: 1)
+try { db.exec("ALTER TABLE organizations ADD COLUMN footer_logo_variant TEXT DEFAULT 'combo'"); } catch (e) {}
+try { db.exec("ALTER TABLE organizations ADD COLUMN footer_show_name INTEGER DEFAULT 1"); } catch (e) {}
 
 // Posts: category — 'free' (자유게시판) | 'news' (회원소식)
 try { db.exec("ALTER TABLE posts ADD COLUMN category TEXT DEFAULT 'free'"); } catch (e) {}

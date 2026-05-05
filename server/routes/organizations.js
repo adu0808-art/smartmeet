@@ -77,10 +77,12 @@ router.put('/:id', requireOrg(req => req.params.id, 'write'), (req, res) => {
     footer_html: body.footer_html !== undefined ? body.footer_html : existing.footer_html,
     intro_html: body.intro_html !== undefined ? body.intro_html : existing.intro_html,
     hero_sub: body.hero_sub !== undefined ? body.hero_sub : existing.hero_sub,
-    slogan: body.slogan !== undefined ? body.slogan : existing.slogan
+    slogan: body.slogan !== undefined ? body.slogan : existing.slogan,
+    footer_logo_variant: body.footer_logo_variant !== undefined ? body.footer_logo_variant : existing.footer_logo_variant,
+    footer_show_name: body.footer_show_name !== undefined ? (body.footer_show_name ? 1 : 0) : existing.footer_show_name
   };
-  db.prepare('UPDATE organizations SET name = ?, summary = ?, description = ?, logo_url = ?, logo_text_url = ?, logo_combo_url = ?, hero_image_url = ?, footer_html = ?, intro_html = ?, hero_sub = ?, slogan = ? WHERE id = ?')
-    .run(merged.name, merged.summary || '', merged.description || '', merged.logo_url || '', merged.logo_text_url || '', merged.logo_combo_url || '', merged.hero_image_url || '', merged.footer_html || '', merged.intro_html || '', merged.hero_sub || '', merged.slogan || '', req.params.id);
+  db.prepare('UPDATE organizations SET name = ?, summary = ?, description = ?, logo_url = ?, logo_text_url = ?, logo_combo_url = ?, hero_image_url = ?, footer_html = ?, intro_html = ?, hero_sub = ?, slogan = ?, footer_logo_variant = ?, footer_show_name = ? WHERE id = ?')
+    .run(merged.name, merged.summary || '', merged.description || '', merged.logo_url || '', merged.logo_text_url || '', merged.logo_combo_url || '', merged.hero_image_url || '', merged.footer_html || '', merged.intro_html || '', merged.hero_sub || '', merged.slogan || '', merged.footer_logo_variant || 'combo', merged.footer_show_name == null ? 1 : (merged.footer_show_name ? 1 : 0), req.params.id);
   const org = db.prepare('SELECT * FROM organizations WHERE id = ?').get(req.params.id);
   res.json({ organization: org });
 });
