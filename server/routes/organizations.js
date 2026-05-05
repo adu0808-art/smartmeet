@@ -184,6 +184,23 @@ router.delete('/:id/users/:userId', requireOrg(req => req.params.id, 'write'), (
   res.json({ ok: true });
 });
 
+// 본인 기관 탈퇴 — 인증된 사용자가 자기 자신을 기관에서 제거
+router.delete('/:id/leave', (req, res) => {
+  const orgId = Number(req.params.id);
+  if (!orgId) return res.status(400).json({ error: '잘못된 기관 ID 입니다.' });
+  const org = db.prepare('SELECT id, name, owner_id FROM organizations WHERE id = ?').get(orgId);
+  if (!org) return res.status(404).json({ error: '기관을 찾을 수 없습니다.' });
+  if (org.owner_id === req.user.id) {
+    return res.status(400).json({ error: '소유자는 탈퇴할 수 없습니다. 다른 관리자에게 소유권을 이전하거나 기관을 삭제해주세요.' });
+  }
+  const member = db.prepare('SELECT id FROM organization_members WHERE organization_id = ? AND user_id = ?')
+    .get(orgId, req.user.id);
+  if (!member) return res.status(400).json({ error: '이 기관의 회원이 아닙니다.' });
+  db.prepare('DELETE FROM organization_members WHERE organization_id = ? AND user_id = ?')
+    .run(orgId, req.user.id);
+  res.json({ ok: true, organization_id: orgId, organization_name: org.name });
+});
+
 // 기관 관리자용: 소속 회원의 비밀번호 초기화
 router.post('/:id/users/:userId/reset-password', requireOrg(req => req.params.id, 'write'), (req, res) => {
   const { password } = req.body || {};

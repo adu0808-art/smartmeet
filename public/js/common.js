@@ -395,6 +395,12 @@ function renderUserChip(user) {
 function userMenu(anchor) {
   const existing = document.getElementById('user-menu');
   if (existing) { existing.remove(); return; }
+  // 현재 컨텍스트의 기관 ID 감지 (?org=N) — 부모 창(iframe shell)도 확인
+  let currentOrgId = '';
+  try { currentOrgId = new URLSearchParams(location.search).get('org') || ''; } catch {}
+  if (!currentOrgId) {
+    try { currentOrgId = new URLSearchParams(window.parent.location.search).get('org') || ''; } catch {}
+  }
   const menu = document.createElement('div');
   menu.id = 'user-menu';
   menu.style.cssText = 'position:absolute;background:white;border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-lg);z-index:50;min-width:180px;padding:6px;';
@@ -404,20 +410,70 @@ function userMenu(anchor) {
   menu.innerHTML = `
     <div style="padding:8px 12px;font-size:11px;color:var(--text-muted);">계정</div>
     <div id="profileMenu" style="padding:8px 12px;border-radius:6px;font-size:13px;cursor:pointer;">✏️ 내 프로필 수정</div>
-    <a href="/dashboard" style="display:block;padding:8px 12px;border-radius:6px;font-size:13px;">📋 기관 목록</a>
+    <a href="/dashboard" id="dashboardLink" style="display:block;padding:8px 12px;border-radius:6px;font-size:13px;">📋 기관 목록</a>
     <div id="inviteCodeMenu" style="padding:8px 12px;border-radius:6px;font-size:13px;cursor:pointer;">🎫 초대코드 입력</div>
+    ${currentOrgId ? `<div id="leaveOrgMenu" style="padding:8px 12px;border-radius:6px;font-size:13px;color:var(--danger);cursor:pointer;">🚪 기관 탈퇴하기</div>` : ''}
     <a href="/admin" id="adminMenu" style="display:none;padding:8px 12px;border-radius:6px;font-size:13px;">⚙️ 관리자 페이지</a>
     <div id="logoutBtn" style="padding:8px 12px;border-radius:6px;font-size:13px;color:var(--danger);cursor:pointer;">🚪 로그아웃</div>
   `;
   document.body.appendChild(menu);
-  document.getElementById('profileMenu').onclick = () => { menu.remove(); openMyProfile(); };
-  document.getElementById('inviteCodeMenu').onclick = () => { menu.remove(); openInviteCodeModal(); };
-  document.getElementById('logoutBtn').onclick = logout;
-  getMe().then(u => { if (u && u.role === 'admin') document.getElementById('adminMenu').style.display = 'block'; });
+  const close = () => { try { menu.remove(); } catch {} };
+  document.getElementById('profileMenu').onclick = () => { close(); openMyProfile(); };
+  document.getElementById('inviteCodeMenu').onclick = () => { close(); openInviteCodeModal(); };
+  // 기관 목록 / 관리자 페이지 — 링크 이동 직전에도 메뉴 닫기 (네비게이션 중 잔여 표시 방지)
+  const dashLink = document.getElementById('dashboardLink');
+  if (dashLink) dashLink.onclick = () => { close(); };
+  const leaveBtn = document.getElementById('leaveOrgMenu');
+  if (leaveBtn) leaveBtn.onclick = () => { close(); openLeaveOrgConfirm(currentOrgId); };
+  document.getElementById('logoutBtn').onclick = () => { close(); logout(); };
+  getMe().then(u => {
+    if (!u) return;
+    if (u.role === 'admin') {
+      const am = document.getElementById('adminMenu');
+      if (am) {
+        am.style.display = 'block';
+        am.onclick = () => { close(); };
+      }
+    }
+  });
   setTimeout(() => {
-    const off = (e) => { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', off); } };
+    const off = (e) => { if (!menu.contains(e.target)) { close(); document.removeEventListener('click', off); } };
     document.addEventListener('click', off);
   }, 0);
+}
+
+// ========== 기관 탈퇴 확인 ==========
+function openLeaveOrgConfirm(orgId) {
+  if (!orgId) return;
+  let orgName = '이 기관';
+  // 현재 기관 이름 가져오기 (best-effort)
+  api.get(`/api/organizations/${orgId}`).then(r => {
+    const nameEl = document.getElementById('leave_org_name');
+    if (nameEl && r.organization && r.organization.name) {
+      nameEl.textContent = r.organization.name;
+    }
+  }).catch(() => {});
+  modal({
+    title: '🚪 기관 탈퇴',
+    body: `
+      <div class="text-sm" style="line-height:1.7;">
+        <b id="leave_org_name">${orgName}</b> 에서 탈퇴하시겠습니까?
+        <ul style="margin:12px 0 0 18px;color:var(--text-muted);font-size:13px;">
+          <li>탈퇴 후에는 해당 기관의 공지·일정·게시판에 더 이상 접근할 수 없습니다.</li>
+          <li>다시 가입하려면 관리자에게 초대코드를 받아야 합니다.</li>
+          <li>회원수첩·임원 명단 등에서 본인 정보가 삭제될 수 있습니다.</li>
+        </ul>
+      </div>
+    `,
+    confirmText: '탈퇴',
+    onConfirm: async () => {
+      try {
+        const r = await api.del(`/api/organizations/${orgId}/leave`);
+        toast(`${r.organization_name || '기관'} 에서 탈퇴했습니다.`, 'success');
+        setTimeout(() => { location.href = '/dashboard'; }, 600);
+      } catch (e) { toast(e.message || '탈퇴에 실패했습니다.', 'error'); return false; }
+    }
+  });
 }
 
 // ========== Query string ==========
