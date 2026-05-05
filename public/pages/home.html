@@ -2508,9 +2508,11 @@
       return list;
     }
     function pbRoleLabel(u) {
-      if (u.is_owner) return '🏛️ 소유자';
-      if (u.member_role === 'admin') return '🔑 관리자';
-      return '👤 회원';
+      // 임원명단의 직책 우선, 없으면 권한 표시
+      if (u.position && u.position.trim()) return u.position.trim();
+      if (u.is_owner) return '소유자';
+      if (u.member_role === 'admin') return '관리자';
+      return '회원';
     }
     function pbIsSysAdmin() { return me && me.role === 'admin'; }
 
@@ -2595,7 +2597,7 @@
             <th style="width:36px;"><input type="checkbox" data-pbcheckall title="전체 선택" style="cursor:pointer;"></th>
             <th style="width:40px;"></th>
             <th>성명</th>
-            <th style="width:120px;">권한</th>
+            <th style="width:120px;">직책</th>
             <th>이메일</th>
             <th style="width:140px;">전화</th>
             <th style="width:140px;">전공</th>
@@ -2629,7 +2631,7 @@
       const data = list.map(u => ({
         성명: u.name || '',
         이메일: u.email || '',
-        권한: u.is_owner ? '소유자' : (u.member_role === 'admin' ? '관리자' : '회원'),
+        직책: pbRoleLabel(u),
         전화: formatPhone(u.phone || ''),
         전공: u.major || '',
         직장: u.workplace || ''

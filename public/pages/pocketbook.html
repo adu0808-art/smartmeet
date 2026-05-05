@@ -195,10 +195,12 @@
       return list;
     }
 
-    function roleLabel(u) {
-      if (u.is_owner) return '🏛️ 소유자';
-      if (u.member_role === 'admin') return '🔑 관리자';
-      return '👤 회원';
+    // 직책 표시 — 임원명단에 등록된 직책(회장/이사 등) 우선, 없으면 권한 표시
+    function positionLabel(u) {
+      if (u.position && u.position.trim()) return u.position.trim();
+      if (u.is_owner) return '소유자';
+      if (u.member_role === 'admin') return '관리자';
+      return '회원';
     }
 
     const isSysAdmin = () => me?.role === 'admin';
@@ -235,7 +237,7 @@
             <div class="pb-avatar">${u.profile_image ? `<img src="${u.profile_image}">` : initial}</div>
             <div style="min-width:0;flex:1;">
               <div class="pb-name">${u.name}</div>
-              <div class="pb-role">${roleLabel(u)}</div>
+              <div class="pb-role">${positionLabel(u)}</div>
             </div>
           </div>
           ${u.email ? `<div class="pb-row"><span class="ic">✉️</span><a href="mailto:${u.email}" class="val">${u.email}</a></div>` : ''}
@@ -253,7 +255,7 @@
           <thead><tr>
             <th style="width:40px;"></th>
             <th>성명</th>
-            <th>권한</th>
+            <th>직책</th>
             <th>이메일</th>
             <th>전화</th>
             <th>전공</th>
@@ -265,7 +267,7 @@
               <tr>
                 <td><div class="pb-avatar" style="width:32px;height:32px;font-size:12px;${u.is_owner ? 'background:linear-gradient(135deg,#4f46e5,#6366f1);' : (u.member_role==='admin' ? 'background:linear-gradient(135deg,#fbbf24,#f59e0b);' : '')}">${(u.name||'?').slice(0,1)}</div></td>
                 <td><b>${u.name}</b>${u.bio ? `<div class="text-sm text-muted" style="margin-top:2px;">${u.bio}</div>` : ''}</td>
-                <td>${roleLabel(u)}</td>
+                <td>${positionLabel(u)}</td>
                 <td>${u.email ? `<a href="mailto:${u.email}">${u.email}</a>` : '-'}</td>
                 <td>${u.phone ? `<a href="tel:${u.phone}">${formatPhone(u.phone)}</a>` : '-'}</td>
                 <td>${u.major || '-'}</td>
@@ -353,7 +355,7 @@
       const data = list.map(u => ({
         성명: u.name || '',
         이메일: u.email || '',
-        권한: u.is_owner ? '소유자' : (u.member_role === 'admin' ? '관리자' : '회원'),
+        직책: positionLabel(u),
         전화: formatPhone(u.phone || ''),
         전공: u.major || '',
         직장: u.workplace || ''

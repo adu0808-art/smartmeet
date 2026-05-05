@@ -153,11 +153,25 @@ router.get('/:id/dashboard', requireOrg(req => req.params.id, 'read'), (req, res
 // Org users (members of the system, not 의원) — admins only
 router.get('/:id/users', requireOrg(req => req.params.id, 'read'), (req, res) => {
   const orgId = req.params.id;
+  // 임원 명단(members)에서 직책(position) 매칭 — 이메일 우선, 없으면 전화번호(숫자만)로 매칭
   // Exclude system admins (users.role = 'admin') from the org member list
   const rows = db.prepare(`
     SELECT u.id, u.email, u.name, u.phone, u.major, u.workplace, u.profile_image, u.bio,
       om.member_role, om.id AS membership_id, u.created_at,
-      (CASE WHEN o.owner_id = u.id THEN 1 ELSE 0 END) AS is_owner
+      (CASE WHEN o.owner_id = u.id THEN 1 ELSE 0 END) AS is_owner,
+      COALESCE(
+        (SELECT m.position FROM members m
+         WHERE m.organization_id = om.organization_id
+           AND m.email IS NOT NULL AND m.email != ''
+           AND LOWER(m.email) = LOWER(COALESCE(u.email, ''))
+         ORDER BY m.id DESC LIMIT 1),
+        (SELECT m.position FROM members m
+         WHERE m.organization_id = om.organization_id
+           AND m.phone IS NOT NULL AND m.phone != ''
+           AND u.phone IS NOT NULL AND u.phone != ''
+           AND REPLACE(REPLACE(m.phone, '-', ''), ' ', '') = REPLACE(REPLACE(u.phone, '-', ''), ' ', '')
+         ORDER BY m.id DESC LIMIT 1)
+      ) AS position
     FROM organization_members om
     JOIN users u ON u.id = om.user_id
     JOIN organizations o ON o.id = om.organization_id
