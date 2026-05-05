@@ -2185,8 +2185,18 @@ select.input, select.select { cursor: pointer; }
   }
   .meeting-hero .topbar-actions .btn { flex: 1 1 auto; min-height: 38px; }
 
-  /* with-rightpanel — 모바일 1열 + 우측 패널 위로 (이미 1100px 이하에 정의됨) */
-  .with-rightpanel { gap: 14px !important; }
+  /* with-rightpanel — 모바일 재배치
+     .with-rightpanel 를 display: contents 로 만들어 자식이 .content 의 직속 자식이 되게 한 뒤,
+     order 로 정족수 → 회의요약 → 회의목차 순서로 재정렬 */
+  .content:has(.meeting-hero) {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .with-rightpanel { display: contents !important; }
+  .rightpanel { order: 1 !important; display: flex; flex-direction: column; gap: 12px; }
+  .meeting-hero { order: 2 !important; margin-bottom: 0 !important; }
+  .with-rightpanel > div:not(.rightpanel) { order: 3; }
 
   /* 정족수 카드 — 모바일 컴팩트 */
   .quorum-card { padding: 14px !important; }
