@@ -2378,11 +2378,14 @@
             label = '&nbsp;';
           }
           const titleAttr = `${e.title}${isMulti ? ` (${e.schedule_date} ~ ${e.end_date})` : ''}${e.start_time ? ` ${e.start_time}` : ''}${e.end_time ? ' ~ ' + e.end_time : ''}`;
-          const eventClick = `onclick="event.stopPropagation();openScheduleDetail(${e.id});"`;
+          // 모바일에서는 셀 클릭으로 날짜별 리스트가 열리도록 이벤트 개별 클릭 차단
+          //   (좁은 화면에서 이벤트 막대를 정확히 누르기 어려움 → 셀 전체로 위임)
+          const eventClick = `onclick="if(window.innerWidth<=768){event.stopPropagation();schedCellClick('${dateStr}');return;} event.stopPropagation();openScheduleDetail(${e.id});"`;
           return `<div class="cal-event ${cls}${posCls}" title="${escapeHtml(titleAttr)}" style="cursor:pointer;" ${eventClick}>${label}</div>`;
         }).join('');
 
-        const cellClick = isAdmin ? `onclick="schedCellClick('${dateStr}')"` : '';
+        // 셀 클릭: 모바일은 누구나 → 해당 날짜 일정 리스트 모달, 데스크톱은 관리자만 → 일정 추가
+        const cellClick = `onclick="schedCellClick('${dateStr}')"`;
         html += `
           <div class="cal-cell ${muted?'muted':''} ${isToday?'today':''}" ${cellClick}>
             <div class="cal-day ${dow===0?'sun':''}${dow===6?'sat':''}">${day}</div>
@@ -2393,8 +2396,83 @@
     }
 
     function schedCellClick(date) {
-      if (!isAdmin) return;
+      const isMobile = window.innerWidth <= 768;
+      // 모바일: 항상 해당 날짜의 일정 리스트 모달 표시 (관리자는 추가 버튼도 함께)
+      // 데스크톱: 관리자만 일정 추가 모달, 일반 사용자는 모바일과 동일하게 리스트
+      if (isMobile || !isAdmin) {
+        openDateScheduleList(date);
+        return;
+      }
+      // 데스크톱 + 관리자 → 기존 동작 (일정 추가)
       openScheduleEditor({ schedule_date: date });
+    }
+
+    // 특정 날짜에 해당하는 일정 모두 (단일 + 다일 일정 포함) 모아서 모달로 보여줌
+    function openDateScheduleList(dateStr) {
+      const matches = dataSchedules.filter(s => {
+        const start = s.schedule_date;
+        const end = s.end_date || s.schedule_date;
+        return dateStr >= start && dateStr <= end;
+      }).sort((a, b) => {
+        // 시간이 있는 일정을 시간순, 종일은 마지막
+        const aT = a.start_time || '99:99';
+        const bT = b.start_time || '99:99';
+        return aT.localeCompare(bT);
+      });
+
+      const dateLabel = (() => {
+        try {
+          const d = new Date(dateStr);
+          const dow = ['일','월','화','수','목','금','토'][d.getDay()];
+          return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 (${dow})`;
+        } catch { return dateStr; }
+      })();
+
+      let body;
+      if (matches.length === 0) {
+        body = `<div class="text-sm text-muted" style="padding:24px;text-align:center;">이 날짜에 등록된 일정이 없습니다.</div>`;
+      } else {
+        body = `
+          <div class="sched-list" style="display:flex;flex-direction:column;gap:8px;">
+            ${matches.map(s => {
+              const isMulti = s.end_date && s.end_date !== s.schedule_date;
+              const isMeeting = !!s.meeting_id;
+              const time = s.start_time
+                ? `${s.start_time}${s.end_time ? ' ~ ' + s.end_time : ''}`
+                : '종일';
+              const span = isMulti
+                ? ` <span class="text-sm text-muted">(${s.schedule_date.replace(/-/g,'.')} ~ ${s.end_date.replace(/-/g,'.')})</span>`
+                : '';
+              return `
+                <div class="card" style="padding:12px 14px;cursor:pointer;" onclick="document.querySelector('.modal-backdrop').remove(); openScheduleDetail(${s.id});">
+                  <div class="flex items-center gap-8" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                    <span class="tag ${isMeeting ? 'tag-board' : 'tag-status-prep'}" style="font-size:10.5px;">${isMeeting ? '이벤트' : (isMulti ? '다일' : '일정')}</span>
+                    <span style="font-size:13px;font-weight:600;color:var(--text-muted);">${escapeHtml(time)}</span>
+                  </div>
+                  <div style="font-size:14px;font-weight:700;margin-top:6px;">${escapeHtml(s.title)}${span}</div>
+                </div>`;
+            }).join('')}
+          </div>`;
+      }
+
+      const m = modal({
+        title: `🗓️ ${dateLabel}`,
+        body,
+        confirmText: isAdmin ? '+ 일정 추가' : '닫기',
+        cancelText: '닫기',
+        hideFoot: false,
+        onConfirm: () => {
+          if (!isAdmin) return; // 닫기로 동작
+          openScheduleEditor({ schedule_date: dateStr });
+        }
+      });
+      // 일반 사용자는 confirm 버튼 숨김 → 닫기만
+      if (!isAdmin) {
+        const confirmBtn = m.root.querySelector('[data-confirm]');
+        const cancelBtn = m.root.querySelector('[data-close].btn');
+        if (confirmBtn) confirmBtn.style.display = 'none';
+        if (cancelBtn) cancelBtn.style.flex = '1 1 auto';
+      }
     }
 
     // 옛 renderPresidents() 는 제거됨 — renderPresidentsList() 가 #presListView 에 그림.
