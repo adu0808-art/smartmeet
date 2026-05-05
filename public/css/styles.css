@@ -1805,7 +1805,7 @@ select.input, select.select { cursor: pointer; }
 .calendar-title { font-size: 18px; font-weight: 800; }
 .calendar-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));    /* min 0 으로 grid blowout 방지 */
   gap: 1px;
   background: var(--border);
   border: 1px solid var(--border);
@@ -1825,6 +1825,7 @@ select.input, select.select { cursor: pointer; }
 .cal-cell {
   background: var(--surface);
   min-height: 92px;
+  min-width: 0;               /* grid blowout 방지 — 자식 nowrap 이 셀을 넓히지 못하게 */
   padding: 6px 0;             /* 좌우 패딩 제거 — 다일 일정 바가 셀 엣지까지 확장 가능 */
   display: flex;
   flex-direction: column;
@@ -1849,6 +1850,8 @@ select.input, select.select { cursor: pointer; }
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: calc(100% - 8px); /* 셀 폭을 절대 넘지 않도록 — 좌우 margin 4+4 제외 */
+  min-width: 0;
   min-height: 18px;
   box-sizing: border-box;
 }
@@ -2120,9 +2123,19 @@ select.input, select.select { cursor: pointer; }
   }
 
   /* 캘린더 — 셀 작게 */
-  .cal-cell { min-height: 60px !important; padding: 4px !important; }
-  .cal-cell .cal-day-num { font-size: 12px !important; }
-  .cal-event, .cal-event-title { font-size: 10.5px !important; padding: 2px 4px !important; }
+  .cal-cell { min-height: 60px !important; padding: 4px 0 !important; }
+  .cal-cell .cal-day-num, .cal-day { font-size: 11px !important; padding: 0 4px !important; }
+  .cal-event, .cal-event-title {
+    font-size: 10px !important;
+    padding: 1px 3px !important;
+    margin: 0 2px !important;
+    max-width: calc(100% - 4px) !important;
+  }
+  .cal-event.multi-start { margin-left: 2px !important; padding-left: 4px !important; }
+  .cal-event.multi-end { margin-right: 2px !important; padding-right: 4px !important; }
+  .cal-event-spacer { margin: 0 2px !important; }
+  /* 캘린더 헤더 (요일) — 좁게 */
+  .calendar-grid > div:nth-child(-n+7) { font-size: 11px !important; padding: 6px 0 !important; }
 
   /* 일정 목록 (sched-row) — 컴팩트 */
   .sched-list { gap: 8px !important; }
@@ -2154,11 +2167,49 @@ select.input, select.select { cursor: pointer; }
   .rt-tb-group { flex-shrink: 0; }
   .rt-content { min-height: 200px; }
 
-  /* 회의 hero — 모바일 좁은 패딩 */
-  .meeting-hero { padding: 16px; gap: 12px; }
+  /* 회의 hero — 모바일 좁은 패딩 + 세로 정렬 */
+  .meeting-hero {
+    padding: 16px; gap: 12px;
+    flex-direction: column;
+    align-items: stretch !important;
+  }
+  .meeting-hero-left { width: 100%; }
   .meeting-hero-logo { width: 44px; height: 44px; font-size: 14px; }
   .meeting-hero-title { font-size: 17px; }
   .meeting-hero-info { font-size: 12px; gap: 10px; }
+  .meeting-hero .topbar-actions {
+    width: 100% !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+  }
+  .meeting-hero .topbar-actions .btn { flex: 1 1 auto; min-height: 38px; }
+
+  /* with-rightpanel — 모바일 1열 + 우측 패널 위로 (이미 1100px 이하에 정의됨) */
+  .with-rightpanel { gap: 14px !important; }
+
+  /* 정족수 카드 — 모바일 컴팩트 */
+  .quorum-card { padding: 14px !important; }
+  .quorum-num { font-size: 32px !important; }
+
+  /* 탭바 — 가로 스크롤 (4개 탭이 좁은 화면에 안 들어가는 경우) */
+  .tabs {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+  }
+  .tabs::-webkit-scrollbar { height: 3px; }
+  .tab { flex-shrink: 0; }
+
+  /* 회의 페이지 page-header — 한 화면에 너무 많이 차지하지 않도록 */
+  .with-rightpanel .page-header {
+    gap: 10px;
+  }
+  .with-rightpanel .page-header .topbar-actions {
+    width: 100%;
+  }
+  .with-rightpanel .page-header .topbar-actions .btn { flex: 1 1 auto; }
 
   /* 임원 명단 카드 그리드 */
   .exec-grid {

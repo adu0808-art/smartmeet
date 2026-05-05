@@ -1042,14 +1042,15 @@
       border-top: 1px dashed var(--border);
       margin-top: 8px;
     }
-    .pb-view-toggle {
+    .pb-view-toggle, .view-toggle {
       display: inline-flex;
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
       overflow: hidden;
+      flex-shrink: 0;
     }
-    .pb-view-toggle button {
+    .pb-view-toggle button, .view-toggle-btn {
       padding: 8px 14px;
       border: none;
       background: transparent;
@@ -1057,8 +1058,9 @@
       font-weight: 600;
       color: var(--text-muted);
       cursor: pointer;
+      white-space: nowrap;
     }
-    .pb-view-toggle button.active { background: var(--primary); color: white; }
+    .pb-view-toggle button.active, .view-toggle-btn.active { background: var(--primary); color: white; }
     @media print {
       body * { visibility: hidden; }
       #pocketbookHost, #pocketbookHost * { visibility: visible; }
@@ -1298,7 +1300,13 @@
                 <div class="section-title">역대 회장</div>
                 <div class="section-sub">기수별 역대 회장입니다.</div>
               </div>
-              <button class="btn btn-primary" id="addPresidentBtn" data-admin-only>+ 회장 추가</button>
+              <div class="topbar-actions">
+                <div class="view-toggle">
+                  <button class="view-toggle-btn active" data-presview="card" type="button">🪪 카드</button>
+                  <button class="view-toggle-btn" data-presview="list" type="button">📋 목록</button>
+                </div>
+                <button class="btn btn-primary" id="addPresidentBtn" data-admin-only>+ 회장 추가</button>
+              </div>
             </div>
             <div id="presListView"></div>
           </div>
@@ -4135,6 +4143,7 @@
       renderExecGenTabs();
       renderExecList();
       renderPresidentsList();
+      bindPresViewToggle();
       bindExecBulkActions();
       bindExecSearch();
     }
@@ -4267,16 +4276,17 @@
 
       const rows = list.map(m => {
         const checked = execSelected.has(m.id) ? 'checked' : '';
+        // 핸들 셀에서만 드래그 가능 — mousedown 시 row 의 draggable 을 동적으로 켜고 끔
         const handle = isAdmin
-          ? `<td class="text-muted text-center" style="cursor:grab;user-select:none;font-size:14px;">⋮⋮</td>`
+          ? `<td class="text-muted text-center exec-drag-handle" data-drag-handle="1" title="드래그하여 순서 변경" style="cursor:grab;user-select:none;font-size:14px;touch-action:none;">⋮⋮</td>`
           : '';
         const checkbox = isAdmin
           ? `<td><input type="checkbox" class="exec-row-check" data-mid="${m.id}" ${checked}></td>`
           : '';
         // 검색 중에는 드래그 비활성화 (전체 기수 혼합 → seq 재배치가 혼란스러움)
-        const dragAttr = (isAdmin && !execSearchQ) ? 'draggable="true"' : '';
+        const canDrag = isAdmin && !execSearchQ;
         return `
-          <tr data-mid="${m.id}" ${dragAttr} class="exec-row">
+          <tr data-mid="${m.id}" data-can-drag="${canDrag ? '1' : '0'}" class="exec-row">
             ${checkbox}
             ${handle}
             <td>${execPhotoCell(m)}</td>
@@ -4443,19 +4453,37 @@
       });
     }
 
-    // ====== 드래그 앤 드롭 순번 변경 ======
+    // ====== 드래그 앤 드롭 순번 변경 — 핸들(⋮⋮)에서만 시작 ======
     function bindExecRowDragDrop() {
       const tbody = document.querySelector('#execTable tbody');
       if (!tbody) return;
       let dragRow = null;
+      // 핸들 mousedown → row.draggable 활성화 (이 셀에서 시작한 드래그만 row 단위로 처리)
+      tbody.querySelectorAll('.exec-drag-handle').forEach(h => {
+        const row = h.closest('tr.exec-row');
+        if (!row) return;
+        const canDrag = row.dataset.canDrag === '1';
+        if (!canDrag) return;
+        h.addEventListener('mousedown', () => { row.setAttribute('draggable', 'true'); });
+        h.addEventListener('touchstart', () => { row.setAttribute('draggable', 'true'); }, { passive: true });
+      });
+      // 핸들이 아닌 row 의 다른 영역에서 mousedown 시 draggable 즉시 해제 (텍스트 선택 등 일반 동작 보장)
+      tbody.addEventListener('mousedown', (e) => {
+        if (e.target.closest('.exec-drag-handle')) return;
+        const row = e.target.closest('tr.exec-row');
+        if (row) row.removeAttribute('draggable');
+      });
       tbody.querySelectorAll('tr.exec-row').forEach(row => {
         row.addEventListener('dragstart', (e) => {
+          // 안전장치: draggable 이 명시적으로 켜져 있을 때만 (핸들에서 시작했을 때)
+          if (row.getAttribute('draggable') !== 'true') { e.preventDefault(); return; }
           dragRow = row;
           row.style.opacity = '0.4';
           e.dataTransfer.effectAllowed = 'move';
         });
         row.addEventListener('dragend', () => {
           if (dragRow) dragRow.style.opacity = '';
+          row.removeAttribute('draggable');
           tbody.querySelectorAll('tr.exec-row').forEach(r => r.classList.remove('drag-over'));
           dragRow = null;
         });
@@ -4497,6 +4525,7 @@
         });
       });
     }
+    let presView = 'card';   // 'card' | 'list'
     function renderPresidentsList() {
       const host = document.getElementById('presListView');
       if (!host) return;
@@ -4507,43 +4536,65 @@
         host.innerHTML = '<div class="list-empty">등록된 회장이 없습니다.</div>';
         return;
       }
-      const adminCol = isAdmin ? '<th style="width:160px;text-align:right;">관리</th>' : '';
-      host.innerHTML = `
-        <div class="person-grid" style="margin-bottom:24px;">
-          ${presidents.map(m => `
-            <div class="person-card">
-              <div class="person-avatar">${m.photo ? `<img src="${m.photo}">` : escapeHtml((m.name || '?').slice(0, 1))}</div>
-              <div class="person-position">${escapeHtml(m.position)}</div>
-              <div class="person-name">${escapeHtml(m.name)}</div>
-              ${m.generation ? `<div class="person-meta">${escapeHtml(m.generation)}</div>` : ''}
-            </div>`).join('')}
-        </div>
-        <table class="exec-table">
-          <thead><tr>
-            <th style="width:50px;"></th>
-            <th style="width:120px;">기수</th>
-            <th style="width:140px;">직책</th>
-            <th>이름</th>
-            <th style="width:140px;">전공</th>
-            <th style="width:160px;">직장</th>
-            ${adminCol}
-          </tr></thead>
-          <tbody>
+      // 카드 / 목록 토글 — 사용자가 선택한 뷰만 렌더
+      if (presView === 'card') {
+        host.innerHTML = `
+          <div class="person-grid">
             ${presidents.map(m => `
-              <tr>
-                <td>${execPhotoCell(m)}</td>
-                <td class="text-muted">${escapeHtml(m.generation || '')}</td>
-                <td>${escapeHtml(m.position || '')}</td>
-                <td><b>${escapeHtml(m.name)}</b></td>
-                <td class="text-muted">${escapeHtml(m.major || '-')}</td>
-                <td class="text-muted">${escapeHtml(m.workplace || '-')}</td>
-                ${isAdmin ? `<td style="text-align:right;">
+              <div class="person-card">
+                <div class="person-avatar">${m.photo ? `<img src="${m.photo}">` : escapeHtml((m.name || '?').slice(0, 1))}</div>
+                <div class="person-position">${escapeHtml(m.position)}</div>
+                <div class="person-name">${escapeHtml(m.name)}</div>
+                ${m.generation ? `<div class="person-meta">${escapeHtml(m.generation)}</div>` : ''}
+                ${isAdmin ? `<div class="flex gap-4 mt-8" style="display:flex;gap:4px;justify-content:center;margin-top:10px;">
                   <button class="btn btn-sm" onclick="openExecEditor(${JSON.stringify(m).replace(/"/g,'&quot;')})">수정</button>
                   <button class="btn btn-sm btn-danger" onclick="deleteExec(${m.id})">삭제</button>
-                </td>` : ''}
-              </tr>`).join('')}
-          </tbody>
-        </table>`;
+                </div>` : ''}
+              </div>`).join('')}
+          </div>`;
+      } else {
+        const adminCol = isAdmin ? '<th style="width:160px;text-align:right;">관리</th>' : '';
+        host.innerHTML = `
+          <div style="overflow-x:auto;">
+            <table class="exec-table">
+              <thead><tr>
+                <th style="width:50px;"></th>
+                <th style="width:120px;">기수</th>
+                <th style="width:140px;">직책</th>
+                <th>이름</th>
+                <th style="width:140px;">전공</th>
+                <th style="width:160px;">직장</th>
+                ${adminCol}
+              </tr></thead>
+              <tbody>
+                ${presidents.map(m => `
+                  <tr>
+                    <td>${execPhotoCell(m)}</td>
+                    <td class="text-muted">${escapeHtml(m.generation || '')}</td>
+                    <td>${escapeHtml(m.position || '')}</td>
+                    <td><b>${escapeHtml(m.name)}</b></td>
+                    <td class="text-muted">${escapeHtml(m.major || '-')}</td>
+                    <td class="text-muted">${escapeHtml(m.workplace || '-')}</td>
+                    ${isAdmin ? `<td style="text-align:right;">
+                      <button class="btn btn-sm" onclick="openExecEditor(${JSON.stringify(m).replace(/"/g,'&quot;')})">수정</button>
+                      <button class="btn btn-sm btn-danger" onclick="deleteExec(${m.id})">삭제</button>
+                    </td>` : ''}
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>`;
+      }
+    }
+    // 토글 바인딩 — 페이지 진입 시 한 번만
+    function bindPresViewToggle() {
+      document.querySelectorAll('[data-presview]').forEach(b => {
+        b.onclick = () => {
+          presView = b.dataset.presview;
+          document.querySelectorAll('[data-presview]').forEach(x =>
+            x.classList.toggle('active', x === b));
+          renderPresidentsList();
+        };
+      });
     }
     // openExecEditor(existing) — 기존 회원 수정
     // openExecEditor(null, preset) — 새 회원 (preset 으로 기본값 + 모달 제목 지정 가능)
