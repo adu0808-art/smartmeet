@@ -58,6 +58,23 @@
       document.documentElement.classList.add('embed-html');
       document.addEventListener('DOMContentLoaded', () => document.body.classList.add('embed'));
     }
+    // Detect ?popup=1 → 팝업 창에서 열린 경우 닫기 버튼 노출
+    if (new URLSearchParams(location.search).get('popup') === '1') {
+      document.addEventListener('DOMContentLoaded', () => {
+        const closeBtn = document.getElementById('popupCloseBtn');
+        if (closeBtn) {
+          closeBtn.style.display = '';
+          closeBtn.onclick = () => {
+            try { window.close(); }
+            catch {}
+            // window.close 가 차단된 경우 (자체 창이 아닌 경우) — 부모 창으로 메시지 전송
+            if (!window.closed) {
+              try { if (window.opener) window.opener.postMessage({ type: 'close-meeting-popup' }, '*'); } catch {}
+            }
+          };
+        }
+      });
+    }
   </script>
 </head>
 <body>
@@ -91,6 +108,7 @@
             <button class="btn" id="invitationBtn">💬 초대장</button>
             <button class="btn" id="minutesBtn">🖨 회의록</button>
             <button class="btn btn-primary" id="presentBtn">📺 회의진행</button>
+            <button class="btn btn-danger" id="popupCloseBtn" type="button" style="display:none;">✕ 창 닫기</button>
           </div>
         </div>
 

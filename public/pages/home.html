@@ -1462,12 +1462,10 @@
         <!-- ====== 회의 상세 (홈 안에서 iframe 으로 표시) ====== -->
         <div class="page-view" data-page="meeting_detail">
           <div class="page-section meeting-detail-host">
-            <div class="section-head">
-              <div>
+            <div class="section-head" style="flex-wrap:wrap;align-items:center;">
+              <div class="meeting-detail-actions" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                 <button class="btn btn-sm" id="meetingDetailBackBtn">← 이벤트 관리로 돌아가기</button>
-              </div>
-              <div class="topbar-actions">
-                <a class="btn btn-sm" id="meetingDetailNewWin" target="_blank">↗ 새 창에서 열기</a>
+                <button class="btn btn-sm" id="meetingDetailNewWinBtn" type="button">↗ 새 창에서 열기</button>
               </div>
             </div>
             <iframe id="meetingDetailFrame" class="meeting-detail-frame"></iframe>
@@ -3581,11 +3579,21 @@
     // ====== 회의 상세 — 홈 페이지 안에서 iframe 으로 표시 ======
     function openMeetingDetailInline(meetingId) {
       const frame = document.getElementById('meetingDetailFrame');
-      const newWinLink = document.getElementById('meetingDetailNewWin');
+      const newWinBtn = document.getElementById('meetingDetailNewWinBtn');
       if (frame) {
         frame.src = `/meeting?id=${meetingId}&embed=1`;
       }
-      if (newWinLink) newWinLink.href = `/meeting?id=${meetingId}`;
+      if (newWinBtn) {
+        newWinBtn.onclick = () => {
+          // 주소창·메뉴·툴바 없이 팝업 창 — popup=1 쿼리로 자식 페이지가 닫기 버튼 표시
+          const w = Math.min(1280, screen.availWidth - 40);
+          const h = Math.min(900, screen.availHeight - 60);
+          const left = Math.max(0, (screen.availWidth - w) / 2);
+          const top  = Math.max(0, (screen.availHeight - h) / 2);
+          const features = `width=${w},height=${h},left=${left},top=${top},toolbar=no,location=no,menubar=no,status=no,resizable=yes,scrollbars=yes`;
+          window.open(`/meeting?id=${meetingId}&popup=1`, 'meeting_popup_' + meetingId, features);
+        };
+      }
       // 홈 페이지 내에서 회의 상세 섹션으로 전환 (URL 도 갱신 → 뒤로가기 지원)
       showSection('meeting_detail');
       // 뒤로가기 버튼 바인딩
