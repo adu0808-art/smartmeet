@@ -300,30 +300,60 @@
         border-radius: 6px; cursor: pointer; font-size: 20px;
       }
       .topnav-mobile-close:hover { background: var(--surface-2); }
-      /* 모바일 드로어 안 nav-item 스타일 */
+      /* 모바일 드로어 안 nav-item — 아코디언 스타일 */
       .topnav-items-wrap .topnav-item {
         width: 100%;
+        position: relative;
       }
       .topnav-items-wrap .topnav-item > a {
-        padding: 12px 14px;
+        padding: 14px 14px;
         border-bottom: none;
         border-radius: 8px;
         font-size: 14px;
+        display: flex; align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        box-sizing: border-box;
+      }
+      /* 아코디언 화살표 — 자식 dropdown 이 있는 항목만 */
+      .topnav-items-wrap .topnav-item.has-children > a::after {
+        content: '▾';
+        font-size: 12px;
+        color: var(--text-muted);
+        transition: transform 0.2s;
+        margin-left: 8px;
+      }
+      .topnav-items-wrap .topnav-item.is-open > a::after {
+        transform: rotate(180deg);
+        color: var(--accent);
       }
       .topnav-items-wrap .topnav-item:hover > a { background: var(--surface-2); }
-      .topnav-items-wrap .topnav-item.active > a {
+      .topnav-items-wrap .topnav-item.active > a,
+      .topnav-items-wrap .topnav-item.is-open > a {
         background: var(--accent-soft); color: var(--accent);
       }
+      /* 드롭다운 — 기본 닫힘, .is-open 상태에서만 펼침 */
       .topnav-items-wrap .topnav-dropdown {
         position: static; transform: none;
-        display: block !important;
+        display: none;
         box-shadow: none; border: none;
-        padding: 0 0 0 18px;
+        padding: 4px 0 8px 12px;
+        margin-left: 8px;
+        border-left: 2px solid var(--border);
         background: transparent;
+        animation: accordionDown 0.18s ease;
+      }
+      .topnav-items-wrap .topnav-item.is-open .topnav-dropdown {
+        display: block;
+      }
+      @keyframes accordionDown {
+        from { opacity: 0; max-height: 0; }
+        to { opacity: 1; max-height: 400px; }
       }
       .topnav-items-wrap .topnav-dropdown a {
-        padding: 8px 12px; font-size: 13px; color: var(--text-muted);
+        padding: 10px 12px; font-size: 13px; color: var(--text-muted);
         border-radius: 6px;
+        display: block;
       }
       .topnav-items-wrap .topnav-dropdown a:hover {
         background: var(--surface-2); color: var(--accent);
@@ -863,6 +893,29 @@
       text-align: center;
       font-size: 11px;
       color: var(--text-soft);
+    }
+    /* 모바일: 푸터 세로 정렬 — 로고 → 본문 → 편집 버튼 */
+    @media (max-width: 768px) {
+      .home-footer { padding: 28px 18px 18px; }
+      .home-footer-inner {
+        grid-template-columns: 1fr;
+        gap: 16px;
+        text-align: center;
+      }
+      .footer-brand {
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      .footer-brand img { height: 48px; }
+      .footer-html-area {
+        text-align: left;
+        background: var(--surface);
+        padding: 14px 16px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+      }
+      .footer-edit-btn { justify-self: center; }
     }
 
     /* === GENERATION TABS (executives) === */
@@ -1795,13 +1848,14 @@
       const itemsHtml = groups.map(g => {
         const childKeys = (g.children || []).map(c => c.key);
         const allTargets = [g.target, ...childKeys].join(',');
-        const dropdown = g.children
+        const hasChildren = !!(g.children && g.children.length);
+        const dropdown = hasChildren
           ? `<div class="topnav-dropdown">
               ${g.children.map(c => `<a href="#${c.key}" data-target="${c.key}">${c.label}</a>`).join('')}
             </div>`
           : '';
         return `
-          <div class="topnav-item" data-targets="${allTargets}">
+          <div class="topnav-item${hasChildren ? ' has-children' : ''}" data-targets="${allTargets}">
             <a href="#${g.target}" data-target="${g.target}">${g.label}</a>
             ${dropdown}
           </div>`;
@@ -1866,7 +1920,25 @@
       });
 
       nav.querySelectorAll('a[data-target]').forEach(a => {
-        a.onclick = (e) => { e.preventDefault(); showSection(a.dataset.target); closeMenu(); };
+        a.onclick = (e) => {
+          e.preventDefault();
+          const isMobile = window.innerWidth <= 768;
+          const parentItem = a.closest('.topnav-item');
+          // 모바일 + 자식이 있는 부모 라벨 (a 가 .topnav-item 의 직속 자식) → 아코디언 토글
+          const isParentLabel = parentItem && a.parentElement === parentItem;
+          const hasChildren = parentItem && parentItem.classList.contains('has-children');
+          if (isMobile && isParentLabel && hasChildren) {
+            // 다른 열린 아코디언 닫기 — 한 번에 하나만 펼침
+            parentItem.parentElement.querySelectorAll('.topnav-item.is-open').forEach(el => {
+              if (el !== parentItem) el.classList.remove('is-open');
+            });
+            parentItem.classList.toggle('is-open');
+            return;
+          }
+          // 자식 링크 또는 자식 없는 항목 또는 데스크톱 → 네비게이션
+          showSection(a.dataset.target);
+          closeMenu();
+        };
       });
     }
 
