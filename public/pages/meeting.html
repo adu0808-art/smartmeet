@@ -84,7 +84,10 @@
     <main class="main">
       <div class="topbar">
         <div class="topbar-title">이벤트 관리</div>
-        <div class="topbar-actions" id="userArea"></div>
+        <div class="topbar-actions" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <div id="userArea" style="display:flex;align-items:center;gap:8px;"></div>
+          <button class="btn btn-sm btn-danger" id="popupCloseBtn" type="button" style="display:none;">✕ 창 닫기</button>
+        </div>
       </div>
 
       <div class="content">
@@ -108,7 +111,6 @@
             <button class="btn" id="invitationBtn">💬 초대장</button>
             <button class="btn" id="minutesBtn">🖨 회의록</button>
             <button class="btn btn-primary" id="presentBtn">📺 회의진행</button>
-            <button class="btn btn-danger" id="popupCloseBtn" type="button" style="display:none;">✕ 창 닫기</button>
           </div>
         </div>
 
