@@ -511,20 +511,25 @@ function paintBudgetDetail() {
           <div class="card html-render" style="background:var(--surface-2);box-shadow:none;border-color:var(--border);">${a.content || '<span class="text-muted">내용 없음</span>'}</div>
         </div>
 
-        ${isBudget ? `
+        ${isBudget ? (() => {
+          const balance = incomeTotal - expenseTotal;
+          const balPos = balance >= 0;
+          return `
         <div class="card">
           <div class="flex items-center justify-between mb-12" style="gap:12px;flex-wrap:wrap;">
             <div class="card-title flex items-center gap-8" style="margin:0;">💰 수지 예산안</div>
-            <div class="flex items-center gap-12" style="flex-wrap:wrap;">
-              <span class="text-sm text-muted">차액: <b class="${(incomeTotal - expenseTotal) >= 0 ? 'income-color' : 'expense-color'}">${(incomeTotal - expenseTotal).toLocaleString()}원</b></span>
-              <button type="button" class="btn btn-primary btn-sm" onclick="saveBudgetOnly()">💾 수지예산안 저장</button>
-            </div>
+            <button type="button" class="btn btn-primary btn-sm" onclick="saveBudgetOnly()">💾 수지예산안 저장</button>
           </div>
           <div style="display:grid;grid-template-columns:1fr;gap:14px;">
             ${renderBudgetTable('income', '수 입', incomeTotal)}
             ${renderBudgetTable('expense', '지 출', expenseTotal)}
           </div>
-        </div>` : ''}
+          <div class="budget-balance ${balPos ? 'positive' : 'negative'}">
+            <span class="budget-balance-label">${balPos ? '잔액' : '부족액'} (수입 − 지출)</span>
+            <span class="budget-balance-val">${balance.toLocaleString()}원</span>
+          </div>
+        </div>`;
+        })() : ''}
       </div>
 
       <div class="card" style="align-self:start;position:sticky;top:14px;">

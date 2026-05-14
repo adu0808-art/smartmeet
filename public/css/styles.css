@@ -1685,6 +1685,34 @@ select.input, select.select { cursor: pointer; }
 .budget-cols-menu-item input[type="checkbox"] { cursor: pointer; }
 .budget-cols-menu-item.disabled input[type="checkbox"] { cursor: not-allowed; }
 
+/* 수지예산안 잔액 카드 (입력 화면) */
+.budget-balance {
+  margin-top: 14px;
+  padding: 14px 22px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 700;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.budget-balance.positive {
+  background: var(--success-soft);
+  border: 1px solid var(--success);
+}
+.budget-balance.negative {
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+}
+.budget-balance-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.budget-balance.positive .budget-balance-val { color: #10b981; font-size: 20px; }
+.budget-balance.negative .budget-balance-val { color: #ef4444; font-size: 20px; }
+
 .vote-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
