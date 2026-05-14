@@ -662,14 +662,9 @@ function openBudgetPaste(type) {
     title: `엑셀 붙여넣기 — ${label}`,
     body: `
       <div class="text-sm text-muted mb-12" style="line-height:1.6;">
-        Excel(또는 스프레드시트)에서 행을 복사한 후 아래에 붙여넣으세요. <b>탭(Tab) 구분 형식(TSV)</b>으로 인식됩니다.<br>
-        열 매핑은 열 개수에 따라 자동 인식됩니다:
-        <ul style="margin:4px 0 0 18px;padding:0;font-size:12px;">
-          <li>4열: <b>날짜 ▸ 항목 ▸ 내역 ▸ 금액</b></li>
-          <li>3열: <b>항목 ▸ 내역 ▸ 금액</b></li>
-          <li>2열: <b>항목 ▸ 금액</b></li>
-          <li>1열: <b>항목</b></li>
-        </ul>
+        Excel(또는 스프레드시트)에서 행을 복사한 후 아래에 붙여넣으세요. <b>탭(Tab) 구분</b>으로 인식되며, <b>열 위치는 자동 감지</b>합니다.<br>
+        <b>날짜 자동 인식 형식</b>: <code>2026-01-15</code> · <code>2026/1/15</code> · <code>2026.1.15</code> · <code>2026년 1월 15일</code> · <code>1/15/2026</code> · <code>26-1-15</code> 등<br>
+        <b>금액 자동 인식</b>: <code>50,000</code> · <code>50000원</code> · <code>₩50,000</code> · <code>(15,000)</code> (음수)
       </div>
       <textarea id="bv_paste_area" class="textarea" rows="10" style="font-family:monospace;font-size:12px;" placeholder="예시:&#10;2026-01-15&#9;운영비&#9;사무용품 구매&#9;50000&#10;2026-01-20&#9;인건비&#9;1월 급여&#9;1200000"></textarea>
       <label class="flex items-center gap-8 mt-8" style="cursor:pointer;font-size:13px;">
@@ -702,34 +697,167 @@ function parseBudgetPaste(text) {
   if (!text || !text.trim()) return [];
   // CRLF/CR/LF 모두 처리, 완전히 빈 라인은 제거
   const lines = text.split(/\r\n|\r|\n/).filter(l => l.length > 0);
-  const rows = [];
+
+  // 1) 모든 라인 → 셀 배열로 분해
+  const rawRows = [];
   for (const line of lines) {
-    // 탭이 없으면 다중 공백(2칸 이상)으로도 분리 시도
     let cells = line.includes('\t') ? line.split('\t') : line.split(/\s{2,}/);
     cells = cells.map(c => (c || '').trim());
-    // 모두 비어있으면 스킵
-    if (!cells.some(c => c)) continue;
-    let date = '', item = '', detail = '', amount = 0;
-    if (cells.length >= 4) {
-      date = cells[0];
-      item = cells[1];
-      detail = cells[2];
-      amount = parseBudgetAmount(cells[3]);
-    } else if (cells.length === 3) {
-      item = cells[0];
-      detail = cells[1];
-      amount = parseBudgetAmount(cells[2]);
-    } else if (cells.length === 2) {
-      item = cells[0];
-      amount = parseBudgetAmount(cells[1]);
-    } else {
-      item = cells[0];
-    }
-    // 헤더 행 추정 — 첫 행이 모두 한글/영문 라벨이고 금액이 0이면 스킵
-    if (rows.length === 0 && amount === 0 && /^(날짜|항목|내역|금액|date|item|detail|amount)$/i.test(item)) continue;
-    rows.push({ date, item, detail, amount });
+    if (cells.some(c => c)) rawRows.push(cells);
   }
-  return rows;
+  if (!rawRows.length) return [];
+
+  // 2) 헤더 행 추정 — 첫 행의 모든 셀이 라벨로 보이면 스킵
+  const headerLabels = /^(날짜|일자|항목|구분|내역|적요|용도|비고|금액|금액\(원\)|date|item|detail|amount|no|번호)$/i;
+  const looksHeader = rawRows[0].length >= 2 && rawRows[0].every(c => !c || headerLabels.test(c));
+  const dataRows = looksHeader ? rawRows.slice(1) : rawRows;
+  if (!dataRows.length) return [];
+
+  // 3) 컬럼 역할 자동 감지
+  const numCols = Math.max(...dataRows.map(r => r.length));
+  const roles = inferBudgetColumnRoles(dataRows, numCols);
+
+  // 4) 각 행에 역할 적용
+  const result = [];
+  for (const cells of dataRows) {
+    const row = { date: '', item: '', detail: '', amount: 0 };
+    for (let i = 0; i < cells.length; i++) {
+      const v = (cells[i] || '').trim();
+      if (!v) continue;
+      const role = roles[i];
+      if (role === 'date') {
+        const parsed = parseBudgetDate(v);
+        row.date = parsed || v; // 파싱 실패 시 원문 보존 (사용자가 수정 가능)
+      } else if (role === 'amount') {
+        row.amount = parseBudgetAmount(v);
+      } else {
+        // 텍스트 컬럼: 항목 먼저, 그다음 내역
+        if (!row.item) row.item = v;
+        else if (!row.detail) row.detail = v;
+        else row.detail += ' ' + v; // 추가 텍스트는 내역에 합침
+      }
+    }
+    if (row.date || row.item || row.detail || row.amount) result.push(row);
+  }
+  return result;
+}
+
+function inferBudgetColumnRoles(rows, numCols) {
+  const roles = new Array(numCols).fill(null);
+  if (numCols === 0) return roles;
+
+  const sampleCount = Math.min(rows.length, 12);
+  const dateScore = new Array(numCols).fill(0);
+  const amountScore = new Array(numCols).fill(0);
+  const samples = new Array(numCols).fill(0);
+
+  for (let i = 0; i < numCols; i++) {
+    for (let r = 0; r < sampleCount; r++) {
+      const v = (rows[r][i] || '').trim();
+      if (!v) continue;
+      samples[i]++;
+      if (parseBudgetDate(v)) dateScore[i]++;
+      if (looksLikeBudgetAmount(v)) amountScore[i]++;
+    }
+  }
+
+  // 날짜 컬럼: 적중률 ≥ 50% 중 가장 높은 컬럼 (동률이면 좌측 우선)
+  let dateIdx = -1, dateBest = 0.5 - 1e-9;
+  for (let i = 0; i < numCols; i++) {
+    if (samples[i] === 0) continue;
+    const rate = dateScore[i] / samples[i];
+    if (rate > dateBest) { dateBest = rate; dateIdx = i; }
+  }
+  if (dateIdx >= 0) roles[dateIdx] = 'date';
+
+  // 금액 컬럼: 날짜 제외, 적중률 ≥ 50% 중 가장 높은 컬럼 (동률이면 우측 우선)
+  let amountIdx = -1, amountBest = 0.5 - 1e-9;
+  for (let i = numCols - 1; i >= 0; i--) {
+    if (i === dateIdx || samples[i] === 0) continue;
+    const rate = amountScore[i] / samples[i];
+    // 날짜로도 인식된 컬럼은 제외 (예: 2026 단독은 amount로도, 일부 date 패턴으로도 잡힐 수 있음)
+    const dateRate = dateScore[i] / samples[i];
+    if (dateRate >= rate) continue;
+    if (rate > amountBest) { amountBest = rate; amountIdx = i; }
+  }
+  if (amountIdx >= 0) roles[amountIdx] = 'amount';
+
+  return roles;
+}
+
+// 다양한 형식의 날짜 문자열 → YYYY-MM-DD. 실패 시 빈 문자열.
+function parseBudgetDate(s) {
+  if (s == null) return '';
+  let str = String(s).trim();
+  if (!str) return '';
+
+  // 시간 부분 제거: "2026-01-15 10:30:00", "2026-01-15T00:00:00" 등
+  str = str.replace(/[T\s]+\d{1,2}:\d{2}(:\d{2})?(\.\d+)?\s*([AP]M)?\s*$/i, '');
+
+  // YYYY[. - / 년] M [. - / 월] D [일]
+  let m = str.match(/^(\d{4})\s*[\.\-\/년]\s*(\d{1,2})\s*[\.\-\/월]\s*(\d{1,2})\s*일?\s*\.?\s*$/);
+  if (m) {
+    const y = +m[1], mo = +m[2], d = +m[3];
+    if (isValidBudgetDate(y, mo, d)) return padBudgetDate(y, mo, d);
+  }
+
+  // YY[.-/] MM [.-/] DD  (2자리 연도)
+  m = str.match(/^(\d{2})\s*[\.\-\/]\s*(\d{1,2})\s*[\.\-\/]\s*(\d{1,2})\s*$/);
+  if (m) {
+    let y = +m[1], mo = +m[2], d = +m[3];
+    y += y < 80 ? 2000 : 1900;
+    if (isValidBudgetDate(y, mo, d)) return padBudgetDate(y, mo, d);
+  }
+
+  // M[.-/] D [.-/] YYYY  (연도가 끝, US/EU)
+  m = str.match(/^(\d{1,2})\s*[\.\-\/]\s*(\d{1,2})\s*[\.\-\/]\s*(\d{4})\s*$/);
+  if (m) {
+    let a = +m[1], b = +m[2], y = +m[3];
+    let mo, d;
+    if (a > 12 && b <= 12) { d = a; mo = b; }
+    else if (b > 12 && a <= 12) { mo = a; d = b; }
+    else { mo = a; d = b; } // 모호 → M/D/Y (US Excel 기본)
+    if (isValidBudgetDate(y, mo, d)) return padBudgetDate(y, mo, d);
+  }
+
+  // M월 D일 (연도 없음 → 현재 연도)
+  m = str.match(/^(\d{1,2})\s*월\s*(\d{1,2})\s*일?\s*$/);
+  if (m) {
+    const y = new Date().getFullYear();
+    const mo = +m[1], d = +m[2];
+    if (isValidBudgetDate(y, mo, d)) return padBudgetDate(y, mo, d);
+  }
+
+  // YYYYMMDD (구분자 없음, 8자리)
+  m = str.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (m) {
+    const y = +m[1], mo = +m[2], d = +m[3];
+    if (isValidBudgetDate(y, mo, d)) return padBudgetDate(y, mo, d);
+  }
+
+  return '';
+}
+
+function isValidBudgetDate(y, mo, d) {
+  if (y < 1900 || y > 2200) return false;
+  if (mo < 1 || mo > 12) return false;
+  if (d < 1 || d > 31) return false;
+  const dt = new Date(y, mo - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d;
+}
+
+function padBudgetDate(y, m, d) {
+  return `${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+}
+
+function looksLikeBudgetAmount(s) {
+  if (s == null) return false;
+  const str = String(s).trim();
+  if (!str) return false;
+  // 콤마/원/₩/공백/괄호/하이픈 제거 후 순수 숫자(소수 가능)인지
+  const cleaned = str.replace(/[,₩원\s()\-]/g, '');
+  if (!cleaned) return false;
+  return /^\d+(\.\d+)?$/.test(cleaned);
 }
 
 function parseBudgetAmount(s) {
