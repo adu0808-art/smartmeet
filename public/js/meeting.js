@@ -520,7 +520,7 @@ function paintBudgetDetail() {
               <button type="button" class="btn btn-primary btn-sm" onclick="saveBudgetOnly()">💾 수지예산안 저장</button>
             </div>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div style="display:grid;grid-template-columns:1fr;gap:14px;">
             ${renderBudgetTable('income', '수 입', incomeTotal)}
             ${renderBudgetTable('expense', '지 출', expenseTotal)}
           </div>
@@ -601,7 +601,7 @@ function renderBudgetTable(type, label, total) {
               <td class="budget-row-handle">⋮⋮</td>
               ${visibleCols.map(c => {
                 if (c.type === 'number') {
-                  return `<td class="amount-col"><input type="number" value="${Number(it[c.key]) || 0}" oninput="updateBudgetItem('${type}', ${i}, '${c.key}', Number(this.value))" style="text-align:right;"></td>`;
+                  return `<td class="amount-col"><input type="text" inputmode="numeric" value="${(Number(it[c.key]) || 0).toLocaleString()}" oninput="updateBudgetItem('${type}', ${i}, '${c.key}', parseBudgetAmount(this.value))" onblur="formatBudgetAmountInput(this, '${type}', ${i}, '${c.key}')" style="text-align:right;"></td>`;
                 }
                 return `<td><input value="${escapeAtr(it[c.key] || '')}" oninput="updateBudgetItem('${type}', ${i}, '${c.key}', this.value)" placeholder="${c.placeholder}"></td>`;
               }).join('')}
@@ -699,6 +699,21 @@ function openBudgetPaste(type) {
   setTimeout(() => document.getElementById('bv_paste_area')?.focus(), 50);
 }
 
+// 헤더 라벨 → 우리 필드명 매핑
+const BUDGET_HEADER_MAP = {
+  // 날짜
+  '날짜': 'date', '일자': 'date', 'date': 'date', '발생일': 'date', '거래일': 'date',
+  // 항목
+  '항목': 'item', '구분': 'item', 'item': 'item', '관': 'item', '계정': 'item', '계정과목': 'item', '계정명': 'item', '분류': 'item',
+  // 내역
+  '내역': 'detail', '적요': 'detail', '용도': 'detail', '비고': 'detail', 'detail': 'detail', '설명': 'detail', '내용': 'detail', 'memo': 'detail',
+  // 금액
+  '금액': 'amount', '금액(원)': 'amount', '금액원': 'amount', 'amount': 'amount', '액수': 'amount', '원': 'amount',
+};
+function normalizeHeaderLabel(s) {
+  return String(s || '').toLowerCase().replace(/\s+/g, '').replace(/[()（）\[\]]/g, '');
+}
+
 function parseBudgetPaste(text) {
   if (!text || !text.trim()) return [];
   // CRLF/CR/LF 모두 처리, 완전히 빈 라인은 제거
@@ -713,17 +728,28 @@ function parseBudgetPaste(text) {
   }
   if (!rawRows.length) return [];
 
-  // 2) 헤더 행 추정 — 첫 행의 모든 셀이 라벨로 보이면 스킵
-  const headerLabels = /^(날짜|일자|항목|구분|내역|적요|용도|비고|금액|금액\(원\)|date|item|detail|amount|no|번호)$/i;
-  const looksHeader = rawRows[0].length >= 2 && rawRows[0].every(c => !c || headerLabels.test(c));
-  const dataRows = looksHeader ? rawRows.slice(1) : rawRows;
+  // 2) 헤더 매칭 모드 — 첫 행에서 최소 1개 이상의 라벨이 매칭되면 헤더로 간주
+  const firstRow = rawRows[0];
+  const headerRoles = firstRow.map(c => BUDGET_HEADER_MAP[normalizeHeaderLabel(c)] || null);
+  const matchedCount = headerRoles.filter(Boolean).length;
+  const headerMode = matchedCount >= 2 || (firstRow.length <= 4 && matchedCount >= 1);
+
+  let roles, dataRows;
+  if (headerMode) {
+    // 헤더로 컬럼 매핑 — 매칭 안 된 컬럼은 null (붙여넣을 때 무시)
+    roles = headerRoles;
+    dataRows = rawRows.slice(1);
+  } else {
+    // 자동 감지 (콘텐츠 기반)
+    dataRows = rawRows;
+    const numCols = Math.max(...dataRows.map(r => r.length));
+    roles = inferBudgetColumnRoles(dataRows, numCols);
+  }
   if (!dataRows.length) return [];
 
-  // 3) 컬럼 역할 자동 감지
-  const numCols = Math.max(...dataRows.map(r => r.length));
-  const roles = inferBudgetColumnRoles(dataRows, numCols);
-
-  // 4) 각 행에 역할 적용
+  // 3) 각 행에 역할 적용
+  //    - headerMode: 매칭 안 된 컬럼의 데이터는 버림 ("없는 데이터는 넣지말고")
+  //    - 자동 감지: 매칭 안 된 텍스트 컬럼은 item → detail 순으로 채움
   const result = [];
   for (const cells of dataRows) {
     const row = { date: '', item: '', detail: '', amount: 0 };
@@ -733,15 +759,18 @@ function parseBudgetPaste(text) {
       const role = roles[i];
       if (role === 'date') {
         const parsed = parseBudgetDate(v);
-        row.date = parsed || v; // 파싱 실패 시 원문 보존 (사용자가 수정 가능)
+        row.date = parsed || v;
       } else if (role === 'amount') {
         row.amount = parseBudgetAmount(v);
-      } else {
-        // 텍스트 컬럼: 항목 먼저, 그다음 내역
+      } else if (role === 'item' || role === 'detail') {
+        if (!row[role]) row[role] = v;
+        else if (role === 'item' && !row.detail) row.detail = v;
+      } else if (!headerMode) {
+        // 자동 감지 모드의 미할당 텍스트 컬럼 — item → detail 로 흘림
         if (!row.item) row.item = v;
         else if (!row.detail) row.detail = v;
-        else row.detail += ' ' + v; // 추가 텍스트는 내역에 합침
       }
+      // headerMode 에서 role 이 null 이면 무시
     }
     if (row.date || row.item || row.detail || row.amount) result.push(row);
   }
@@ -875,6 +904,12 @@ function parseBudgetAmount(s) {
   const n = Number(cleaned);
   if (!Number.isFinite(n)) return 0;
   return negative ? -n : n;
+}
+
+// 금액 input 포커스 아웃 시 콤마 포맷으로 재표시
+function formatBudgetAmountInput(input, type, idx, key) {
+  const val = Number(_budgetState?.[type]?.[idx]?.[key]) || 0;
+  input.value = val.toLocaleString();
 }
 function removeBudgetItem(type, idx) {
   _budgetState[type].splice(idx, 1);

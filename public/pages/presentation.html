@@ -303,9 +303,8 @@
                 <h2 class="agenda-h1">${escapeHtml(a.title)}</h2>
               </div>
             </div>
-            ${isBudget ? renderBudgetSlide(a) : (a.content ? `
-              <div class="agenda-content html-render">${a.content}</div>
-            ` : '')}
+            ${a.content ? `<div class="agenda-content html-render">${a.content}</div>` : ''}
+            ${isBudget ? renderBudgetSlide(a) : ''}
             ${renderVoteFooter(a)}
           </div>
           ${renderVoteButton(a)}
