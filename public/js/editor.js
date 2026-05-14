@@ -192,6 +192,61 @@
         outline-color: var(--accent, #f59e0b);
       }
       .rt-content .sb-cta-button { user-select: none; }
+
+      /* 표 선택 — 클릭 시 외곽선, 셀 멀티선택 표시 */
+      .rt-content table.rt-table-selected {
+        outline: 2px solid var(--accent, #1e40af);
+        outline-offset: 2px;
+        border-radius: 2px;
+      }
+      .rt-content table .rt-cell-selected {
+        background: rgba(30, 64, 175, 0.14) !important;
+        position: relative;
+      }
+      .rt-content table .rt-cell-active {
+        box-shadow: inset 0 0 0 2px var(--accent, #1e40af);
+      }
+
+      /* 표 떠 있는 도구막대 */
+      .rt-table-tools {
+        position: absolute;
+        display: none;
+        background: var(--surface, #fff);
+        border: 1px solid var(--border, #e2e8f0);
+        border-radius: 8px;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.14);
+        padding: 4px;
+        z-index: 30;
+        user-select: none;
+        gap: 2px;
+        font-size: 12px;
+        align-items: center;
+      }
+      .rt-table-tools.is-on { display: inline-flex; }
+      .rt-table-tools button, .rt-table-tools .rt-tt-color {
+        height: 28px; padding: 0 8px; border: none; background: transparent;
+        border-radius: 4px; cursor: pointer; font-size: 12px;
+        display: inline-flex; align-items: center; gap: 4px;
+        color: var(--text, #1a202c); position: relative;
+        font-family: inherit;
+      }
+      .rt-table-tools button:hover, .rt-table-tools .rt-tt-color:hover {
+        background: var(--accent-soft, #e0e7ff);
+      }
+      .rt-table-tools button:disabled { opacity: 0.4; cursor: not-allowed; }
+      .rt-table-tools button:disabled:hover { background: transparent; }
+      .rt-table-tools button.danger { color: var(--danger, #ef4444); }
+      .rt-table-tools button.danger:hover { background: var(--danger-soft, #fee2e2); }
+      .rt-table-tools .rt-tt-sep {
+        width: 1px; height: 18px; background: var(--border, #e2e8f0); margin: 0 2px;
+      }
+      .rt-table-tools .rt-tt-color input[type="color"] {
+        position: absolute; inset: 0; opacity: 0; cursor: pointer; padding: 0; border: none;
+      }
+      .rt-table-tools .rt-tt-swatch {
+        display: inline-block; width: 12px; height: 12px; border-radius: 2px;
+        border: 1px solid var(--border, #e2e8f0); background: #fde68a;
+      }
     `;
     document.head.appendChild(css);
   }
@@ -385,7 +440,374 @@
       }
       html += '</tbody></table><p><br></p>';
       content.focus();
+      restoreSavedRange(); // 팝오버 열기 전 커서 위치 복원
       exec('insertHTML', html);
+    }
+
+    // ===== 커서 위치 저장/복원 — 팝오버에서 포커스 잃기 전에 기록 =====
+    let savedRange = null;
+    function saveCurrentRange() {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        const r = sel.getRangeAt(0);
+        if (content.contains(r.startContainer) && content.contains(r.endContainer)) {
+          savedRange = r.cloneRange();
+        }
+      }
+    }
+    function restoreSavedRange() {
+      if (!savedRange) return false;
+      try {
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(savedRange);
+        return true;
+      } catch { return false; }
+    }
+    content.addEventListener('mouseup', saveCurrentRange);
+    content.addEventListener('keyup', saveCurrentRange);
+    content.addEventListener('focus', saveCurrentRange);
+    content.addEventListener('blur', saveCurrentRange);
+
+    // ===== 표 선택/조작 — 외곽선 + 떠있는 도구막대 + 셀 멀티선택 + 합치기 =====
+    let tableToolsEl = null;
+    let selectedTable = null;
+    let activeCell = null;
+    let cellAnchor = null;
+
+    function ensureTableToolsEl() {
+      if (tableToolsEl) return tableToolsEl;
+      tableToolsEl = document.createElement('div');
+      tableToolsEl.className = 'rt-table-tools';
+      tableToolsEl.contentEditable = 'false';
+      tableToolsEl.innerHTML = `
+        <label class="rt-tt-color" title="선택 셀 / 컬럼 배경색">
+          🎨 <span>배경</span><span class="rt-tt-swatch"></span>
+          <input type="color" data-tt="color" value="#fde68a">
+        </label>
+        <button type="button" data-tt="bg-clear" title="배경 제거">지움</button>
+        <div class="rt-tt-sep"></div>
+        <button type="button" data-tt="merge" title="선택한 셀 합치기">⬛ 합치기</button>
+        <button type="button" data-tt="split" title="셀 분리">↩ 분리</button>
+        <div class="rt-tt-sep"></div>
+        <button type="button" data-tt="del-row" title="현재 행 삭제">행 −</button>
+        <button type="button" data-tt="del-col" title="현재 열 삭제">열 −</button>
+        <div class="rt-tt-sep"></div>
+        <button type="button" class="danger" data-tt="del-table" title="표 삭제">🗑 표</button>
+      `;
+      // 도구 클릭 시 contenteditable 포커스 손실 방지
+      tableToolsEl.addEventListener('mousedown', (e) => {
+        if (e.target.tagName !== 'INPUT') e.preventDefault();
+      });
+      tableToolsEl.addEventListener('input', (e) => {
+        if (e.target.dataset.tt === 'color') {
+          applyCellBgColor(e.target.value);
+          const swatch = tableToolsEl.querySelector('.rt-tt-swatch');
+          if (swatch) swatch.style.background = e.target.value;
+        }
+      });
+      tableToolsEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-tt]');
+        if (!btn) return;
+        e.preventDefault(); e.stopPropagation();
+        const tt = btn.dataset.tt;
+        if (tt === 'bg-clear') applyCellBgColor('');
+        else if (tt === 'merge') mergeSelectedCells();
+        else if (tt === 'split') splitActiveCell();
+        else if (tt === 'del-row') deleteCurrentRow();
+        else if (tt === 'del-col') deleteCurrentColumn();
+        else if (tt === 'del-table') deleteSelectedTable();
+      });
+      container.appendChild(tableToolsEl);
+      return tableToolsEl;
+    }
+
+    function showTableTools(table) {
+      ensureTableToolsEl();
+      const tableRect = table.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      tableToolsEl.classList.add('is-on');
+      const top = tableRect.top - containerRect.top - 36;
+      tableToolsEl.style.top = (top < 4 ? (tableRect.bottom - containerRect.top + 4) : top) + 'px';
+      tableToolsEl.style.left = Math.max(4, tableRect.left - containerRect.left) + 'px';
+      updateTableToolsState();
+    }
+    function hideTableTools() {
+      if (tableToolsEl) tableToolsEl.classList.remove('is-on');
+    }
+    function updateTableToolsState() {
+      if (!tableToolsEl || !selectedTable) return;
+      const selCount = selectedTable.querySelectorAll('.rt-cell-selected').length;
+      const mergeBtn = tableToolsEl.querySelector('[data-tt="merge"]');
+      if (mergeBtn) mergeBtn.disabled = selCount < 2;
+      const splitBtn = tableToolsEl.querySelector('[data-tt="split"]');
+      const aRs = activeCell ? (activeCell.rowSpan || 1) : 1;
+      const aCs = activeCell ? (activeCell.colSpan || 1) : 1;
+      if (splitBtn) splitBtn.disabled = !activeCell || (aRs <= 1 && aCs <= 1);
+      // 현재 셀 배경색을 swatch 반영
+      const swatch = tableToolsEl.querySelector('.rt-tt-swatch');
+      if (swatch && activeCell) {
+        const bg = activeCell.style.backgroundColor;
+        if (bg) swatch.style.background = bg;
+      }
+    }
+
+    function selectTableEl(table) {
+      if (selectedTable && selectedTable !== table) {
+        selectedTable.classList.remove('rt-table-selected');
+        clearCellSelection(selectedTable);
+      }
+      selectedTable = table;
+      table.classList.add('rt-table-selected');
+      showTableTools(table);
+    }
+    function deselectTable() {
+      if (selectedTable) {
+        clearCellSelection(selectedTable);
+        selectedTable.classList.remove('rt-table-selected');
+        selectedTable = null;
+      }
+      activeCell = null;
+      cellAnchor = null;
+      hideTableTools();
+    }
+    function clearCellSelection(table) {
+      const t = table || selectedTable;
+      if (!t) return;
+      t.querySelectorAll('.rt-cell-selected, .rt-cell-active').forEach(c => {
+        c.classList.remove('rt-cell-selected', 'rt-cell-active');
+      });
+    }
+
+    // rowspan/colspan 을 고려한 셀 그리드
+    function buildCellGrid(table) {
+      const trs = [...table.querySelectorAll('tr')];
+      const grid = [];
+      const occ = [];
+      trs.forEach((tr, rowIdx) => {
+        occ[rowIdx] = occ[rowIdx] || [];
+        let col = 0;
+        [...tr.children].forEach(cell => {
+          while (occ[rowIdx][col]) col++;
+          const rs = cell.rowSpan || 1;
+          const cs = cell.colSpan || 1;
+          grid.push({ cell, row: rowIdx, col, rs, cs, tr });
+          for (let r = 0; r < rs; r++) {
+            occ[rowIdx + r] = occ[rowIdx + r] || [];
+            for (let c = 0; c < cs; c++) occ[rowIdx + r][col + c] = true;
+          }
+          col += cs;
+        });
+      });
+      return grid;
+    }
+
+    // 앵커 ↔ 타겟 사이 직사각형 셀들 선택
+    function extendCellSelection(anchor, target) {
+      const table = anchor.closest('table');
+      if (!table || target.closest('table') !== table) return;
+      const grid = buildCellGrid(table);
+      const a = grid.find(g => g.cell === anchor);
+      const t = grid.find(g => g.cell === target);
+      if (!a || !t) return;
+      const r1 = Math.min(a.row, t.row);
+      const r2 = Math.max(a.row + a.rs - 1, t.row + t.rs - 1);
+      const c1 = Math.min(a.col, t.col);
+      const c2 = Math.max(a.col + a.cs - 1, t.col + t.cs - 1);
+      clearCellSelection(table);
+      grid.forEach(g => {
+        const gr2 = g.row + g.rs - 1;
+        const gc2 = g.col + g.cs - 1;
+        if (gr2 >= r1 && g.row <= r2 && gc2 >= c1 && g.col <= c2) {
+          g.cell.classList.add('rt-cell-selected');
+        }
+      });
+    }
+
+    // 컨텐트 내 클릭 → 표 선택/셀 멀티선택
+    content.addEventListener('mousedown', (e) => {
+      const cell = e.target.closest('td, th');
+      const table = e.target.closest('table');
+      if (!table) {
+        deselectTable();
+        return;
+      }
+      if (table !== selectedTable) selectTableEl(table);
+      if (cell) {
+        if (e.shiftKey && cellAnchor && cellAnchor.closest('table') === table) {
+          e.preventDefault();
+          extendCellSelection(cellAnchor, cell);
+          activeCell = cell;
+        } else {
+          clearCellSelection(table);
+          cellAnchor = cell;
+          activeCell = cell;
+          cell.classList.add('rt-cell-active');
+        }
+        updateTableToolsState();
+      }
+    });
+
+    // 컨테이너 외부 클릭 시 해제
+    document.addEventListener('mousedown', (e) => {
+      if (!container.contains(e.target)) deselectTable();
+    });
+
+    // 스크롤 시 도구막대 위치 갱신
+    content.addEventListener('scroll', () => {
+      if (selectedTable) showTableTools(selectedTable);
+    });
+
+    // 셀 배경색 적용 — 선택 셀이 있으면 그대로, 없으면 activeCell 의 전체 컬럼
+    function applyCellBgColor(color) {
+      if (!selectedTable) return;
+      let targets = [...selectedTable.querySelectorAll('.rt-cell-selected')];
+      if (targets.length === 0 && activeCell) {
+        const grid = buildCellGrid(selectedTable);
+        const a = grid.find(g => g.cell === activeCell);
+        if (!a) return;
+        // a.col ~ a.col + a.cs - 1 범위와 겹치는 모든 셀
+        const c1 = a.col, c2 = a.col + a.cs - 1;
+        targets = grid
+          .filter(g => g.col <= c2 && g.col + g.cs - 1 >= c1)
+          .map(g => g.cell);
+      }
+      targets.forEach(c => { c.style.backgroundColor = color || ''; });
+      // 색 변경 후 셀 선택은 해제해서 적용 결과가 즉시 보이게
+      clearCellSelection(selectedTable);
+      if (activeCell) activeCell.classList.add('rt-cell-active');
+      updateTableToolsState();
+    }
+
+    function mergeSelectedCells() {
+      if (!selectedTable) return;
+      const grid = buildCellGrid(selectedTable);
+      const selGrid = grid.filter(g => g.cell.classList.contains('rt-cell-selected'));
+      if (selGrid.length < 2) return;
+
+      // 직사각형 영역인지 검증
+      const r1 = Math.min(...selGrid.map(g => g.row));
+      const r2 = Math.max(...selGrid.map(g => g.row + g.rs - 1));
+      const c1 = Math.min(...selGrid.map(g => g.col));
+      const c2 = Math.max(...selGrid.map(g => g.col + g.cs - 1));
+
+      // 영역 내 모든 그리드 셀이 선택됐는지 확인
+      const inBox = grid.filter(g =>
+        g.row >= r1 && g.row + g.rs - 1 <= r2 &&
+        g.col >= c1 && g.col + g.cs - 1 <= c2
+      );
+      const allSelected = inBox.every(g => g.cell.classList.contains('rt-cell-selected'));
+      if (!allSelected) {
+        if (window.toast) window.toast('직사각형 영역의 셀만 합칠 수 있습니다.', 'error');
+        else alert('직사각형 영역의 셀만 합칠 수 있습니다.');
+        return;
+      }
+
+      const sorted = [...selGrid].sort((a, b) => (a.row - b.row) || (a.col - b.col));
+      const keeper = sorted[0].cell;
+      const mergedHtml = sorted
+        .map(g => g.cell.innerHTML.replace(/&nbsp;/gi, '').trim())
+        .filter(Boolean)
+        .join('<br>');
+      keeper.innerHTML = mergedHtml || '&nbsp;';
+      keeper.rowSpan = r2 - r1 + 1;
+      keeper.colSpan = c2 - c1 + 1;
+      sorted.slice(1).forEach(g => g.cell.remove());
+
+      clearCellSelection(selectedTable);
+      activeCell = keeper;
+      keeper.classList.add('rt-cell-active');
+      updateTableToolsState();
+    }
+
+    function splitActiveCell() {
+      if (!activeCell || !selectedTable) return;
+      const rs = activeCell.rowSpan || 1;
+      const cs = activeCell.colSpan || 1;
+      if (rs <= 1 && cs <= 1) return;
+      const grid = buildCellGrid(selectedTable);
+      const target = grid.find(g => g.cell === activeCell);
+      if (!target) return;
+
+      const trs = [...selectedTable.querySelectorAll('tr')];
+      const tag = activeCell.tagName.toLowerCase();
+      activeCell.rowSpan = 1;
+      activeCell.colSpan = 1;
+
+      // 채울 좌표(자기 위치 제외)
+      const fill = [];
+      for (let r = target.row; r < target.row + rs; r++) {
+        for (let c = target.col; c < target.col + cs; c++) {
+          if (r === target.row && c === target.col) continue;
+          fill.push({ r, c });
+        }
+      }
+      // 행별로 정렬해 좌→우 순으로 삽입
+      const byRow = {};
+      fill.forEach(({ r, c }) => { (byRow[r] = byRow[r] || []).push(c); });
+      Object.keys(byRow).sort((a, b) => a - b).forEach(rKey => {
+        const r = +rKey;
+        const cols = byRow[r].sort((a, b) => a - b);
+        const tr = trs[r];
+        if (!tr) return;
+        cols.forEach(c => {
+          // 현재 시점에서 같은 행의 그리드를 다시 계산 (방금 추가한 셀 반영)
+          const updated = buildCellGrid(selectedTable);
+          const inRow = updated.filter(g => g.row === r).sort((a, b) => a.col - b.col);
+          const next = inRow.find(g => g.col >= c);
+          const newCell = document.createElement(tag);
+          newCell.innerHTML = '&nbsp;';
+          if (next && next.cell.parentElement === tr) tr.insertBefore(newCell, next.cell);
+          else tr.appendChild(newCell);
+        });
+      });
+      updateTableToolsState();
+    }
+
+    function deleteCurrentRow() {
+      if (!activeCell || !selectedTable) return;
+      const tr = activeCell.closest('tr');
+      if (!tr) return;
+      // 마지막 행이면 표 자체 삭제
+      const totalRows = selectedTable.querySelectorAll('tr').length;
+      if (totalRows <= 1) { deleteSelectedTable(); return; }
+      tr.remove();
+      activeCell = null;
+      cellAnchor = null;
+      showTableTools(selectedTable);
+    }
+
+    function deleteCurrentColumn() {
+      if (!activeCell || !selectedTable) return;
+      const grid = buildCellGrid(selectedTable);
+      const a = grid.find(g => g.cell === activeCell);
+      if (!a) return;
+      const c1 = a.col, c2 = a.col + a.cs - 1;
+      // 모든 행에 걸쳐 컬럼 c1~c2 와 겹치는 셀들을 처리
+      const toRemove = new Set();
+      grid.forEach(g => {
+        const gc1 = g.col, gc2 = g.col + g.cs - 1;
+        if (gc2 < c1 || gc1 > c2) return; // 미겹침
+        const removeCs = Math.min(gc2, c2) - Math.max(gc1, c1) + 1;
+        if (removeCs >= g.cs) toRemove.add(g.cell);
+        else g.cell.colSpan = g.cs - removeCs;
+      });
+      toRemove.forEach(c => c.remove());
+      // 빈 행 제거
+      [...selectedTable.querySelectorAll('tr')].forEach(tr => {
+        if (!tr.children.length) tr.remove();
+      });
+      // 표 자체가 비었으면 삭제
+      if (!selectedTable.querySelector('tr')) { deleteSelectedTable(); return; }
+      activeCell = null;
+      cellAnchor = null;
+      showTableTools(selectedTable);
+    }
+
+    function deleteSelectedTable() {
+      if (!selectedTable) return;
+      selectedTable.remove();
+      deselectTable();
     }
 
     // ===== 스마트 블록 팝오버 =====
