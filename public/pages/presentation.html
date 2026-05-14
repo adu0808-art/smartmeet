@@ -132,12 +132,14 @@
       padding: 8px 14px;
       font-size: 12.5px;
       border-bottom: 1px solid rgba(255,255,255,0.06);
+      text-align: left;
     }
     .slide-bt th {
       color: rgba(255,255,255,0.5);
       font-weight: 600;
       background: rgba(0,0,0,0.2);
     }
+    .slide-bt th.amount { text-align: right; }
     .slide-bt td { color: rgba(255,255,255,0.85); }
     .slide-bt td.amount { text-align: right; font-weight: 600; }
     .slide-bt tr.total td {
@@ -147,6 +149,37 @@
     }
     .slide-bt.income tr.total td.amount { color: #34d399; }
     .slide-bt.expense tr.total td.amount { color: #f87171; }
+
+    /* 잔액 카드 */
+    .slide-balance {
+      margin-top: 12px;
+      padding: 12px 22px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 700;
+    }
+    .slide-balance.balance-pos {
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .slide-balance.balance-neg {
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+    .slide-balance-label { color: rgba(255,255,255,0.7); font-size: 14px; font-weight: 600; }
+    .slide-balance.balance-pos .slide-balance-val { color: #34d399; font-size: 18px; }
+    .slide-balance.balance-neg .slide-balance-val { color: #f87171; font-size: 18px; }
+
+    /* 안건 내용 — 어두운 배경에서도 텍스트 명확히 보이도록 강제 */
+    .agenda-content p,
+    .agenda-content li,
+    .agenda-content span,
+    .agenda-content div { color: rgba(255,255,255,0.9); }
+    .agenda-content h1, .agenda-content h2, .agenda-content h3,
+    .agenda-content h4, .agenda-content h5, .agenda-content h6 { color: #fff; }
+    .agenda-content strong, .agenda-content b { color: #fff; }
 
     /* Vote result footer on slide */
     .slide-vote-footer {
@@ -250,6 +283,27 @@
 
     function escapeHtml(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+    // 의안 입력 모달에서 선택한 컬럼을 회의진행에서도 동일하게 사용
+    function getBudgetVisibleCols() {
+      try {
+        const saved = JSON.parse(localStorage.getItem('budgetVisibleCols') || '{}');
+        return {
+          date:   saved.date   !== undefined ? !!saved.date   : true,
+          item:   saved.item   !== undefined ? !!saved.item   : true,
+          detail: saved.detail !== undefined ? !!saved.detail : true,
+          amount: true,
+        };
+      } catch {
+        return { date: true, item: true, detail: true, amount: true };
+      }
+    }
+    const PRESENT_BUDGET_COLS = [
+      { key: 'date',   label: '날짜' },
+      { key: 'item',   label: '항목' },
+      { key: 'detail', label: '내역' },
+      { key: 'amount', label: '금액(원)', isAmount: true },
+    ];
+
     function renderBudgetSlide(a) {
       let parsed = { income: [], expense: [] };
       try {
@@ -259,29 +313,46 @@
       } catch {}
       const incomeTotal = parsed.income.reduce((s, x) => s + (Number(x.amount)||0), 0);
       const expenseTotal = parsed.expense.reduce((s, x) => s + (Number(x.amount)||0), 0);
+      const balance = incomeTotal - expenseTotal;
+
+      const cols = getBudgetVisibleCols();
+      const visibleCols = PRESENT_BUDGET_COLS.filter(c => cols[c.key]);
+      const labelColspan = Math.max(1, visibleCols.filter(c => !c.isAmount).length);
 
       const tbl = (type, items, total, headLabel) => `
         <div class="slide-bt ${type}">
           <div class="slide-bt-head">${headLabel}</div>
           <table>
-            <thead><tr><th>관</th><th>내역</th><th class="amount">금액(원)</th></tr></thead>
+            <thead><tr>${visibleCols.map(c => `<th${c.isAmount ? ' class="amount"' : ''}>${c.label}</th>`).join('')}</tr></thead>
             <tbody>
               ${items.length ? items.map(it => `
                 <tr>
-                  <td>${escapeHtml(it.item || '')}</td>
-                  <td>${escapeHtml(it.detail || '')}</td>
-                  <td class="amount">${(Number(it.amount)||0).toLocaleString()}</td>
+                  ${visibleCols.map(c => {
+                    if (c.isAmount) return `<td class="amount">${(Number(it.amount)||0).toLocaleString()}</td>`;
+                    return `<td>${escapeHtml(it[c.key] || '')}</td>`;
+                  }).join('')}
                 </tr>
-              `).join('') : '<tr><td colspan="3" style="text-align:center;color:rgba(255,255,255,0.4);">항목이 없습니다</td></tr>'}
-              <tr class="total"><td colspan="2">합계</td><td class="amount">${total.toLocaleString()}</td></tr>
+              `).join('') : `<tr><td colspan="${visibleCols.length}" style="text-align:center;color:rgba(255,255,255,0.4);">항목이 없습니다</td></tr>`}
+              <tr class="total">
+                <td colspan="${labelColspan}">합계</td>
+                <td class="amount">${total.toLocaleString()}</td>
+              </tr>
             </tbody>
           </table>
         </div>`;
+
+      const balanceClass = balance >= 0 ? 'balance-pos' : 'balance-neg';
+      const balanceLabel = balance >= 0 ? '잔액 (수입 − 지출)' : '부족액 (수입 − 지출)';
+
       return `
         <div class="agenda-section-head">${a.title.replace('의안','').trim() ? '결산 내역 보고 및 승인' : '예산안'}</div>
         <div class="slide-budget">
           ${tbl('income', parsed.income, incomeTotal, '수 입')}
           ${tbl('expense', parsed.expense, expenseTotal, '지 출')}
+        </div>
+        <div class="slide-balance ${balanceClass}">
+          <span class="slide-balance-label">${balanceLabel}</span>
+          <span class="slide-balance-val">${balance.toLocaleString()}원</span>
         </div>`;
     }
 
