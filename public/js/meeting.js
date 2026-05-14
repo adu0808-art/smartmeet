@@ -419,6 +419,32 @@ async function openAgendaDetail(id) {
 // ===== 통합 의안 상세 (모든 유형에 의결 패널 적용) =====
 let _budgetState = null;
 
+// 수입/지출 테이블 컬럼 정의 (금액은 항상 표시)
+const BUDGET_COLUMNS = [
+  { key: 'date',   label: '날짜', type: 'text',   placeholder: 'YYYY-MM-DD', width: '110px', toggleable: true },
+  { key: 'item',   label: '항목', type: 'text',   placeholder: '항목',         width: '',      toggleable: true },
+  { key: 'detail', label: '내역', type: 'text',   placeholder: '내역',         width: '',      toggleable: true },
+  { key: 'amount', label: '금액', type: 'number', placeholder: '0',           width: '120px', toggleable: false, align: 'right' },
+];
+
+function loadBudgetCols() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('budgetVisibleCols') || '{}');
+    return {
+      date:   saved.date   !== undefined ? !!saved.date   : true,
+      item:   saved.item   !== undefined ? !!saved.item   : true,
+      detail: saved.detail !== undefined ? !!saved.detail : true,
+      amount: true, // 금액은 항상 표시
+    };
+  } catch {
+    return { date: true, item: true, detail: true, amount: true };
+  }
+}
+function saveBudgetColsPref() {
+  try { localStorage.setItem('budgetVisibleCols', JSON.stringify(_budgetCols)); } catch {}
+}
+let _budgetCols = loadBudgetCols();
+
 function openAgendaUnifiedDetail(agenda) {
   openBudgetDetail(agenda);
 }
@@ -544,26 +570,40 @@ function paintBudgetDetail() {
 function renderBudgetTable(type, label, total) {
   const items = _budgetState[type];
   const colorClass = type === 'income' ? 'income-color' : 'expense-color';
+  const visibleCols = BUDGET_COLUMNS.filter(c => _budgetCols[c.key]);
+  const totalCols = visibleCols.length + 2; // ⋮⋮ + visible cols + 🗑
+  const labelColspan = totalCols - 2; // 마지막 두 칸(금액+삭제)을 합계 값으로 사용
   return `
     <div class="budget-table ${type}">
       <div class="budget-head">
         <span>${label}</span>
-        <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;border-color:transparent;" onclick="addBudgetItem('${type}')">+ 추가</button>
+        <div class="budget-head-actions">
+          <button class="budget-head-btn" title="엑셀에서 복사한 데이터를 붙여넣기" onclick="openBudgetPaste('${type}')">📋 엑셀 붙여넣기</button>
+          <button class="budget-head-btn" title="표시할 열 선택" onclick="toggleBudgetColsMenu(event)">⚙ 열</button>
+          <button class="budget-head-btn" onclick="addBudgetItem('${type}')">+ 추가</button>
+        </div>
       </div>
       <table class="budget-tbl">
-        <thead><tr><th style="width:18px;"></th><th>항목</th><th>내역</th><th class="amount-col">금액</th><th style="width:30px;"></th></tr></thead>
+        <thead><tr>
+          <th style="width:18px;"></th>
+          ${visibleCols.map(c => `<th${c.width ? ` style="width:${c.width};"` : ''}${c.align==='right'?' class="amount-col"':''}>${c.label}</th>`).join('')}
+          <th style="width:30px;"></th>
+        </tr></thead>
         <tbody>
           ${items.length ? items.map((it, i) => `
             <tr>
               <td class="budget-row-handle">⋮⋮</td>
-              <td><input value="${escapeAtr(it.item || '')}" oninput="updateBudgetItem('${type}', ${i}, 'item', this.value)" placeholder="항목"></td>
-              <td><input value="${escapeAtr(it.detail || '')}" oninput="updateBudgetItem('${type}', ${i}, 'detail', this.value)" placeholder="내역"></td>
-              <td class="amount-col"><input type="number" value="${it.amount || 0}" oninput="updateBudgetItem('${type}', ${i}, 'amount', Number(this.value))" style="text-align:right;"></td>
+              ${visibleCols.map(c => {
+                if (c.type === 'number') {
+                  return `<td class="amount-col"><input type="number" value="${Number(it[c.key]) || 0}" oninput="updateBudgetItem('${type}', ${i}, '${c.key}', Number(this.value))" style="text-align:right;"></td>`;
+                }
+                return `<td><input value="${escapeAtr(it[c.key] || '')}" oninput="updateBudgetItem('${type}', ${i}, '${c.key}', this.value)" placeholder="${c.placeholder}"></td>`;
+              }).join('')}
               <td><button class="budget-row-del" onclick="removeBudgetItem('${type}', ${i})">🗑</button></td>
             </tr>
-          `).join('') : `<tr><td colspan="5" class="budget-empty">항목이 없습니다</td></tr>`}
+          `).join('') : `<tr><td colspan="${totalCols}" class="budget-empty">항목이 없습니다</td></tr>`}
           <tr class="total-row">
-            <td colspan="3">${type === 'income' ? '수입' : '지출'} 합계</td>
+            <td colspan="${labelColspan}">${type === 'income' ? '수입' : '지출'} 합계</td>
             <td class="amount-col ${colorClass}" colspan="2">${total.toLocaleString()}원</td>
           </tr>
         </tbody>
@@ -573,8 +613,134 @@ function renderBudgetTable(type, label, total) {
 }
 
 function addBudgetItem(type) {
-  _budgetState[type].push({ item: '', detail: '', amount: 0 });
+  _budgetState[type].push({ date: '', item: '', detail: '', amount: 0 });
   paintBudgetDetail();
+}
+
+// ===== 컬럼 표시 토글 =====
+function toggleBudgetColsMenu(event) {
+  event?.stopPropagation();
+  const existing = document.getElementById('budgetColsMenu');
+  if (existing) { existing.remove(); return; }
+  const btn = event.currentTarget;
+  const rect = btn.getBoundingClientRect();
+  const menu = document.createElement('div');
+  menu.id = 'budgetColsMenu';
+  menu.className = 'budget-cols-menu';
+  menu.style.top = (rect.bottom + 4) + 'px';
+  menu.style.left = Math.max(8, rect.right - 180) + 'px';
+  menu.innerHTML = `
+    <div class="budget-cols-menu-title">표시할 열</div>
+    ${BUDGET_COLUMNS.map(c => `
+      <label class="budget-cols-menu-item${c.toggleable ? '' : ' disabled'}">
+        <input type="checkbox" ${_budgetCols[c.key] ? 'checked' : ''} ${c.toggleable ? '' : 'disabled'} onchange="setBudgetCol('${c.key}', this.checked)">
+        <span>${c.label}${c.toggleable ? '' : ' (필수)'}</span>
+      </label>
+    `).join('')}
+  `;
+  document.body.appendChild(menu);
+  setTimeout(() => {
+    const closeOnOutside = (e) => {
+      if (!menu.contains(e.target)) {
+        menu.remove();
+        document.removeEventListener('click', closeOnOutside);
+      }
+    };
+    document.addEventListener('click', closeOnOutside);
+  }, 0);
+}
+function setBudgetCol(key, value) {
+  _budgetCols[key] = !!value;
+  saveBudgetColsPref();
+  paintBudgetDetail();
+}
+
+// ===== 엑셀 붙여넣기 =====
+function openBudgetPaste(type) {
+  const label = type === 'income' ? '수입' : '지출';
+  modal({
+    title: `엑셀 붙여넣기 — ${label}`,
+    body: `
+      <div class="text-sm text-muted mb-12" style="line-height:1.6;">
+        Excel(또는 스프레드시트)에서 행을 복사한 후 아래에 붙여넣으세요. <b>탭(Tab) 구분 형식(TSV)</b>으로 인식됩니다.<br>
+        열 매핑은 열 개수에 따라 자동 인식됩니다:
+        <ul style="margin:4px 0 0 18px;padding:0;font-size:12px;">
+          <li>4열: <b>날짜 ▸ 항목 ▸ 내역 ▸ 금액</b></li>
+          <li>3열: <b>항목 ▸ 내역 ▸ 금액</b></li>
+          <li>2열: <b>항목 ▸ 금액</b></li>
+          <li>1열: <b>항목</b></li>
+        </ul>
+      </div>
+      <textarea id="bv_paste_area" class="textarea" rows="10" style="font-family:monospace;font-size:12px;" placeholder="예시:&#10;2026-01-15&#9;운영비&#9;사무용품 구매&#9;50000&#10;2026-01-20&#9;인건비&#9;1월 급여&#9;1200000"></textarea>
+      <label class="flex items-center gap-8 mt-8" style="cursor:pointer;font-size:13px;">
+        <input type="checkbox" id="bv_paste_replace"> 기존 항목을 모두 지우고 붙여넣기
+      </label>
+      <div class="text-sm text-muted mt-8" style="font-size:11px;">
+        ※ 붙여넣기 후에도 <b>"⊙ 의결 결과 저장"</b> 버튼을 눌러야 최종 저장됩니다.
+      </div>
+    `,
+    confirmText: '추가',
+    onConfirm: () => {
+      const text = document.getElementById('bv_paste_area').value;
+      const replace = document.getElementById('bv_paste_replace').checked;
+      const rows = parseBudgetPaste(text);
+      if (!rows.length) {
+        toast('붙여넣을 데이터가 없습니다.', 'error');
+        return false;
+      }
+      if (replace) _budgetState[type] = [];
+      _budgetState[type].push(...rows);
+      paintBudgetDetail();
+      toast(`${rows.length}개 항목이 추가되었습니다. 저장 버튼을 눌러 확정하세요.`, 'success');
+    }
+  });
+  // 모달이 열린 뒤 textarea에 포커스
+  setTimeout(() => document.getElementById('bv_paste_area')?.focus(), 50);
+}
+
+function parseBudgetPaste(text) {
+  if (!text || !text.trim()) return [];
+  // CRLF/CR/LF 모두 처리, 완전히 빈 라인은 제거
+  const lines = text.split(/\r\n|\r|\n/).filter(l => l.length > 0);
+  const rows = [];
+  for (const line of lines) {
+    // 탭이 없으면 다중 공백(2칸 이상)으로도 분리 시도
+    let cells = line.includes('\t') ? line.split('\t') : line.split(/\s{2,}/);
+    cells = cells.map(c => (c || '').trim());
+    // 모두 비어있으면 스킵
+    if (!cells.some(c => c)) continue;
+    let date = '', item = '', detail = '', amount = 0;
+    if (cells.length >= 4) {
+      date = cells[0];
+      item = cells[1];
+      detail = cells[2];
+      amount = parseBudgetAmount(cells[3]);
+    } else if (cells.length === 3) {
+      item = cells[0];
+      detail = cells[1];
+      amount = parseBudgetAmount(cells[2]);
+    } else if (cells.length === 2) {
+      item = cells[0];
+      amount = parseBudgetAmount(cells[1]);
+    } else {
+      item = cells[0];
+    }
+    // 헤더 행 추정 — 첫 행이 모두 한글/영문 라벨이고 금액이 0이면 스킵
+    if (rows.length === 0 && amount === 0 && /^(날짜|항목|내역|금액|date|item|detail|amount)$/i.test(item)) continue;
+    rows.push({ date, item, detail, amount });
+  }
+  return rows;
+}
+
+function parseBudgetAmount(s) {
+  if (s == null || s === '') return 0;
+  // 콤마, 통화기호, "원" 제거 후 숫자 파싱. 괄호 표기는 음수로.
+  const str = String(s).trim();
+  const negative = /^\(.*\)$/.test(str);
+  const cleaned = str.replace(/[,₩원\s()]/g, '');
+  const n = Number(cleaned);
+  if (!Number.isFinite(n)) return 0;
+  return negative ? -n : n;
 }
 function removeBudgetItem(type, idx) {
   _budgetState[type].splice(idx, 1);
