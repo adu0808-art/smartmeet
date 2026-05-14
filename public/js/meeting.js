@@ -513,7 +513,13 @@ function paintBudgetDetail() {
 
         ${isBudget ? `
         <div class="card">
-          <div class="card-title flex items-center gap-8">💰 수지 예산안</div>
+          <div class="flex items-center justify-between mb-12" style="gap:12px;flex-wrap:wrap;">
+            <div class="card-title flex items-center gap-8" style="margin:0;">💰 수지 예산안</div>
+            <div class="flex items-center gap-12" style="flex-wrap:wrap;">
+              <span class="text-sm text-muted">차액: <b class="${(incomeTotal - expenseTotal) >= 0 ? 'income-color' : 'expense-color'}">${(incomeTotal - expenseTotal).toLocaleString()}원</b></span>
+              <button type="button" class="btn btn-primary btn-sm" onclick="saveBudgetOnly()">💾 수지예산안 저장</button>
+            </div>
+          </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
             ${renderBudgetTable('income', '수 입', incomeTotal)}
             ${renderBudgetTable('expense', '지 출', expenseTotal)}
@@ -945,6 +951,23 @@ async function saveBudgetVote() {
     document.querySelector('.modal-backdrop')?.remove();
     loadAgendas();
   } catch (e) { toast(e.message, 'error'); }
+}
+
+// 수지예산안만 별도 저장 (의결 결과와 분리)
+async function saveBudgetOnly() {
+  const s = _budgetState;
+  if (!s?.agenda?.id) { toast('의안 정보가 없습니다.', 'error'); return; }
+  try {
+    const budget_data = JSON.stringify({ income: s.income, expense: s.expense });
+    const { agenda } = await api.put(`/api/agendas/${s.agenda.id}`, { budget_data });
+    s.agenda.budget_data = agenda.budget_data;
+    const incomeCount = s.income.length;
+    const expenseCount = s.expense.length;
+    toast(`수지예산안이 저장되었습니다 (수입 ${incomeCount}건 · 지출 ${expenseCount}건).`, 'success');
+    loadAgendas();
+  } catch (e) {
+    toast(e.message || '수지예산안 저장 실패', 'error');
+  }
 }
 
 async function saveVote(id) {
