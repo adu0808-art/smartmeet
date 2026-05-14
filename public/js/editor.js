@@ -247,6 +247,78 @@
         display: inline-block; width: 12px; height: 12px; border-radius: 2px;
         border: 1px solid var(--border, #e2e8f0); background: #fde68a;
       }
+
+      /* 배경색 팔레트 팝오버 */
+      .rt-bg-palette {
+        background: var(--surface, #fff);
+        border: 1px solid var(--border, #e2e8f0);
+        border-radius: 8px;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+        padding: 12px;
+        min-width: 220px;
+        font-size: 12px;
+      }
+      .rt-bg-title {
+        font-size: 11px; color: var(--text-muted, #64748b);
+        font-weight: 700; letter-spacing: 0.4px;
+        margin-bottom: 8px;
+      }
+      .rt-bg-swatches {
+        display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;
+        margin-bottom: 10px;
+      }
+      .rt-bg-sw {
+        width: 100%; aspect-ratio: 1;
+        border: 2px solid transparent;
+        border-radius: 6px;
+        cursor: pointer;
+        padding: 0;
+        transition: transform 0.08s, border-color 0.08s;
+      }
+      .rt-bg-sw:hover { transform: scale(1.08); }
+      .rt-bg-sw.is-on {
+        border-color: var(--accent, #1e40af);
+        box-shadow: 0 0 0 2px rgba(30,64,175,0.18);
+      }
+      .rt-bg-custom-row {
+        display: flex; align-items: center; gap: 8px;
+        margin-bottom: 10px;
+        font-size: 12px; color: var(--text-muted, #64748b);
+      }
+      .rt-bg-custom-pick {
+        position: relative; width: 28px; height: 28px;
+        border-radius: 6px; border: 1px solid var(--border, #e2e8f0);
+        cursor: pointer; display: inline-block;
+      }
+      .rt-bg-custom-pick input[type="color"] {
+        position: absolute; inset: 0; opacity: 0; cursor: pointer; padding: 0; border: none;
+      }
+      .rt-bg-actions {
+        display: flex; gap: 6px; justify-content: flex-end;
+      }
+      .rt-bg-actions button {
+        padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border, #e2e8f0);
+        background: var(--surface, #fff); cursor: pointer; font-size: 12px;
+        font-family: inherit; font-weight: 600;
+        color: var(--text, #1a202c);
+      }
+      .rt-bg-actions .rt-bg-clear:hover { background: var(--danger-soft, #fee2e2); color: var(--danger, #ef4444); border-color: var(--danger, #ef4444); }
+      .rt-bg-actions .rt-bg-apply { background: var(--accent, #1e40af); color: #fff; border-color: var(--accent, #1e40af); }
+      .rt-bg-actions .rt-bg-apply:hover { background: var(--accent-hover, #1e3a8a); }
+
+      /* 컬럼 크기 조절 그립 — 표 선택 시 우측 가장자리에 부착 */
+      .rt-col-grip {
+        position: absolute;
+        top: 0; right: -3px; bottom: 0;
+        width: 6px;
+        cursor: col-resize;
+        user-select: none;
+        z-index: 5;
+      }
+      .rt-col-grip:hover {
+        background: rgba(30, 64, 175, 0.18);
+      }
+      .rt-content table.rt-table-selected { /* fixed 레이아웃이 적용된 표는 셀 폭이 유지됨 */ }
     `;
     document.head.appendChild(css);
   }
@@ -305,6 +377,11 @@
     });
     content.addEventListener('keyup', updateToolbarState);
     content.addEventListener('mouseup', updateToolbarState);
+
+    // 툴바 클릭 직전(mousedown)에 커서 위치 한 번 더 저장 — 안전장치
+    toolbar.addEventListener('mousedown', () => {
+      if (typeof saveCurrentRange === 'function') saveCurrentRange();
+    });
 
     // ===== 툴바 클릭 처리 =====
     toolbar.addEventListener('click', (e) => {
@@ -475,17 +552,31 @@
     let activeCell = null;
     let cellAnchor = null;
 
+    // 추천 색상 — 의안 작성에 자주 쓰이는 파스텔 톤
+    const TABLE_PRESET_COLORS = [
+      { color: '#fde68a', name: '연노랑' },
+      { color: '#fecaca', name: '연분홍' },
+      { color: '#bbf7d0', name: '연초록' },
+      { color: '#bae6fd', name: '연파랑' },
+      { color: '#ddd6fe', name: '연보라' },
+      { color: '#fed7aa', name: '연주황' },
+      { color: '#e7e5e4', name: '회색' },
+      { color: '#fef3c7', name: '베이지' },
+      { color: '#a7f3d0', name: '민트' },
+      { color: '#fbcfe8', name: '핑크' },
+    ];
+    let _pendingBgColor = '#fde68a'; // 팔레트에서 선택 후 적용 전 보류 색상
+    let _bgPaletteEl = null;
+
     function ensureTableToolsEl() {
       if (tableToolsEl) return tableToolsEl;
       tableToolsEl = document.createElement('div');
       tableToolsEl.className = 'rt-table-tools';
       tableToolsEl.contentEditable = 'false';
       tableToolsEl.innerHTML = `
-        <label class="rt-tt-color" title="선택 셀 / 컬럼 배경색">
-          🎨 <span>배경</span><span class="rt-tt-swatch"></span>
-          <input type="color" data-tt="color" value="#fde68a">
-        </label>
-        <button type="button" data-tt="bg-clear" title="배경 제거">지움</button>
+        <button type="button" data-tt="bg-open" title="선택 셀 / 컬럼 배경색">
+          🎨 배경<span class="rt-tt-swatch" style="background:${_pendingBgColor};"></span>
+        </button>
         <div class="rt-tt-sep"></div>
         <button type="button" data-tt="merge" title="선택한 셀 합치기">⬛ 합치기</button>
         <button type="button" data-tt="split" title="셀 분리">↩ 분리</button>
@@ -499,19 +590,12 @@
       tableToolsEl.addEventListener('mousedown', (e) => {
         if (e.target.tagName !== 'INPUT') e.preventDefault();
       });
-      tableToolsEl.addEventListener('input', (e) => {
-        if (e.target.dataset.tt === 'color') {
-          applyCellBgColor(e.target.value);
-          const swatch = tableToolsEl.querySelector('.rt-tt-swatch');
-          if (swatch) swatch.style.background = e.target.value;
-        }
-      });
       tableToolsEl.addEventListener('click', (e) => {
         const btn = e.target.closest('button[data-tt]');
         if (!btn) return;
         e.preventDefault(); e.stopPropagation();
         const tt = btn.dataset.tt;
-        if (tt === 'bg-clear') applyCellBgColor('');
+        if (tt === 'bg-open') toggleBgPalette(btn);
         else if (tt === 'merge') mergeSelectedCells();
         else if (tt === 'split') splitActiveCell();
         else if (tt === 'del-row') deleteCurrentRow();
@@ -520,6 +604,89 @@
       });
       container.appendChild(tableToolsEl);
       return tableToolsEl;
+    }
+
+    // 배경색 팔레트 — 추천 10종 + 직접 선택 + 적용 / 제거 버튼
+    function toggleBgPalette(anchorBtn) {
+      if (_bgPaletteEl) { closeBgPalette(); return; }
+      const pal = document.createElement('div');
+      pal.className = 'rt-bg-palette';
+      pal.contentEditable = 'false';
+      pal.innerHTML = `
+        <div class="rt-bg-title">추천 색상</div>
+        <div class="rt-bg-swatches">
+          ${TABLE_PRESET_COLORS.map(c => `
+            <button type="button" class="rt-bg-sw${c.color === _pendingBgColor ? ' is-on' : ''}"
+              data-color="${c.color}" title="${c.name}"
+              style="background:${c.color};"></button>
+          `).join('')}
+        </div>
+        <div class="rt-bg-custom-row">
+          <span>직접 선택:</span>
+          <label class="rt-bg-custom-pick" style="background:${_pendingBgColor};">
+            <input type="color" class="rt-bg-custom-input" value="${_pendingBgColor}">
+          </label>
+        </div>
+        <div class="rt-bg-actions">
+          <button type="button" class="rt-bg-clear">배경 제거</button>
+          <button type="button" class="rt-bg-apply">적용</button>
+        </div>
+      `;
+      pal.addEventListener('mousedown', (e) => {
+        if (e.target.tagName !== 'INPUT') e.preventDefault();
+      });
+      pal.addEventListener('click', (e) => {
+        const sw = e.target.closest('.rt-bg-sw');
+        const apply = e.target.closest('.rt-bg-apply');
+        const clear = e.target.closest('.rt-bg-clear');
+        if (sw) {
+          e.preventDefault(); e.stopPropagation();
+          _pendingBgColor = sw.dataset.color;
+          pal.querySelectorAll('.rt-bg-sw').forEach(s => s.classList.toggle('is-on', s === sw));
+          const pick = pal.querySelector('.rt-bg-custom-pick');
+          const pickInput = pal.querySelector('.rt-bg-custom-input');
+          if (pick) pick.style.background = _pendingBgColor;
+          if (pickInput) pickInput.value = _pendingBgColor;
+        } else if (apply) {
+          e.preventDefault(); e.stopPropagation();
+          applyCellBgColor(_pendingBgColor);
+          const swatch = tableToolsEl?.querySelector('.rt-tt-swatch');
+          if (swatch) swatch.style.background = _pendingBgColor;
+          closeBgPalette();
+        } else if (clear) {
+          e.preventDefault(); e.stopPropagation();
+          applyCellBgColor('');
+          closeBgPalette();
+        }
+      });
+      pal.addEventListener('input', (e) => {
+        if (e.target.classList.contains('rt-bg-custom-input')) {
+          _pendingBgColor = e.target.value;
+          const pick = pal.querySelector('.rt-bg-custom-pick');
+          if (pick) pick.style.background = _pendingBgColor;
+          pal.querySelectorAll('.rt-bg-sw').forEach(s =>
+            s.classList.toggle('is-on', s.dataset.color === _pendingBgColor));
+        }
+      });
+      const rect = anchorBtn.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      pal.style.position = 'absolute';
+      pal.style.top = (rect.bottom - containerRect.top + 6) + 'px';
+      pal.style.left = Math.max(4, rect.left - containerRect.left) + 'px';
+      pal.style.zIndex = 40;
+      container.appendChild(pal);
+      _bgPaletteEl = pal;
+      setTimeout(() => document.addEventListener('mousedown', _closeBgPaletteOutside, { once: true }), 0);
+    }
+    function _closeBgPaletteOutside(e) {
+      if (_bgPaletteEl && !_bgPaletteEl.contains(e.target) && !e.target.closest('[data-tt="bg-open"]')) {
+        closeBgPalette();
+      } else if (_bgPaletteEl) {
+        document.addEventListener('mousedown', _closeBgPaletteOutside, { once: true });
+      }
+    }
+    function closeBgPalette() {
+      if (_bgPaletteEl) { _bgPaletteEl.remove(); _bgPaletteEl = null; }
     }
 
     function showTableTools(table) {
@@ -556,20 +723,81 @@
       if (selectedTable && selectedTable !== table) {
         selectedTable.classList.remove('rt-table-selected');
         clearCellSelection(selectedTable);
+        removeColumnGrips(selectedTable);
       }
       selectedTable = table;
       table.classList.add('rt-table-selected');
+      ensureColumnGrips(table);
       showTableTools(table);
     }
     function deselectTable() {
       if (selectedTable) {
         clearCellSelection(selectedTable);
         selectedTable.classList.remove('rt-table-selected');
+        removeColumnGrips(selectedTable);
         selectedTable = null;
       }
       activeCell = null;
       cellAnchor = null;
       hideTableTools();
+      closeBgPalette();
+    }
+
+    // ===== 컬럼 크기 조절 — 표 선택 시 헤더(첫 행) 셀 우측에 그립 부착 =====
+    function ensureColumnGrips(table) {
+      if (!table) return;
+      // table-layout 을 fixed 로 — 셀 width 가 효과적이도록
+      if (!table.style.tableLayout) table.style.tableLayout = 'fixed';
+      const firstRow = table.querySelector('tr');
+      if (!firstRow) return;
+      [...firstRow.children].forEach(cell => {
+        cell.style.position = cell.style.position || 'relative';
+        if (cell.querySelector('.rt-col-grip')) return;
+        const grip = document.createElement('span');
+        grip.className = 'rt-col-grip';
+        grip.contentEditable = 'false';
+        grip.addEventListener('mousedown', (e) => startColumnResize(e, cell, table));
+        cell.appendChild(grip);
+      });
+    }
+    function removeColumnGrips(table) {
+      if (!table) return;
+      table.querySelectorAll('.rt-col-grip').forEach(g => g.remove());
+    }
+
+    function startColumnResize(e, headerCell, table) {
+      e.preventDefault();
+      e.stopPropagation();
+      const grid = buildCellGrid(table);
+      // 헤더 셀의 컬럼 위치
+      const hg = grid.find(g => g.cell === headerCell);
+      if (!hg) return;
+      const targetCol = hg.col + hg.cs - 1; // 그립이 잡고 있는 컬럼의 마지막 인덱스
+      const startX = e.clientX;
+      const startWidth = headerCell.getBoundingClientRect().width;
+      const tableWidth = table.getBoundingClientRect().width;
+      const startWidthPct = (startWidth / tableWidth) * 100;
+      // 동일 컬럼에 속한 모든 셀들의 인라인 width 도 함께 조정
+      const sameColCells = grid
+        .filter(g => g.col <= targetCol && g.col + g.cs - 1 >= targetCol)
+        .map(g => g.cell);
+
+      const onMove = (mv) => {
+        const dx = mv.clientX - startX;
+        const newWidth = Math.max(40, startWidth + dx);
+        const newPct = Math.max(5, (newWidth / tableWidth) * 100);
+        sameColCells.forEach(c => { c.style.width = newPct + '%'; });
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
     }
     function clearCellSelection(table) {
       const t = table || selectedTable;

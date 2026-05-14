@@ -80,10 +80,10 @@
       font-size: 16px;
       line-height: 1.75;
       color: rgba(255,255,255,0.9);
-      flex: 1;
-      min-height: 0;
-      overflow-y: auto;
+      flex: 0 1 auto;       /* 자연 높이 — 형제 표/잔액과 함께 있을 때 0 으로 collapse 되지 않음 */
+      overflow-y: visible;
       padding-right: 8px;
+      margin-bottom: 8px;
     }
     .agenda-content img {
       max-width: 100%;
